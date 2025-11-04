@@ -1,0 +1,139 @@
+Agricompass — Recommended Pages (site map)
+
+Nice — below is a clear, organized list of pages your platform should include, grouped by audience/role and ordered roughly by importance. Each page has a one-line purpose so you can decide what to implement first.
+
+
+---
+
+Public / Marketing
+
+Landing / Home — overview of Agricompass, value proposition, CTA to register.
+
+About / How it works — short explainer of the platform workflow (farm → industry).
+
+Pricing / Plans — if you plan paid features (subscriptions, premium verification).
+
+Contact / Support — contact form, phone, email, social links.
+
+FAQs / Help Centre — common Qs for farmers, buyers, field officers.
+
+
+Authentication & Account
+
+Login — sign-in (email/phone + password / social / OTP).
+
+Sign up / Register — role choice (Farmer / Buyer / Field Officer / Admin) and role-specific fields.
+
+Password reset — forgot password / reset flow.
+
+Profile / Account settings — name, contact, password, notification prefs, region, language.
+
+Organization / Business profile — for buyers/industries (company details, registration docs).
+
+
+Marketplace & Commerce
+
+Marketplace / Listings (browse) — product cards, filters (category, region, verified, min qty, price).
+
+Listing detail — images, description, price, unit, MOQ, bulk tiers, seller snapshot, contact CTA.
+
+Create / Edit Listing — farmer form for product, photos, quantity, harvest date, pickup location.
+
+Cart / Quotation — grouped by seller, show totals, ability to request quote or place order.
+
+Checkout / Order confirmation — delivery & payment options, deposit settings, terms, confirm.
+
+Order success / Receipt — order number, summary, next steps.
+
+Orders / Invoices (buyer) — buyer’s active & past orders, invoice downloads.
+
+Orders / Sales (farmer) — farmer’s incoming orders, accept/reject, fulfillment steps.
+
+Bulk price management — set discount tiers and price schedules.
+
+
+User Roles & Operational Pages
+
+Farmer Dashboard — profile, active listings, orders, payout info, analytics.
+
+Buyer Dashboard — saved suppliers, active carts/POs, order history, invoice management.
+
+Field Officer Dashboard — assigned farmers, verification tasks, visit logs, photo uploads.
+
+Field Officer — Verify Farmer — verification checklist, upload docs, approve/reject.
+
+Admin Dashboard — platform metrics, user moderation, listings moderation, site settings.
+
+
+Transaction & Logistics
+
+Logistics / Delivery options — transport choices (buyer/seller/3PL), pickup points.
+
+Fulfillment / Dispatch — mark as packed, in transit, delivered, attach tracking.
+
+Payments / Payouts — payment methods (Mobile Money, bank transfer), payout schedule, reconcile.
+
+Disputes / Claims — file a claim, dispute resolution workflow, case status.
+
+
+Trust, Safety & Compliance
+
+Verification center — KYC uploads, verification status, badges (verified farmer, trusted buyer).
+
+Ratings & Reviews — buyer reviews of farmer, order ratings, seller reliability metrics.
+
+Policy & Legal — Terms of Service, Privacy Policy, Data Use, Seller Agreement.
+
+
+Content & Support
+
+Messages / Chat — in-app messaging between buyer/farmer/officer, attachments, templates.
+
+Notifications center — notification list (orders, messages, system alerts).
+
+Knowledge base / Guides — how to list, how to pack for bulk buyers, quality standards.
+
+Announcements / News — platform updates, market alerts, seasonal tips.
+
+
+Analytics & Reporting (advanced)
+
+Market Insights — price trends, demand by region, seasonality charts.
+
+Seller Performance — yield, on-time fulfillment, acceptance rate.
+
+Buyer Insights — purchase volume, repeat buyers, average order size.
+
+Exportable Reports — CSV/PDF download for accounting and audits.
+
+
+Developer / Integration
+
+API docs / Integrations — if you expose endpoints for ERPs, buyers, 3PLs.
+
+Webhook & Notifications setup — for external order and payment events.
+
+
+Misc / Utility
+
+404 / Error pages — friendly not-found and maintenance pages.
+
+Sitemap — for SEO and admin.
+
+Admin tools — data import/export, bulk user/listing edits, logs.
+
+
+
+---
+
+Prioritization suggestion (MVP → later)
+
+MVP (build first):
+
+1. Landing, Login/Signup, Marketplace (browse + detail), Create Listing, Cart + Checkout, Farmer Dashboard (basic), Buyer Orders, Profile, Field Officer verify (basic).
+
+
+
+Post-MVP (next): 2. Messaging, Payments integration, Order fulfillment flow, Ratings/Reviews, Notifications, Payouts.
+
+Advanced (later): 3. Market insights, API & integrations, Admin tools & reports, full dispute case management.
