@@ -22,21 +22,25 @@ MVP Implementation Complete with:
 - Profile management
 - Full order placement and tracking
 
-## Recent Changes (December 2024)
+## Recent Changes (November 2024)
+- **CRITICAL SECURITY UPDATE**: Implemented bcrypt password hashing with secure session-based authentication
+- **SECURITY FIX**: Sanitized all API responses to prevent password hash leakage
+- **SECURITY FIX**: Server-side authorization with ownership verification on all protected routes
 - Implemented complete data schema with all entity relationships
 - Built all frontend components with exceptional visual polish
 - Created comprehensive backend API with all CRUD operations
-- Integrated React Query for data fetching
-- Added role-based authentication and routing
+- Integrated React Query for data fetching with session-based authentication
+- Added role-based authentication and routing with proper middleware
 - Implemented in-memory storage with seed data for testing
 
 ## Project Architecture
 
 ### Tech Stack
 - **Frontend**: React, TypeScript, Wouter (routing), TanStack Query, Tailwind CSS, Shadcn UI
-- **Backend**: Express.js, TypeScript
+- **Backend**: Express.js, TypeScript, bcryptjs (password hashing), express-session
 - **Data Storage**: In-memory (MemStorage) for MVP
-- **Authentication**: Simple token-based with localStorage
+- **Authentication**: Secure session-based with HTTP-only cookies, bcrypt password hashing
+- **Session Management**: MemoryStore (production should use connect-pg-simple or Redis)
 
 ### Data Models
 1. **Users** - Multi-role (farmer, buyer, field_officer, admin) with verification status
@@ -72,8 +76,10 @@ MVP Implementation Complete with:
 ### API Endpoints
 
 **Authentication**:
-- `POST /api/auth/register` - User registration
-- `POST /api/auth/login` - User login
+- `POST /api/auth/register` - User registration (hashes password with bcrypt)
+- `POST /api/auth/login` - User login (validates with bcrypt, creates session)
+- `POST /api/auth/logout` - User logout (destroys session)
+- `GET /api/auth/me` - Get current session user
 
 **Listings**:
 - `GET /api/listings` - Get all listings
@@ -151,11 +157,39 @@ MVP Implementation Complete with:
 4. Track verified farmers
 
 ## Testing Credentials
-Seed data includes:
-- **Farmer**: farmer1@test.com / password
-- **Farmer**: farmer2@test.com / password
-- **Buyer**: buyer@test.com / password
-- **Officer**: officer@test.com / password
+Seed data includes (passwords are hashed with bcrypt):
+- **Farmer**: farmer1@test.com / password123
+- **Farmer**: farmer2@test.com / password123
+- **Buyer**: buyer@test.com / password123
+- **Officer**: officer@test.com / password123
+
+## Security Implementation
+
+### Authentication Security
+- **Password Hashing**: bcryptjs with SALT_ROUNDS=10
+- **Session Management**: express-session with HTTP-only cookies
+- **Cookie Settings**: SameSite=Lax, Secure in production, 7-day maxAge
+- **Session Store**: MemoryStore (IMPORTANT: Replace with connect-pg-simple or Redis for production)
+
+### Authorization Security
+- **Server-Side Verification**: All protected routes use requireAuth middleware
+- **Role-Based Access**: requireRole middleware enforces farmer/buyer/field_officer roles
+- **Ownership Checks**: Listings, cart items, and orders verified for ownership before modification
+- **No Client Trust**: All authentication derived from req.session.user, never client headers
+
+### Data Protection
+- **Password Sanitization**: All API responses strip password field before sending to client
+- **Session-Only Auth**: No localStorage user storage, all state derived from server session
+- **Credential Requests**: Frontend sends credentials: "include" on all API calls
+
+### Production Deployment Checklist
+- [ ] Set strong SESSION_SECRET environment variable (use crypto.randomBytes(32).toString('hex'))
+- [ ] Replace MemoryStore with persistent session store (connect-pg-simple for PostgreSQL)
+- [ ] Verify secure cookies enabled in production (process.env.NODE_ENV === 'production')
+- [ ] Enable HTTPS for secure cookie transmission
+- [ ] Review CORS settings for production domain
+- [ ] Add rate limiting to authentication endpoints
+- [ ] Implement automated security testing for password field exposure
 
 ## Next Phase Features
 1. In-app messaging between buyers/farmers/officers
