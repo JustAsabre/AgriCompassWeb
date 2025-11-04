@@ -1,8 +1,27 @@
 import express, { type Request, Response, NextFunction } from "express";
+import session from "express-session";
+import MemoryStore from "memorystore";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
 const app = express();
+
+// Session configuration
+const SessionStore = MemoryStore(session);
+app.use(session({
+  secret: process.env.SESSION_SECRET || "agricompass-dev-secret-change-in-production",
+  resave: false,
+  saveUninitialized: false,
+  store: new SessionStore({
+    checkPeriod: 86400000 // prune expired entries every 24h
+  }),
+  cookie: {
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+  }
+}));
 
 declare module 'http' {
   interface IncomingMessage {
