@@ -18,6 +18,31 @@
 - [Security](#security)
 - [Contributing](#contributing)
 - [Team](#team)
+- [📚 Documentation](#-documentation)
+
+---
+
+## 📚 Documentation
+
+**Comprehensive project documentation for funding and development:**
+
+### **For Stakeholders & Investors**
+- 📊 **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)** - Executive summary, funding readiness, success metrics
+- 📋 **[PRD.md](PRD.md)** - Product Requirements Document with complete feature specifications
+- 📅 **[ROADMAP.md](ROADMAP.md)** - 24-week sprint-by-sprint implementation plan
+
+### **For Developers**
+- 🏗️ **[ARCHITECTURE.md](ARCHITECTURE.md)** - Technical architecture, database schema, API specs
+- 📝 **[CHANGELOG.md](CHANGELOG.md)** - Version history and release notes
+- 🤝 **[CONTRIBUTING.md](CONTRIBUTING.md)** - Code standards and contribution workflow
+
+### **Quick Facts**
+- **Current Status:** 65% MVP Complete
+- **Timeline:** 24 weeks to production launch
+- **Team Size:** 4 developers
+- **Tech Stack:** React + TypeScript + Express + PostgreSQL
+
+---
 
 ## 🎯 Overview
 
