@@ -1,15 +1,15 @@
 # Contributing to AgriCompassWeb
 
-First off, thank you for considering contributing to AgriCompassWeb! 🎉
+Thank you for contributing to AgriCompassWeb! This document provides guidelines for contributing to the project.
 
 ## Table of Contents
 
-1. [Code of Conduct](#code-of-conduct)
-2. [Getting Started](#getting-started)
-3. [Development Workflow](#development-workflow)
-4. [Coding Standards](#coding-standards)
-5. [Pull Request Process](#pull-request-process)
-6. [Commit Message Guidelines](#commit-message-guidelines)
+- [Code of Conduct](#code-of-conduct)
+- [Getting Started](#getting-started)
+- [Development Workflow](#development-workflow)
+- [Coding Standards](#coding-standards)
+- [Commit Guidelines](#commit-guidelines)
+- [Pull Request Process](#pull-request-process)
 
 ## Code of Conduct
 
@@ -20,18 +20,34 @@ First off, thank you for considering contributing to AgriCompassWeb! 🎉
 
 ## Getting Started
 
-1. Clone the repository
-2. Install dependencies: `npm install`
-3. Create a new branch: `git checkout -b feature/your-feature`
-4. Start development server: `npm run dev`
+1. **Fork or clone the repository**
+   ```bash
+   git clone https://github.com/JustAsabre/AgriCompassWeb.git
+   cd AgriCompassWeb
+   ```
+
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+3. **Start development server**
+   ```bash
+   npm run dev
+   ```
+
+4. **Run type checking**
+   ```bash
+   npm run check
+   ```
 
 ## Development Workflow
 
 ### Branch Strategy
 
-We use **Feature Branch Workflow**:
+We use a **Feature Branch Workflow**:
 
-- `main` - Production-ready code (always stable)
+- `main` - Production-ready code (protected)
 - `feature/*` - New features
 - `fix/*` - Bug fixes
 - `improve/*` - Improvements and optimizations
@@ -40,7 +56,7 @@ We use **Feature Branch Workflow**:
 ### Daily Workflow
 
 ```bash
-# 1. Update your local main
+# 1. Update main branch
 git checkout main
 git pull origin main
 
@@ -54,35 +70,34 @@ git commit -m "Add: Your feature description"
 # 4. Push to GitHub
 git push origin feature/your-feature-name
 
-# 5. Create Pull Request on GitHub
-# 6. Wait for review and approval
-# 7. Merge to main
+# 5. Create Pull Request
+# 6. After approval, merge and delete branch
 ```
 
-### Working on Multiple Features
-
-If you need to switch between features:
+### Handling Conflicts
 
 ```bash
-# Save current work
-git stash
+# Update your branch with latest main
+git checkout your-branch
+git pull origin main
 
-# Switch to other branch
-git checkout other-feature
+# Resolve conflicts in your editor
+# Remove <<<, ===, >>> markers
+# Test that everything works
 
-# When returning
-git checkout your-feature
-git stash pop
+git add .
+git commit -m "Resolve merge conflicts"
+git push origin your-branch
 ```
 
 ## Coding Standards
 
 ### TypeScript
 
-- Use TypeScript for all new code
+- Use TypeScript for all code
 - Define proper types, avoid `any`
 - Use interfaces for object shapes
-- Export types from `shared/schema.ts`
+- Export shared types from `shared/schema.ts`
 
 ```typescript
 // ✅ Good
@@ -112,121 +127,41 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ title, price, onAddToCart }: ProductCardProps) {
-  return (
-    // ...
-  );
+  return <div>{/* ... */}</div>;
 }
 ```
 
 ### File Organization
 
-- Components in `client/src/components/`
-- Pages in `client/src/pages/`
-- Utilities in `client/src/lib/`
-- API routes in `server/routes.ts`
-- Shared types in `shared/schema.ts`
+- Components: `client/src/components/`
+- Pages: `client/src/pages/`
+- Utilities: `client/src/lib/`
+- API routes: `server/routes.ts`
+- Shared types: `shared/schema.ts`
 
 ### Naming Conventions
 
 - **Components**: PascalCase (`ProductCard.tsx`)
 - **Functions**: camelCase (`getUserData`)
 - **Constants**: UPPER_SNAKE_CASE (`API_BASE_URL`)
-- **Files**: kebab-case (`user-profile.tsx`) or PascalCase for components
-- **CSS Classes**: Tailwind utility classes
+- **CSS Classes**: Tailwind utilities
 
 ### Code Style
 
 - Use 2 spaces for indentation
 - Use semicolons
 - Use single quotes for strings
-- Add trailing commas in objects/arrays
+- Add trailing commas
 - Max line length: 100 characters (soft limit)
 
-```typescript
-// ✅ Good
-const user = {
-  name: 'John',
-  email: 'john@example.com',
-};
-
-// ❌ Avoid
-const user = {
-  name: "John",
-  email: "john@example.com"
-}
-```
-
-## Pull Request Process
-
-### Before Creating PR
-
-1. ✅ Test your changes locally
-2. ✅ Run type checking: `npm run check`
-3. ✅ Ensure no console errors
-4. ✅ Update documentation if needed
-5. ✅ Commit with clear messages
-6. ✅ Push your branch
-
-### Creating a Pull Request
-
-1. Go to https://github.com/JustAsabre/AgriCompassWeb
-2. Click "Pull requests" → "New pull request"
-3. Select your branch
-4. Fill in the PR template:
-
-```markdown
-## Description
-Brief description of what this PR does
-
-## Type of Change
-- [ ] Bug fix
-- [ ] New feature
-- [ ] Improvement
-- [ ] Documentation
-
-## Changes Made
-- Added X component
-- Fixed Y bug
-- Improved Z performance
-
-## Testing
-- [ ] Tested locally
-- [ ] No console errors
-- [ ] Works in Chrome/Firefox/Safari
-- [ ] Mobile responsive
-
-## Screenshots (if applicable)
-[Add screenshots]
-
-## Related Issues
-Closes #[issue number]
-```
-
-5. Request review from team members
-6. Address review feedback
-7. Merge after approval
-
-### After PR is Merged
-
-```bash
-# Switch to main
-git checkout main
-
-# Pull latest changes
-git pull origin main
-
-# Delete feature branch (optional)
-git branch -d feature/your-feature
-```
-
-## Commit Message Guidelines
+## Commit Guidelines
 
 ### Format
 
 ```
-Type: Brief description (max 50 chars)
+Type: Brief description
 
-Optional detailed explanation (wrap at 72 chars)
+Detailed explanation (optional)
 ```
 
 ### Types
@@ -239,38 +174,52 @@ Optional detailed explanation (wrap at 72 chars)
 - `Refactor:` - Code refactoring
 - `Docs:` - Documentation changes
 - `Style:` - Code style changes (formatting)
-- `Test:` - Adding or updating tests
 
 ### Examples
 
 ```bash
-# Good commits
+✅ Good commits
 git commit -m "Add: Product search filter component"
-git commit -m "Fix: Cart total calculation when applying discounts"
-git commit -m "Update: User profile schema with new fields"
+git commit -m "Fix: Cart total calculation with discounts"
+git commit -m "Update: User profile schema with phone field"
 git commit -m "Improve: Marketplace loading performance"
-git commit -m "Docs: Add API endpoint documentation"
 
-# Bad commits
+❌ Bad commits
 git commit -m "fixed stuff"
 git commit -m "changes"
-git commit -m "idk"
 git commit -m "asdfasdf"
 ```
 
-### Detailed Commit Messages
+## Pull Request Process
 
-For complex changes:
+### Before Creating PR
+
+- [ ] Test changes locally
+- [ ] Run `npm run check` (no TypeScript errors)
+- [ ] No console errors in browser
+- [ ] Update documentation if needed
+- [ ] Clear, descriptive commits
+
+### Creating a Pull Request
+
+1. Push your branch to GitHub
+2. Go to repository and click "New Pull Request"
+3. Select your branch
+4. Fill in the PR template:
+   - Description of changes
+   - Type of change (bug fix, feature, etc.)
+   - Testing done
+   - Screenshots (if UI changes)
+5. Request review from team members
+6. Address feedback
+7. Merge after approval
+
+### After Merge
 
 ```bash
-git commit -m "Add: Advanced product filtering system
-
-- Implemented multi-criteria filtering
-- Added price range slider
-- Created category selection component
-- Optimized query performance
-
-Closes #42"
+git checkout main
+git pull origin main
+git branch -d feature/your-feature  # Delete local branch
 ```
 
 ## Code Review Guidelines
@@ -280,18 +229,18 @@ Closes #42"
 - Be kind and constructive
 - Explain the "why" not just "what"
 - Suggest improvements, don't demand
-- Approve if it works, even if you'd do it differently
-- Test the changes if possible
+- Test changes if possible
+- Approve if functional, even if minor improvements possible
 
 ### Receiving Feedback
 
 - Don't take it personally
 - Ask questions if unclear
 - Discuss alternatives
-- Thank reviewers
 - Make requested changes promptly
+- Thank reviewers
 
-## Testing Your Changes
+## Testing
 
 Before pushing:
 
@@ -299,8 +248,8 @@ Before pushing:
 # 1. Start dev server
 npm run dev
 
-# 2. Test in browser
-# - Check functionality works
+# 2. Test in browser (http://localhost:5000)
+# - Check functionality
 # - Test different user roles
 # - Try edge cases
 # - Check mobile view
@@ -310,61 +259,12 @@ npm run dev
 npm run check
 ```
 
-## Common Git Issues
+## Getting Help
 
-### Merge Conflicts
-
-```bash
-# 1. Update your branch with main
-git checkout your-branch
-git merge main
-
-# 2. Resolve conflicts in files
-# Edit files, remove conflict markers
-
-# 3. Add resolved files
-git add .
-
-# 4. Complete the merge
-git commit -m "Resolve merge conflicts with main"
-```
-
-### Accidentally Committed to Main
-
-```bash
-# 1. Create a new branch from current state
-git branch feature/saved-work
-
-# 2. Reset main to origin
-git checkout main
-git reset --hard origin/main
-
-# 3. Switch to your new branch
-git checkout feature/saved-work
-```
-
-### Undo Last Commit (Keep Changes)
-
-```bash
-git reset --soft HEAD~1
-```
-
-### Undo Changes to File
-
-```bash
-# Before committing
-git checkout -- filename
-
-# After committing
-git revert commit-hash
-```
-
-## Questions?
-
-- Ask in team chat
-- Open a GitHub Issue
-- Check existing documentation
-- Consult with team lead
+- Check this documentation
+- Ask in team discussions
+- Open an issue for bugs
+- Check existing issues/PRs
 
 ## Resources
 
@@ -375,4 +275,4 @@ git revert commit-hash
 
 ---
 
-Happy coding! 🚀
+Thank you for contributing to AgriCompassWeb! 🚀
