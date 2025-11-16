@@ -9,10 +9,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FileUpload } from "@/components/ui/file-upload";
 import { useToast } from "@/hooks/use-toast";
 import { insertListingSchema } from "@shared/schema";
 import { z } from "zod";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Loader2 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 const categories = [
@@ -39,6 +40,8 @@ type FormValues = z.infer<typeof formSchema>;
 export default function CreateListing() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const [uploadedImages, setUploadedImages] = useState<string[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -78,9 +81,55 @@ export default function CreateListing() {
     },
   });
 
+  const handleImageUpload = async (files: File[]) => {
+    if (files.length === 0) return;
+
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      files.forEach(file => formData.append('images', file));
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
+
+      const data = await response.json();
+      const urls = data.files.map((f: any) => f.url);
+      setUploadedImages(prev => [...prev, ...urls]);
+      
+      // Set first image as the main imageUrl
+      if (uploadedImages.length === 0 && urls.length > 0) {
+        form.setValue('imageUrl', urls[0]);
+      }
+
+      toast({
+        title: "Success",
+        description: `${files.length} image(s) uploaded successfully`,
+      });
+    } catch (error) {
+      toast({
+        title: "Upload Error",
+        description: "Failed to upload images. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const onSubmit = async (data: FormValues) => {
+    // Use first uploaded image if no URL specified
+    const imageUrl = data.imageUrl || (uploadedImages.length > 0 ? uploadedImages[0] : '');
+    
     createListingMutation.mutate({
       ...data,
+      imageUrl,
       price: data.price,
       quantityAvailable: parseInt(data.quantityAvailable),
       minOrderQuantity: parseInt(data.minOrderQuantity),
@@ -269,6 +318,7 @@ export default function CreateListing() {
                           <Input 
                             placeholder="e.g., January 2024" 
                             {...field}
+                            value={field.value ?? ""}
                             data-testid="input-harvest-date"
                           />
                         </FormControl>
@@ -296,21 +346,39 @@ export default function CreateListing() {
                   />
                 </div>
 
+                {/* Image Upload Section */}
+                <div className="space-y-4">
+                  <FormLabel>Product Images</FormLabel>
+                  <FileUpload
+                    onChange={handleImageUpload}
+                    maxFiles={5}
+                    maxSize={5}
+                    disabled={isUploading}
+                  />
+                  {isUploading && (
+                    <div className="flex items-center justify-center py-4">
+                      <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                      <span className="text-sm text-muted-foreground">Uploading images...</span>
+                    </div>
+                  )}
+                </div>
+
                 <FormField
                   control={form.control}
                   name="imageUrl"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Image URL (Optional)</FormLabel>
+                      <FormLabel>Image URL (Alternative)</FormLabel>
                       <FormControl>
                         <Input 
                           placeholder="https://example.com/image.jpg" 
                           {...field}
+                          value={field.value ?? ""}
                           data-testid="input-image-url"
                         />
                       </FormControl>
                       <FormDescription>
-                        Provide a URL to an image of your product
+                        Or upload images above, or provide a URL to an image
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

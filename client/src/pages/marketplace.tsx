@@ -1,19 +1,23 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
+import { useDebounce } from "use-debounce";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
 import { 
   Search, 
   Filter, 
   MapPin, 
   ShieldCheck,
   Package,
-  X
+  X,
+  DollarSign,
+  Calendar
 } from "lucide-react";
 import { ListingWithFarmer } from "@shared/schema";
 import {
@@ -40,30 +44,52 @@ const categories = [
 
 export default function Marketplace() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch] = useDebounce(searchQuery, 300);
   const [selectedCategory, setSelectedCategory] = useState("All Categories");
   const [selectedRegion, setSelectedRegion] = useState("All Regions");
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [sortBy, setSortBy] = useState("newest");
+  const [priceRange, setPriceRange] = useState<[number, number]>([0, 1000]);
+  const [minQuantity, setMinQuantity] = useState(0);
 
   const { data: listings, isLoading } = useQuery<ListingWithFarmer[]>({
     queryKey: ["/api/listings"],
   });
+
+  // Calculate price range from listings
+  const maxPrice = useMemo(() => {
+    if (!listings || listings.length === 0) return 1000;
+    return Math.ceil(Math.max(...listings.map(l => Number(l.price))) / 100) * 100;
+  }, [listings]);
+
+  // Update price range when max price changes
+  useMemo(() => {
+    if (priceRange[1] === 1000 && maxPrice !== 1000) {
+      setPriceRange([0, maxPrice]);
+    }
+  }, [maxPrice]);
 
   const regions = listings 
     ? ["All Regions", ...Array.from(new Set(listings.map(l => l.location)))]
     : ["All Regions"];
 
   const filteredListings = listings?.filter(listing => {
-    const matchesSearch = listing.productName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         listing.description.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = listing.productName.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+                         listing.description.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+                         listing.category.toLowerCase().includes(debouncedSearch.toLowerCase());
     const matchesCategory = selectedCategory === "All Categories" || listing.category === selectedCategory;
     const matchesRegion = selectedRegion === "All Regions" || listing.location === selectedRegion;
     const matchesVerified = !verifiedOnly || listing.farmer.verified;
+    const matchesPrice = Number(listing.price) >= priceRange[0] && Number(listing.price) <= priceRange[1];
+    const matchesQuantity = listing.quantityAvailable >= minQuantity;
     
-    return matchesSearch && matchesCategory && matchesRegion && matchesVerified;
+    return matchesSearch && matchesCategory && matchesRegion && matchesVerified && matchesPrice && matchesQuantity;
   })?.sort((a, b) => {
     if (sortBy === "price-low") return Number(a.price) - Number(b.price);
     if (sortBy === "price-high") return Number(b.price) - Number(a.price);
+    if (sortBy === "quantity-high") return b.quantityAvailable - a.quantityAvailable;
+    if (sortBy === "quantity-low") return a.quantityAvailable - b.quantityAvailable;
+    if (sortBy === "name") return a.productName.localeCompare(b.productName);
     return 0; // newest by default
   });
 
@@ -83,6 +109,52 @@ export default function Marketplace() {
               {category}
             </Button>
           ))}
+        </div>
+      </div>
+
+      <Separator />
+
+      <div>
+        <h3 className="font-semibold mb-3">Price Range</h3>
+        <div className="space-y-4">
+          <Slider
+            min={0}
+            max={maxPrice}
+            step={10}
+            value={priceRange}
+            onValueChange={(value) => setPriceRange(value as [number, number])}
+            className="mb-2"
+          />
+          <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center gap-1">
+              <DollarSign className="h-3 w-3" />
+              <span>{priceRange[0].toFixed(2)}</span>
+            </div>
+            <span className="text-muted-foreground">to</span>
+            <div className="flex items-center gap-1">
+              <DollarSign className="h-3 w-3" />
+              <span>{priceRange[1].toFixed(2)}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <Separator />
+
+      <div>
+        <h3 className="font-semibold mb-3">Minimum Quantity</h3>
+        <div className="space-y-2">
+          <Input
+            type="number"
+            min="0"
+            value={minQuantity}
+            onChange={(e) => setMinQuantity(Number(e.target.value))}
+            placeholder="0"
+            className="w-full"
+          />
+          <p className="text-xs text-muted-foreground">
+            Show only listings with at least this quantity
+          </p>
         </div>
       </div>
 
@@ -119,7 +191,12 @@ export default function Marketplace() {
         </label>
       </div>
 
-      {(selectedCategory !== "All Categories" || selectedRegion !== "All Regions" || verifiedOnly) && (
+      {(selectedCategory !== "All Categories" || 
+        selectedRegion !== "All Regions" || 
+        verifiedOnly || 
+        priceRange[0] !== 0 || 
+        priceRange[1] !== maxPrice ||
+        minQuantity > 0) && (
         <>
           <Separator />
           <Button
@@ -129,6 +206,8 @@ export default function Marketplace() {
               setSelectedCategory("All Categories");
               setSelectedRegion("All Regions");
               setVerifiedOnly(false);
+              setPriceRange([0, maxPrice]);
+              setMinQuantity(0);
             }}
             className="w-full"
             data-testid="button-clear-filters"
@@ -172,6 +251,9 @@ export default function Marketplace() {
               <SelectItem value="newest">Newest First</SelectItem>
               <SelectItem value="price-low">Price: Low to High</SelectItem>
               <SelectItem value="price-high">Price: High to Low</SelectItem>
+              <SelectItem value="quantity-high">Quantity: High to Low</SelectItem>
+              <SelectItem value="quantity-low">Quantity: Low to High</SelectItem>
+              <SelectItem value="name">Name: A to Z</SelectItem>
             </SelectContent>
           </Select>
           <Sheet>
@@ -194,6 +276,81 @@ export default function Marketplace() {
             </SheetContent>
           </Sheet>
         </div>
+
+        {/* Active Filter Chips */}
+        {(selectedCategory !== "All Categories" || 
+          selectedRegion !== "All Regions" || 
+          verifiedOnly || 
+          priceRange[0] !== 0 || 
+          priceRange[1] !== maxPrice ||
+          minQuantity > 0) && (
+          <div className="mb-6 flex flex-wrap gap-2 items-center">
+            <span className="text-sm text-muted-foreground">Active filters:</span>
+            {selectedCategory !== "All Categories" && (
+              <Badge variant="secondary" className="gap-1">
+                {selectedCategory}
+                <X 
+                  className="h-3 w-3 cursor-pointer" 
+                  onClick={() => setSelectedCategory("All Categories")}
+                />
+              </Badge>
+            )}
+            {selectedRegion !== "All Regions" && (
+              <Badge variant="secondary" className="gap-1">
+                <MapPin className="h-3 w-3" />
+                {selectedRegion}
+                <X 
+                  className="h-3 w-3 cursor-pointer" 
+                  onClick={() => setSelectedRegion("All Regions")}
+                />
+              </Badge>
+            )}
+            {verifiedOnly && (
+              <Badge variant="secondary" className="gap-1">
+                <ShieldCheck className="h-3 w-3" />
+                Verified Only
+                <X 
+                  className="h-3 w-3 cursor-pointer" 
+                  onClick={() => setVerifiedOnly(false)}
+                />
+              </Badge>
+            )}
+            {(priceRange[0] !== 0 || priceRange[1] !== maxPrice) && (
+              <Badge variant="secondary" className="gap-1">
+                <DollarSign className="h-3 w-3" />
+                ${priceRange[0]} - ${priceRange[1]}
+                <X 
+                  className="h-3 w-3 cursor-pointer" 
+                  onClick={() => setPriceRange([0, maxPrice])}
+                />
+              </Badge>
+            )}
+            {minQuantity > 0 && (
+              <Badge variant="secondary" className="gap-1">
+                <Package className="h-3 w-3" />
+                Min {minQuantity} {minQuantity === 1 ? 'unit' : 'units'}
+                <X 
+                  className="h-3 w-3 cursor-pointer" 
+                  onClick={() => setMinQuantity(0)}
+                />
+              </Badge>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setSelectedCategory("All Categories");
+                setSelectedRegion("All Regions");
+                setVerifiedOnly(false);
+                setPriceRange([0, maxPrice]);
+                setMinQuantity(0);
+              }}
+              className="h-6 text-xs"
+            >
+              Clear all
+            </Button>
+          </div>
+        )}
 
         <div className="flex gap-8">
           {/* Desktop Filters Sidebar */}

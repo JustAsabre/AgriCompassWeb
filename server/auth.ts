@@ -19,6 +19,8 @@ export interface SessionUser {
   role: string;
   region: string | null;
   verified: boolean;
+  businessName: string | null;
+  farmSize: string | null;
 }
 
 export function sanitizeUser(user: User): SessionUser {
@@ -28,7 +30,9 @@ export function sanitizeUser(user: User): SessionUser {
     fullName: user.fullName,
     role: user.role,
     region: user.region,
-    verified: user.verified,
+    verified: user.verified ?? false,
+    businessName: user.businessName,
+    farmSize: user.farmSize,
   };
 }
 

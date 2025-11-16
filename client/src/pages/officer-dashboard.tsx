@@ -12,10 +12,13 @@ import {
   User,
   MapPin,
   Phone,
-  Mail
+  Mail,
+  FileText,
+  TrendingUp
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { User as UserType } from "@shared/schema";
+import { Link } from "wouter";
 
 export default function OfficerDashboard() {
   const { user } = useAuth();
@@ -31,11 +34,27 @@ export default function OfficerDashboard() {
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8 max-w-screen-2xl">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold text-foreground">Field Officer Dashboard</h1>
-          <p className="text-muted-foreground mt-1">
-            Welcome back, {user?.fullName}
-          </p>
+        <div className="mb-8 flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl md:text-4xl font-bold text-foreground">Field Officer Dashboard</h1>
+            <p className="text-muted-foreground mt-1">
+              Welcome back, {user?.fullName}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Link href="/officer/analytics">
+              <Button variant="outline" className="gap-2">
+                <TrendingUp className="h-4 w-4" />
+                View Analytics
+              </Button>
+            </Link>
+            <Link href="/officer/verifications">
+              <Button className="gap-2">
+                <FileText className="h-4 w-4" />
+                View All Verifications
+              </Button>
+            </Link>
+          </div>
         </div>
 
         {/* Stats Cards */}

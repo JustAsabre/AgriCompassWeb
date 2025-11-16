@@ -11,9 +11,15 @@ import {
   type InsertVerification,
   type PricingTier,
   type InsertPricingTier,
+  type Notification,
+  type InsertNotification,
+  type Message,
+  type InsertMessage,
   type ListingWithFarmer,
   type OrderWithDetails,
-  type CartItemWithListing
+  type CartItemWithListing,
+  type MessageWithUsers,
+  type Conversation
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -22,6 +28,7 @@ export interface IStorage {
   // User operations
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
+  getUserByResetToken(token: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, updates: Partial<User>): Promise<User | undefined>;
   getUsersByRole(role: string): Promise<User[]>;
@@ -60,6 +67,22 @@ export interface IStorage {
   // Pricing tier operations
   getPricingTiersByListing(listingId: string): Promise<PricingTier[]>;
   createPricingTier(tier: InsertPricingTier): Promise<PricingTier>;
+
+  // Notification operations
+  getNotificationsByUser(userId: string): Promise<Notification[]>;
+  getUnreadNotificationCount(userId: string): Promise<number>;
+  createNotification(notification: InsertNotification): Promise<Notification>;
+  markNotificationRead(id: string): Promise<Notification | undefined>;
+  markAllNotificationsRead(userId: string): Promise<boolean>;
+  deleteNotification(id: string): Promise<boolean>;
+
+  // Message operations
+  getMessagesBetweenUsers(userId1: string, userId2: string): Promise<MessageWithUsers[]>;
+  getConversations(userId: string): Promise<Conversation[]>;
+  createMessage(message: InsertMessage): Promise<Message>;
+  markMessageRead(id: string): Promise<Message | undefined>;
+  markConversationRead(userId: string, otherUserId: string): Promise<boolean>;
+  getUnreadMessageCount(userId: string): Promise<number>;
 }
 
 export class MemStorage implements IStorage {
@@ -69,6 +92,8 @@ export class MemStorage implements IStorage {
   private cartItems: Map<string, CartItem>;
   private verifications: Map<string, Verification>;
   private pricingTiers: Map<string, PricingTier>;
+  private notifications: Map<string, Notification>;
+  private messages: Map<string, Message>;
 
   constructor() {
     this.users = new Map();
@@ -77,6 +102,8 @@ export class MemStorage implements IStorage {
     this.cartItems = new Map();
     this.verifications = new Map();
     this.pricingTiers = new Map();
+    this.notifications = new Map();
+    this.messages = new Map();
 
     // Seed data for testing
     this.seedData();
@@ -87,16 +114,16 @@ export class MemStorage implements IStorage {
     // Note: In real implementation, passwords would be hashed here too
     const hashedPass = "$2a$10$YourHashedPasswordHere"; // Placeholder - routes will hash properly
     
-    const farmer1 = await this.createUser({
-      email: "farmer1@test.com",
-      password: hashedPass, // Will be replaced with actual hash on first real user
-      fullName: "John Farmer",
+        const testFarmer = await this.createUser({
+      email: "farmer@example.com",
+      password: "password123",
+      fullName: "Test Farmer",
       role: "farmer",
-      region: "North Region",
-      phone: "+1234567890",
-      farmSize: "10 acres",
-      verified: true,
+      farmSize: "5 hectares"
     });
+    // Manually set verified after creation
+    const farmer = this.users.get(testFarmer.id);
+    if (farmer) farmer.verified = true;
 
     const farmer2 = await this.createUser({
       email: "farmer2@test.com",
@@ -106,8 +133,10 @@ export class MemStorage implements IStorage {
       region: "South Region",
       phone: "+1234567891",
       farmSize: "5 acres",
-      verified: true,
     });
+    // Manually set verified after creation
+    const farmer2User = this.users.get(farmer2.id);
+    if (farmer2User) farmer2User.verified = true;
 
     // Create sample buyer
     await this.createUser({
@@ -132,7 +161,7 @@ export class MemStorage implements IStorage {
 
     // Create sample listings
     await this.createListing({
-      farmerId: farmer1.id,
+      farmerId: testFarmer.id,
       productName: "Fresh Tomatoes",
       category: "Vegetables",
       description: "Organic, fresh tomatoes harvested this week. Perfect for salads and cooking.",
@@ -146,7 +175,7 @@ export class MemStorage implements IStorage {
     });
 
     await this.createListing({
-      farmerId: farmer1.id,
+      farmerId: testFarmer.id,
       productName: "Sweet Corn",
       category: "Vegetables",
       description: "Premium quality sweet corn, non-GMO and organically grown.",
@@ -195,12 +224,22 @@ export class MemStorage implements IStorage {
     return Array.from(this.users.values()).find((user) => user.email === email);
   }
 
+  async getUserByResetToken(token: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find((user) => user.resetToken === token);
+  }
+
   async createUser(insertUser: InsertUser): Promise<User> {
     const id = randomUUID();
     // Password should already be hashed by the caller
     const user: User = { 
-      ...insertUser, 
+      ...insertUser,
       id,
+      region: insertUser.region ?? null,
+      phone: insertUser.phone ?? null,
+      businessName: insertUser.businessName ?? null,
+      farmSize: insertUser.farmSize ?? null,
+      resetToken: null,
+      resetTokenExpiry: null,
       verified: insertUser.role === "field_officer" ? true : false,
       createdAt: new Date()
     };
@@ -279,8 +318,10 @@ export class MemStorage implements IStorage {
   async createListing(insertListing: InsertListing): Promise<Listing> {
     const id = randomUUID();
     const listing: Listing = { 
-      ...insertListing, 
+      ...insertListing,
       id,
+      harvestDate: insertListing.harvestDate ?? null,
+      imageUrl: insertListing.imageUrl ?? null,
       status: "active",
       createdAt: new Date()
     };
@@ -360,8 +401,10 @@ export class MemStorage implements IStorage {
   async createOrder(insertOrder: InsertOrder): Promise<Order> {
     const id = randomUUID();
     const order: Order = { 
-      ...insertOrder, 
+      ...insertOrder,
       id,
+      deliveryAddress: insertOrder.deliveryAddress ?? null,
+      notes: insertOrder.notes ?? null,
       status: "pending",
       createdAt: new Date(),
       updatedAt: new Date()
@@ -442,7 +485,9 @@ export class MemStorage implements IStorage {
   async createVerification(insertVerification: InsertVerification): Promise<Verification> {
     const id = randomUUID();
     const verification: Verification = { 
-      ...insertVerification, 
+      ...insertVerification,
+      notes: insertVerification.notes ?? null,
+      documentUrl: insertVerification.documentUrl ?? null,
       id,
       status: "pending",
       verifiedAt: null,
@@ -488,6 +533,173 @@ export class MemStorage implements IStorage {
     const tier: PricingTier = { ...insertTier, id };
     this.pricingTiers.set(id, tier);
     return tier;
+  }
+
+  // Notification operations
+  async getNotificationsByUser(userId: string): Promise<Notification[]> {
+    return Array.from(this.notifications.values())
+      .filter((n) => n.userId === userId)
+      .sort((a, b) => {
+        const dateA = a.createdAt?.getTime() || 0;
+        const dateB = b.createdAt?.getTime() || 0;
+        return dateB - dateA; // Newest first
+      });
+  }
+
+  async getUnreadNotificationCount(userId: string): Promise<number> {
+    return Array.from(this.notifications.values())
+      .filter((n) => n.userId === userId && !n.read)
+      .length;
+  }
+
+  async createNotification(insertNotification: InsertNotification): Promise<Notification> {
+    const id = randomUUID();
+    const notification: Notification = {
+      ...insertNotification,
+      id,
+      relatedId: insertNotification.relatedId ?? null,
+      relatedType: insertNotification.relatedType ?? null,
+      read: false,
+      createdAt: new Date(),
+    };
+    this.notifications.set(id, notification);
+    return notification;
+  }
+
+  async markNotificationRead(id: string): Promise<Notification | undefined> {
+    const notification = this.notifications.get(id);
+    if (!notification) return undefined;
+    const updated = { ...notification, read: true };
+    this.notifications.set(id, updated);
+    return updated;
+  }
+
+  async markAllNotificationsRead(userId: string): Promise<boolean> {
+    const userNotifications = Array.from(this.notifications.entries())
+      .filter(([_, n]) => n.userId === userId && !n.read);
+    
+    userNotifications.forEach(([id, notification]) => {
+      this.notifications.set(id, { ...notification, read: true });
+    });
+    
+    return true;
+  }
+
+  async deleteNotification(id: string): Promise<boolean> {
+    return this.notifications.delete(id);
+  }
+
+  // Message operations
+  async getMessagesBetweenUsers(userId1: string, userId2: string): Promise<MessageWithUsers[]> {
+    const messages = Array.from(this.messages.values())
+      .filter((m) => 
+        (m.senderId === userId1 && m.receiverId === userId2) ||
+        (m.senderId === userId2 && m.receiverId === userId1)
+      )
+      .sort((a, b) => {
+        const dateA = a.createdAt?.getTime() || 0;
+        const dateB = b.createdAt?.getTime() || 0;
+        return dateA - dateB; // Oldest first for chat history
+      });
+
+    // Attach user details
+    const messagesWithUsers: MessageWithUsers[] = [];
+    for (const message of messages) {
+      const sender = await this.getUser(message.senderId);
+      const receiver = await this.getUser(message.receiverId);
+      if (sender && receiver) {
+        messagesWithUsers.push({
+          ...message,
+          sender,
+          receiver,
+        });
+      }
+    }
+    return messagesWithUsers;
+  }
+
+  async getConversations(userId: string): Promise<Conversation[]> {
+    // Get all messages where user is sender or receiver
+    const userMessages = Array.from(this.messages.values())
+      .filter((m) => m.senderId === userId || m.receiverId === userId)
+      .sort((a, b) => {
+        const dateA = a.createdAt?.getTime() || 0;
+        const dateB = b.createdAt?.getTime() || 0;
+        return dateB - dateA; // Newest first
+      });
+
+    // Group by other user
+    const conversationMap = new Map<string, Message[]>();
+    for (const message of userMessages) {
+      const otherUserId = message.senderId === userId ? message.receiverId : message.senderId;
+      if (!conversationMap.has(otherUserId)) {
+        conversationMap.set(otherUserId, []);
+      }
+      conversationMap.get(otherUserId)!.push(message);
+    }
+
+    // Build conversation objects
+    const conversations: Conversation[] = [];
+    const conversationEntries = Array.from(conversationMap.entries());
+    for (const [otherUserId, messages] of conversationEntries) {
+      const otherUser = await this.getUser(otherUserId);
+      if (!otherUser) continue;
+
+      const lastMessage = messages[0]; // Already sorted newest first
+      const unreadCount = messages.filter((m: Message) => 
+        m.senderId === otherUserId && m.receiverId === userId && !m.read
+      ).length;
+
+      conversations.push({
+        otherUser,
+        lastMessage,
+        unreadCount,
+      });
+    }
+
+    return conversations;
+  }
+
+  async createMessage(insertMessage: InsertMessage): Promise<Message> {
+    const id = randomUUID();
+    const message: Message = {
+      ...insertMessage,
+      id,
+      listingId: insertMessage.listingId ?? null,
+      read: false,
+      createdAt: new Date(),
+    };
+    this.messages.set(id, message);
+    return message;
+  }
+
+  async markMessageRead(id: string): Promise<Message | undefined> {
+    const message = this.messages.get(id);
+    if (!message) return undefined;
+    const updated = { ...message, read: true };
+    this.messages.set(id, updated);
+    return updated;
+  }
+
+  async markConversationRead(userId: string, otherUserId: string): Promise<boolean> {
+    const messagesToMark = Array.from(this.messages.entries())
+      .filter(([_, m]) => 
+        m.senderId === otherUserId && 
+        m.receiverId === userId && 
+        !m.read
+      );
+
+    messagesToMark.forEach(([id, message]) => {
+      this.messages.set(id, { ...message, read: true });
+    });
+
+    return true;
+  }
+
+  async getUnreadMessageCount(userId: string): Promise<number> {
+    return Array.from(this.messages.values())
+      .filter((m) => m.receiverId === userId && !m.read)
+      .length;
   }
 }
 

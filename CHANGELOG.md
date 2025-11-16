@@ -10,7 +10,135 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bulk pricing system for listings
 - Order success/receipt page
 - Ratings and reviews system
-- In-app messaging between buyers and farmers
+
+---
+
+## [0.6.1] - 2025-11-16
+### Fixed
+- Chat initiation now works when clicking "Contact Farmer" on product listings
+  - Added user data fetching for new conversations
+  - Chat interface now displays even without existing conversation history
+  - First message properly creates a new conversation
+- Number input behavior on product quantity field
+  - Fixed auto-zeroing issue when typing
+  - Allows proper number input without forced leading zeros
+  - Empty string handling improved for better UX
+
+### Changed
+- Messages page now supports starting conversations with users not yet in conversation list
+- Product detail quantity input now handles empty values gracefully
+
+---
+
+## [0.6.0] - 2025-11-16
+### Added - Sprint 2 Completed Features
+
+#### Real-time Notifications System
+- Socket.IO server integration with WebSocket support
+- Notification schema and database storage
+- 5 notification API endpoints (list, unread count, mark read, mark all read, delete)
+- NotificationBell component with unread badge
+- Real-time notification delivery for:
+  - Order status updates
+  - New marketplace listings
+  - Verification status changes
+  - New messages
+- Auto-connect on user authentication
+- Mark as read/delete functionality
+- Browser notification support (future-ready)
+
+#### Farmer Verification Workflow
+- Comprehensive verification system for farmer legitimacy
+- 4 verification API endpoints:
+  - Submit verification request with documents
+  - Check verification status
+  - List all verifications (officer view)
+  - Approve/reject verification requests
+- Farmer verification request form with:
+  - Farm size, location, and experience fields
+  - Supporting document upload
+  - Status tracking (pending, approved, rejected)
+- Field officer verification dashboard with:
+  - Tabbed interface (pending/approved/rejected)
+  - Review dialog with approve/reject actions
+  - Farmer details and document viewing
+- Verification alerts on farmer dashboard
+- Real-time notification on status changes
+- Role-based access control for all routes
+
+#### Messaging System
+- Real-time bidirectional messaging between users
+- Message schema with sender, receiver, content, read status
+- 4 messaging API endpoints:
+  - List all conversations
+  - Get message history between users
+  - Mark conversation as read
+  - Get unread message count
+- Socket.IO messaging events:
+  - send_message with delivery confirmation
+  - mark_conversation_read
+  - Typing indicators
+  - new_message real-time delivery
+- Messages page with:
+  - Conversation list with unread badges
+  - Real-time chat interface
+  - Message history with timestamps
+  - Typing indicators
+  - Auto-scroll to latest messages
+  - User avatars and role display
+- Messages button in header for quick access
+- Works for all user roles (buyer ↔ farmer communication)
+
+#### Analytics Dashboard
+- Installed recharts library for data visualization
+- 3 role-specific analytics endpoints with comprehensive metrics
+
+**Farmer Analytics:**
+- Sales performance metrics (total listings, active listings, orders, revenue)
+- Sales trends over time (6-month line chart)
+- Top selling products (bar chart and detailed table)
+- Order status breakdown (completed, pending)
+- Revenue tracking with currency formatting
+
+**Buyer Analytics:**
+- Purchase history metrics (total orders, spending)
+- Spending trends over time (6-month line chart)
+- Most purchased products (bar chart and table)
+- Order status tracking (completed, pending, cancelled)
+- Spending analysis with currency formatting
+
+**Officer Analytics:**
+- Farmer verification metrics (total, verified, pending)
+- Verification trends over time (multi-line chart)
+- Farmers by region (pie chart and distribution table)
+- Verification status breakdown (bar chart)
+- Approval/rejection statistics
+- Regional farmer distribution analysis
+
+**Analytics Integration:**
+- Analytics pages for all three user roles
+- "View Analytics" buttons on all dashboards
+- Protected routes with role-based access
+- Responsive charts with tooltips and legends
+- Empty state handling for no data scenarios
+- Real-time data updates via React Query
+
+### Backend Infrastructure
+- Socket.IO server with authentication
+- Message storage with conversation management
+- Analytics data aggregation endpoints
+- Enhanced storage methods for messaging and analytics
+
+### Frontend Enhancements
+- NotificationContext with socket exposure
+- Real-time WebSocket connection management
+- Advanced data visualization with recharts
+- Improved dashboard layouts with analytics links
+
+### Developer Experience
+- TypeScript compilation verified (no errors)
+- Comprehensive testing structure ready
+- All Sprint 2 features implemented and integrated
 
 ---
 
@@ -139,6 +267,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Key Features |
 |---------|------|--------------|
+| 0.6.1 | 2025-11-16 | Bug fixes - chat initiation and number input |
+| 0.6.0 | 2025-11-16 | Real-time notifications, farmer verification, messaging, analytics |
 | 0.5.0 | 2025-11-15 | Current state - MVP with core marketplace features |
 | 0.4.0 | 2025-11-14 | Profile, cart, order management |
 | 0.3.0 | 2025-11-13 | Field Officer verification, checkout |
@@ -282,5 +412,5 @@ For questions about this changelog or version history:
 ---
 
 **Changelog Maintained By:** AgriCompass Development Team  
-**Last Updated:** November 15, 2025  
+**Last Updated:** November 16, 2025  
 **Next Review:** End of Sprint 1 (Week 2)

@@ -5,12 +5,18 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { NotificationProvider } from "@/lib/notifications";
 import { Header } from "@/components/header";
 
 // Pages
 import Landing from "@/pages/landing";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
+import ForgotPassword from "@/pages/forgot-password";
+import ResetPassword from "@/pages/reset-password";
+import TermsOfService from "@/pages/terms-of-service";
+import PrivacyPolicy from "@/pages/privacy-policy";
+import CookiePolicy from "@/pages/cookie-policy";
 import Marketplace from "@/pages/marketplace";
 import ProductDetail from "@/pages/product-detail";
 import FarmerDashboard from "@/pages/farmer-dashboard";
@@ -19,6 +25,12 @@ import OfficerDashboard from "@/pages/officer-dashboard";
 import CreateListing from "@/pages/create-listing";
 import Cart from "@/pages/cart";
 import Profile from "@/pages/profile";
+import VerificationRequest from "@/pages/verification-request";
+import VerificationsList from "@/pages/verifications-list";
+import Messages from "@/pages/messages";
+import FarmerAnalytics from "@/pages/farmer-analytics";
+import BuyerAnalytics from "@/pages/buyer-analytics";
+import OfficerAnalytics from "@/pages/officer-analytics";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component, allowedRoles }: { component: any; allowedRoles?: string[] }) {
@@ -48,6 +60,11 @@ function Router() {
           <Route path="/" component={Landing} />
           <Route path="/login" component={Login} />
           <Route path="/register" component={Register} />
+          <Route path="/forgot-password" component={ForgotPassword} />
+          <Route path="/reset-password" component={ResetPassword} />
+          <Route path="/terms-of-service" component={TermsOfService} />
+          <Route path="/privacy-policy" component={PrivacyPolicy} />
+          <Route path="/cookie-policy" component={CookiePolicy} />
           <Route path="/marketplace" component={Marketplace} />
           <Route path="/marketplace/:id" component={ProductDetail} />
           
@@ -58,6 +75,12 @@ function Router() {
           <Route path="/farmer/create-listing">
             {() => <ProtectedRoute component={CreateListing} allowedRoles={["farmer"]} />}
           </Route>
+          <Route path="/farmer/verification">
+            {() => <ProtectedRoute component={VerificationRequest} allowedRoles={["farmer"]} />}
+          </Route>
+          <Route path="/farmer/analytics">
+            {() => <ProtectedRoute component={FarmerAnalytics} allowedRoles={["farmer"]} />}
+          </Route>
           
           {/* Buyer Routes */}
           <Route path="/buyer/dashboard">
@@ -66,15 +89,29 @@ function Router() {
           <Route path="/buyer/cart">
             {() => <ProtectedRoute component={Cart} allowedRoles={["buyer"]} />}
           </Route>
+          <Route path="/buyer/analytics">
+            {() => <ProtectedRoute component={BuyerAnalytics} allowedRoles={["buyer"]} />}
+          </Route>
           
           {/* Field Officer Routes */}
           <Route path="/officer/dashboard">
             {() => <ProtectedRoute component={OfficerDashboard} allowedRoles={["field_officer"]} />}
           </Route>
+          <Route path="/officer/verifications">
+            {() => <ProtectedRoute component={VerificationsList} allowedRoles={["field_officer"]} />}
+          </Route>
+          <Route path="/officer/analytics">
+            {() => <ProtectedRoute component={OfficerAnalytics} allowedRoles={["field_officer"]} />}
+          </Route>
           
           {/* Profile */}
           <Route path="/profile">
             {() => <ProtectedRoute component={Profile} />}
+          </Route>
+
+          {/* Messages */}
+          <Route path="/messages">
+            {() => <ProtectedRoute component={Messages} />}
           </Route>
           
           {/* 404 */}
@@ -90,10 +127,12 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <AuthProvider>
-          <TooltipProvider>
-            <Router />
-            <Toaster />
-          </TooltipProvider>
+          <NotificationProvider>
+            <TooltipProvider>
+              <Router />
+              <Toaster />
+            </TooltipProvider>
+          </NotificationProvider>
         </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>

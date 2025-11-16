@@ -57,6 +57,10 @@ export default function BuyerDashboard() {
             </p>
           </div>
           <div className="flex gap-3">
+            <Button variant="outline" onClick={() => setLocation("/buyer/analytics")}>
+              <TrendingUp className="h-5 w-5 mr-2" />
+              View Analytics
+            </Button>
             <Button variant="outline" onClick={() => setLocation("/buyer/cart")} data-testid="button-view-cart">
               <ShoppingCart className="h-5 w-5 mr-2" />
               View Cart
@@ -143,7 +147,7 @@ export default function BuyerDashboard() {
                             <h3 className="font-semibold text-lg">
                               {order.listing.productName}
                             </h3>
-                            {getOrderStatusBadge(order.status)}
+                            {getOrderStatusBadge(order.status ?? 'pending')}
                           </div>
                           <div className="text-sm text-muted-foreground space-y-1">
                             <p>Farmer: {order.farmer.fullName}</p>

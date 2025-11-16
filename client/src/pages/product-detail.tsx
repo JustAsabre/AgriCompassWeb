@@ -18,7 +18,8 @@ import {
   Phone,
   Mail,
   ShoppingCart,
-  ChevronLeft
+  ChevronLeft,
+  MessageCircle
 } from "lucide-react";
 import { ListingWithFarmer } from "@shared/schema";
 import { useAuth } from "@/lib/auth";
@@ -228,14 +229,17 @@ export default function ProductDetail() {
 
             {user?.role === "buyer" && (
               <div className="space-y-4">
-                <div>
+                                <div>
                   <label className="text-sm font-medium mb-2 block">Quantity</label>
                   <Input
                     type="number"
                     min={listing.minOrderQuantity}
                     max={listing.quantityAvailable}
-                    value={quantity}
-                    onChange={(e) => setQuantity(Number(e.target.value))}
+                    value={quantity || ''}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setQuantity(value === '' ? 0 : Number(value));
+                    }}
                     data-testid="input-quantity"
                   />
                   <p className="text-xs text-muted-foreground mt-1">
@@ -243,16 +247,28 @@ export default function ProductDetail() {
                   </p>
                 </div>
 
-                <Button 
-                  size="lg" 
-                  className="w-full" 
-                  onClick={handleAddToCart}
-                  disabled={addToCartMutation.isPending || quantity < listing.minOrderQuantity}
-                  data-testid="button-add-to-cart"
-                >
-                  <ShoppingCart className="h-5 w-5 mr-2" />
-                  {addToCartMutation.isPending ? "Adding..." : "Add to Cart"}
-                </Button>
+                <div className="grid grid-cols-2 gap-3">
+                  <Button 
+                    size="lg" 
+                    className="w-full" 
+                    onClick={handleAddToCart}
+                    disabled={addToCartMutation.isPending || quantity < listing.minOrderQuantity}
+                    data-testid="button-add-to-cart"
+                  >
+                    <ShoppingCart className="h-5 w-5 mr-2" />
+                    Add to Cart
+                  </Button>
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => setLocation(`/messages?user=${listing.farmer.id}`)}
+                    data-testid="button-contact-farmer"
+                  >
+                    <MessageCircle className="h-5 w-5 mr-2" />
+                    Contact Farmer
+                  </Button>
+                </div>
               </div>
             )}
 

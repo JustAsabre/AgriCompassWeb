@@ -1,9 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useToast } from "@/hooks/use-toast";
 import { 
   Plus, 
   Package, 
@@ -14,7 +16,9 @@ import {
   DollarSign,
   CheckCircle,
   Clock,
-  XCircle
+  XCircle,
+  ShieldCheck,
+  AlertCircle
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Listing, OrderWithDetails } from "@shared/schema";
@@ -23,6 +27,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 export default function FarmerDashboard() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const { data: listings, isLoading: listingsLoading } = useQuery<Listing[]>({
     queryKey: ["/api/farmer/listings"],
@@ -30,6 +36,36 @@ export default function FarmerDashboard() {
 
   const { data: orders, isLoading: ordersLoading } = useQuery<OrderWithDetails[]>({
     queryKey: ["/api/farmer/orders"],
+  });
+
+  const updateOrderMutation = useMutation({
+    mutationFn: async ({ orderId, status }: { orderId: string; status: string }) => {
+      const response = await fetch(`/api/orders/${orderId}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ status }),
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to update order");
+      }
+      return response.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/farmer/orders"] });
+      toast({
+        title: "Order Updated",
+        description: `Order ${variables.status === "accepted" ? "accepted" : "rejected"} successfully`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
   });
 
   const activeListings = listings?.filter(l => l.status === "active") || [];
@@ -65,11 +101,37 @@ export default function FarmerDashboard() {
               Welcome back, {user?.fullName}
             </p>
           </div>
-          <Button onClick={() => setLocation("/farmer/create-listing")} size="lg" data-testid="button-create-listing">
-            <Plus className="h-5 w-5 mr-2" />
-            Create Listing
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={() => setLocation("/farmer/analytics")} variant="outline" size="lg">
+              <TrendingUp className="h-5 w-5 mr-2" />
+              View Analytics
+            </Button>
+            <Button onClick={() => setLocation("/farmer/create-listing")} size="lg" data-testid="button-create-listing">
+              <Plus className="h-5 w-5 mr-2" />
+              Create Listing
+            </Button>
+          </div>
         </div>
+
+        {/* Verification Alert */}
+        {!user?.verified && (
+          <Alert className="mb-6">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="flex items-center justify-between">
+              <span>
+                Get verified to build trust with buyers and increase your sales!
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setLocation("/farmer/verification")}
+              >
+                <ShieldCheck className="h-4 w-4 mr-2" />
+                Get Verified
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Stats Cards */}
         <div className="grid md:grid-cols-3 gap-6 mb-8">
@@ -233,7 +295,7 @@ export default function FarmerDashboard() {
                             <h3 className="font-semibold text-lg">
                               {order.listing.productName}
                             </h3>
-                            {getOrderStatusBadge(order.status)}
+                            {getOrderStatusBadge(order.status ?? 'pending')}
                           </div>
                           <div className="text-sm text-muted-foreground space-y-1">
                             <p>Buyer: {order.buyer.fullName}</p>
@@ -252,10 +314,24 @@ export default function FarmerDashboard() {
                           </div>
                           {order.status === "pending" && (
                             <div className="flex gap-2">
-                              <Button size="sm" variant="default" data-testid={`button-accept-${order.id}`}>
+                              <Button 
+                                size="sm" 
+                                variant="default" 
+                                onClick={() => updateOrderMutation.mutate({ orderId: order.id, status: "accepted" })}
+                                disabled={updateOrderMutation.isPending}
+                                data-testid={`button-accept-${order.id}`}
+                              >
+                                <CheckCircle className="h-4 w-4 mr-1" />
                                 Accept
                               </Button>
-                              <Button size="sm" variant="destructive" data-testid={`button-reject-${order.id}`}>
+                              <Button 
+                                size="sm" 
+                                variant="destructive" 
+                                onClick={() => updateOrderMutation.mutate({ orderId: order.id, status: "rejected" })}
+                                disabled={updateOrderMutation.isPending}
+                                data-testid={`button-reject-${order.id}`}
+                              >
+                                <XCircle className="h-4 w-4 mr-1" />
                                 Reject
                               </Button>
                             </div>

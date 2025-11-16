@@ -1,8 +1,10 @@
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { NotificationBell } from "@/components/notification-bell";
 import { useAuth } from "@/lib/auth";
-import { ShoppingCart, User as UserIcon, Sprout, LogOut } from "lucide-react";
+import { ShoppingCart, User as UserIcon, Sprout, LogOut, MessageSquare } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,6 +17,21 @@ import { Badge } from "@/components/ui/badge";
 export function Header() {
   const { user, logout } = useAuth();
   const [location, setLocation] = useLocation();
+
+  // Fetch cart count for buyers
+  const { data: cartItems } = useQuery<any[]>({
+    queryKey: ["/api/cart"],
+    enabled: user?.role === "buyer",
+  });
+
+  // Fetch unread message count
+  const { data: messageData } = useQuery<{ count: number }>({
+    queryKey: ["/api/messages/unread/count"],
+    enabled: !!user,
+  });
+
+  const cartCount = cartItems?.length || 0;
+  const messageCount = messageData?.count || 0;
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -67,8 +84,30 @@ export function Header() {
                   data-testid="button-cart"
                 >
                   <ShoppingCart className="h-5 w-5" />
+                  {cartCount > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground shadow-lg ring-2 ring-background">
+                      {cartCount > 9 ? '9+' : cartCount}
+                    </span>
+                  )}
                 </Button>
               )}
+
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setLocation("/messages")}
+                className="relative"
+                data-testid="button-messages"
+              >
+                <MessageSquare className="h-5 w-5" />
+                {messageCount > 0 && (
+                  <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-blue-500 text-[10px] font-bold text-white shadow-lg ring-2 ring-background animate-pulse">
+                    {messageCount > 9 ? '9+' : messageCount}
+                  </span>
+                )}
+              </Button>
+
+              <NotificationBell />
 
               <ThemeToggle />
 

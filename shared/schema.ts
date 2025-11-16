@@ -15,6 +15,8 @@ export const users = pgTable("users", {
   verified: boolean("verified").default(false),
   businessName: text("business_name"), // for buyers
   farmSize: text("farm_size"), // for farmers
+  resetToken: text("reset_token"),
+  resetTokenExpiry: timestamp("reset_token_expiry"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -80,6 +82,30 @@ export const verifications = pgTable("verifications", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Notifications
+export const notifications = pgTable("notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  type: text("type").notNull(), // order_update, new_listing, price_change, verification_update, message
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  relatedId: varchar("related_id"), // ID of related order, listing, etc.
+  relatedType: text("related_type"), // order, listing, verification, etc.
+  read: boolean("read").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Messages/Conversations
+export const messages = pgTable("messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  senderId: varchar("sender_id").notNull().references(() => users.id),
+  receiverId: varchar("receiver_id").notNull().references(() => users.id),
+  listingId: varchar("listing_id").references(() => listings.id), // Optional: context for the conversation
+  content: text("content").notNull(),
+  read: boolean("read").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Zod schemas for validation
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -116,6 +142,18 @@ export const insertPricingTierSchema = createInsertSchema(pricingTiers).omit({
   id: true,
 });
 
+export const insertNotificationSchema = createInsertSchema(notifications).omit({
+  id: true,
+  createdAt: true,
+  read: true,
+});
+
+export const insertMessageSchema = createInsertSchema(messages).omit({
+  id: true,
+  createdAt: true,
+  read: true,
+});
+
 // TypeScript types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -135,6 +173,12 @@ export type InsertVerification = z.infer<typeof insertVerificationSchema>;
 export type PricingTier = typeof pricingTiers.$inferSelect;
 export type InsertPricingTier = z.infer<typeof insertPricingTierSchema>;
 
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+
+export type Message = typeof messages.$inferSelect;
+export type InsertMessage = z.infer<typeof insertMessageSchema>;
+
 // Extended types for frontend
 export type ListingWithFarmer = Listing & {
   farmer: User;
@@ -149,4 +193,15 @@ export type OrderWithDetails = Order & {
 
 export type CartItemWithListing = CartItem & {
   listing: ListingWithFarmer;
+};
+
+export type MessageWithUsers = Message & {
+  sender: User;
+  receiver: User;
+};
+
+export type Conversation = {
+  otherUser: User;
+  lastMessage: Message;
+  unreadCount: number;
 };
