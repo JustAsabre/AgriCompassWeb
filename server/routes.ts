@@ -5,8 +5,7 @@ import { hashPassword, comparePassword, sanitizeUser, SessionUser } from "./auth
 import { insertUserSchema, insertListingSchema, insertOrderSchema, insertCartItemSchema } from "@shared/schema";
 import { sendPasswordResetEmail, sendWelcomeEmail } from "./email";
 import { upload, getFileUrl, deleteUploadedFile } from "./upload";
-import { io } from "./index";
-import { sendNotificationToUser, broadcastNewListing } from "./socket";
+import { io, sendNotificationToUser, broadcastNewListing } from "./socket";
 import crypto from "crypto";
 
 // Middleware to require authentication

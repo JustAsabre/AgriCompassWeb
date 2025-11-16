@@ -6,8 +6,11 @@ import { Notification, InsertNotification, Message } from "@shared/schema";
 // Map to track connected users
 const connectedUsers = new Map<string, string>(); // userId -> socketId
 
+// Socket.IO instance - initialized by initializeSocket
+export let io: Server;
+
 export function initializeSocket(httpServer: HTTPServer) {
-  const io = new Server(httpServer, {
+  io = new Server(httpServer, {
     cors: {
       origin: process.env.NODE_ENV === "production" ? false : "*",
       credentials: true,

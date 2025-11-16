@@ -1,12 +1,14 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import express, { type Express } from 'express';
 import session from 'express-session';
+import { createServer } from 'http';
 import { registerRoutes } from '../routes';
 
 describe('Authentication API', () => {
   let app: Express;
   let server: any;
+  let httpServer: any;
 
   beforeEach(async () => {
     app = express();
@@ -17,7 +19,16 @@ describe('Authentication API', () => {
       saveUninitialized: false,
       cookie: { secure: false }
     }));
-    server = await registerRoutes(app);
+    httpServer = createServer(app);
+    await registerRoutes(app, httpServer);
+    // Don't actually listen - supertest handles it
+  });
+
+  afterEach(() => {
+    // Close server if listening
+    if (httpServer && httpServer.listening) {
+      httpServer.close();
+    }
   });
 
   describe('POST /api/auth/register', () => {
@@ -32,8 +43,9 @@ describe('Authentication API', () => {
         });
 
       expect(response.status).toBe(201);
-      expect(response.body).toHaveProperty('id');
-      expect(response.body.email).toBe('test@example.com');
+      expect(response.body).toHaveProperty('user');
+      expect(response.body.user).toHaveProperty('id');
+      expect(response.body.user.email).toBe('test@example.com');
     });
 
     it('rejects duplicate email', async () => {
@@ -84,7 +96,8 @@ describe('Authentication API', () => {
         });
 
       expect(response.status).toBe(200);
-      expect(response.body.email).toBe('login@example.com');
+      expect(response.body).toHaveProperty('user');
+      expect(response.body.user.email).toBe('login@example.com');
     });
 
     it('rejects incorrect password', async () => {

@@ -45,7 +45,7 @@ jobs:
         if: success()
         run: |
           echo "✅ Deployment successful!"
-          echo "Application is live at: ${{ secrets.PRODUCTION_URL }}"
+          echo "Application is live at production"
       
       - name: Rollback on failure
         if: failure()

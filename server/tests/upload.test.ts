@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import express, { type Express } from 'express';
 import session from 'express-session';
 import path from 'path';
+import { createServer } from 'http';
 import { registerRoutes } from '../routes';
 import { promises as fs } from 'fs';
 
@@ -10,6 +11,7 @@ describe('File Upload API', () => {
   let app: Express;
   let server: any;
   let agent: any;
+  let httpServer: any;
 
   beforeEach(async () => {
     app = express();
@@ -20,7 +22,8 @@ describe('File Upload API', () => {
       saveUninitialized: false,
       cookie: { secure: false }
     }));
-    server = await registerRoutes(app);
+    httpServer = createServer(app);
+    await registerRoutes(app, httpServer);
 
     // Create an agent to maintain cookies
     agent = request.agent(app);
@@ -34,6 +37,13 @@ describe('File Upload API', () => {
         fullName: 'Upload Test Farmer',
         role: 'farmer',
       });
+  });
+
+  afterEach(() => {
+    // Close server if listening
+    if (httpServer && httpServer.listening) {
+      httpServer.close();
+    }
   });
 
   describe('POST /api/upload', () => {

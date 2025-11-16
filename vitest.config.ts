@@ -6,8 +6,12 @@ export default defineConfig({
   plugins: [react()],
   test: {
     globals: true,
-    environment: 'jsdom',
-    setupFiles: ['./client/src/tests/setup.ts'],
+    // Use jsdom for client tests, node for server tests
+    environmentMatchGlobs: [
+      ['client/src/**', 'jsdom'],
+      ['server/**', 'node'],
+    ],
+    setupFiles: ['./server/tests/setup.ts', './client/src/tests/setup.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
