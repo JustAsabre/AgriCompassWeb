@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth";
 import { ShieldCheck, User, MapPin, Calendar, FileText, CheckCircle, XCircle, Clock } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
@@ -33,12 +34,14 @@ interface Verification {
 export default function VerificationsList() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [selectedVerification, setSelectedVerification] = useState<Verification | null>(null);
   const [reviewNotes, setReviewNotes] = useState("");
   const [reviewAction, setReviewAction] = useState<"approved" | "rejected" | null>(null);
 
   const { data: verifications, isLoading } = useQuery<Verification[]>({
-    queryKey: ["/api/verifications"],
+    queryKey: ["/api/verifications", user?.id],
+    enabled: !!user?.id,
   });
 
   const reviewMutation = useMutation({

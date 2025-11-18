@@ -106,6 +106,18 @@ export const messages = pgTable("messages", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Reviews
+export const reviews = pgTable("reviews", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  orderId: varchar("order_id").notNull().references(() => orders.id),
+  reviewerId: varchar("reviewer_id").notNull().references(() => users.id),
+  revieweeId: varchar("reviewee_id").notNull().references(() => users.id),
+  rating: integer("rating").notNull(), // 1-5 stars
+  comment: text("comment"),
+  approved: boolean("approved").default(true), // Admin moderation
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Zod schemas for validation
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -154,6 +166,15 @@ export const insertMessageSchema = createInsertSchema(messages).omit({
   read: true,
 });
 
+export const insertReviewSchema = createInsertSchema(reviews).omit({
+  id: true,
+  createdAt: true,
+  approved: true,
+}).extend({
+  rating: z.number().min(1).max(5),
+  comment: z.string().optional(),
+});
+
 // TypeScript types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -178,6 +199,9 @@ export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
+
+export type Review = typeof reviews.$inferSelect;
+export type InsertReview = z.infer<typeof insertReviewSchema>;
 
 // Extended types for frontend
 export type ListingWithFarmer = Listing & {
@@ -204,4 +228,15 @@ export type Conversation = {
   otherUser: User;
   lastMessage: Message;
   unreadCount: number;
+};
+
+export type ReviewWithUsers = Review & {
+  reviewer: User;
+  reviewee: User;
+  order?: OrderWithDetails;
+};
+
+export type UserWithRating = User & {
+  averageRating?: number;
+  reviewCount?: number;
 };

@@ -129,53 +129,12 @@ export function FileUpload({
           id="file-input"
           type="file"
           accept={accept}
-          multiple
+          multiple={maxFiles > 1}
           className="hidden"
           disabled={disabled || files.length >= maxFiles}
           onChange={(e) => handleFiles(e.target.files)}
         />
       </div>
-
-      {/* Preview Grid */}
-      {previews.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-          {previews.map((preview, index) => (
-            <div
-              key={index}
-              className="relative group aspect-square rounded-lg overflow-hidden border bg-muted"
-            >
-              <img
-                src={preview}
-                alt={`Preview ${index + 1}`}
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => removeFile(index)}
-                  disabled={disabled}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-              <div className="absolute bottom-0 left-0 right-0 bg-black/75 text-white text-xs p-1 truncate">
-                {files[index]?.name}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Empty State */}
-      {previews.length === 0 && (
-        <div className="text-center py-8 border rounded-lg border-dashed">
-          <ImageIcon className="h-12 w-12 mx-auto text-muted-foreground/50" />
-          <p className="mt-2 text-sm text-muted-foreground">No images uploaded yet</p>
-        </div>
-      )}
     </div>
   );
 }

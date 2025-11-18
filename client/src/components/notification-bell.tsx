@@ -52,7 +52,8 @@ export function NotificationBell() {
           setLocation(window.location.pathname.includes('farmer') ? '/farmer/dashboard' : '/buyer/dashboard');
           break;
         case "verification":
-          setLocation('/farmer/verification');
+          // Redirect to profile instead of verification request page
+          setLocation('/profile');
           break;
         case "message":
           setLocation('/messages');

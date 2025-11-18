@@ -243,7 +243,7 @@ export default function Landing() {
             </div>
           </div>
           <div className="pt-8 border-t text-center text-sm text-muted-foreground">
-            <p>&copy; 2024 Agricompass. All rights reserved.</p>
+            <p>&copy; 2025 Agricompass. All rights reserved.</p>
           </div>
         </div>
       </footer>

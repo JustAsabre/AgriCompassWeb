@@ -22,12 +22,16 @@ export default function BuyerDashboard() {
   const [, setLocation] = useLocation();
 
   const { data: orders, isLoading } = useQuery<OrderWithDetails[]>({
-    queryKey: ["/api/buyer/orders"],
+    queryKey: ["/api/buyer/orders", user?.id],
+    enabled: !!user?.id,
   });
 
   const pendingOrders = orders?.filter(o => o.status === "pending") || [];
   const completedOrders = orders?.filter(o => o.status === "completed") || [];
-  const totalSpent = completedOrders.reduce((sum, o) => sum + Number(o.totalPrice), 0);
+  const totalSpent = completedOrders.reduce((sum, o) => {
+    const price = Number(o.totalPrice);
+    return sum + (isNaN(price) ? 0 : price);
+  }, 0);
 
   const getOrderStatusBadge = (status: string) => {
     const variants = {
@@ -139,7 +143,12 @@ export default function BuyerDashboard() {
             ) : orders && orders.length > 0 ? (
               <div className="space-y-4">
                 {orders.map((order) => (
-                  <Card key={order.id} className="hover-elevate" data-testid={`card-order-${order.id}`}>
+                  <Card 
+                    key={order.id} 
+                    className="hover-elevate cursor-pointer transition-shadow" 
+                    data-testid={`card-order-${order.id}`}
+                    onClick={() => setLocation(`/orders/${order.id}`)}
+                  >
                     <CardContent className="p-6">
                       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                         <div className="flex-1 space-y-2">
@@ -161,7 +170,7 @@ export default function BuyerDashboard() {
                         <div className="text-right">
                           <p className="text-sm text-muted-foreground">Total</p>
                           <p className="text-2xl font-bold text-primary">
-                            ${order.totalPrice}
+                            ${(Number(order.totalPrice) || 0).toFixed(2)}
                           </p>
                         </div>
                       </div>
@@ -190,7 +199,11 @@ export default function BuyerDashboard() {
             {pendingOrders.length > 0 ? (
               <div className="space-y-4">
                 {pendingOrders.map((order) => (
-                  <Card key={order.id} className="hover-elevate">
+                  <Card 
+                    key={order.id} 
+                    className="hover-elevate cursor-pointer transition-shadow"
+                    onClick={() => setLocation(`/orders/${order.id}`)}
+                  >
                     <CardContent className="p-6">
                       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                         <div className="flex-1 space-y-2">
@@ -201,7 +214,7 @@ export default function BuyerDashboard() {
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-2xl font-bold text-primary">${order.totalPrice}</p>
+                          <p className="text-2xl font-bold text-primary">${(Number(order.totalPrice) || 0).toFixed(2)}</p>
                         </div>
                       </div>
                     </CardContent>
@@ -222,7 +235,11 @@ export default function BuyerDashboard() {
             {completedOrders.length > 0 ? (
               <div className="space-y-4">
                 {completedOrders.map((order) => (
-                  <Card key={order.id} className="hover-elevate">
+                  <Card 
+                    key={order.id} 
+                    className="hover-elevate cursor-pointer transition-shadow"
+                    onClick={() => setLocation(`/orders/${order.id}`)}
+                  >
                     <CardContent className="p-6">
                       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                         <div className="flex-1 space-y-2">
@@ -233,7 +250,7 @@ export default function BuyerDashboard() {
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-2xl font-bold text-primary">${order.totalPrice}</p>
+                          <p className="text-2xl font-bold text-primary">${(Number(order.totalPrice) || 0).toFixed(2)}</p>
                         </div>
                       </div>
                     </CardContent>

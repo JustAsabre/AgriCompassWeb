@@ -5,6 +5,17 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { 
   Plus, 
@@ -12,6 +23,7 @@ import {
   TrendingUp, 
   ShoppingBag,
   Edit,
+  Trash,
   MapPin,
   DollarSign,
   CheckCircle,
@@ -23,19 +35,27 @@ import {
 import { useAuth } from "@/lib/auth";
 import { Listing, OrderWithDetails } from "@shared/schema";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useEffect } from "react";
 
 export default function FarmerDashboard() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
+  // Refresh user data on mount to ensure verified status is up to date
+  useEffect(() => {
+    refreshUser();
+  }, []);
+
   const { data: listings, isLoading: listingsLoading } = useQuery<Listing[]>({
-    queryKey: ["/api/farmer/listings"],
+    queryKey: ["/api/farmer/listings", user?.id],
+    enabled: !!user?.id,
   });
 
   const { data: orders, isLoading: ordersLoading } = useQuery<OrderWithDetails[]>({
-    queryKey: ["/api/farmer/orders"],
+    queryKey: ["/api/farmer/orders", user?.id],
+    enabled: !!user?.id,
   });
 
   const updateOrderMutation = useMutation({
@@ -53,7 +73,7 @@ export default function FarmerDashboard() {
       return response.json();
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/farmer/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/farmer/orders", user?.id] });
       toast({
         title: "Order Updated",
         description: `Order ${variables.status === "accepted" ? "accepted" : "rejected"} successfully`,
@@ -68,10 +88,41 @@ export default function FarmerDashboard() {
     },
   });
 
+  const deleteListingMutation = useMutation({
+    mutationFn: async (listingId: string) => {
+      const response = await fetch(`/api/listings/${listingId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to delete listing");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/farmer/listings", user?.id] });
+      toast({
+        title: "Listing Deleted",
+        description: "The listing has been deleted successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const activeListings = listings?.filter(l => l.status === "active") || [];
   const totalRevenue = orders
     ?.filter(o => o.status === "completed")
-    .reduce((sum, o) => sum + Number(o.totalPrice), 0) || 0;
+    .reduce((sum, o) => {
+      const price = Number(o.totalPrice);
+      return sum + (isNaN(price) ? 0 : price);
+    }, 0) || 0;
   const pendingOrders = orders?.filter(o => o.status === "pending") || [];
 
   const getOrderStatusBadge = (status: string) => {
@@ -242,16 +293,49 @@ export default function FarmerDashboard() {
                         </div>
                       </div>
 
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="w-full"
-                        onClick={() => setLocation(`/farmer/edit-listing/${listing.id}`)}
-                        data-testid={`button-edit-${listing.id}`}
-                      >
-                        <Edit className="h-4 w-4 mr-2" />
-                        Edit Listing
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="flex-1"
+                          onClick={() => setLocation(`/farmer/edit-listing/${listing.id}`)}
+                          data-testid={`button-edit-${listing.id}`}
+                        >
+                          <Edit className="h-4 w-4 mr-2" />
+                          Edit
+                        </Button>
+                        
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              className="flex-1"
+                              data-testid={`button-delete-${listing.id}`}
+                            >
+                              <Trash className="h-4 w-4 mr-2" />
+                              Delete
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete Listing?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to delete "{listing.productName}"? This action cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => deleteListingMutation.mutate(listing.id)}
+                                className="bg-destructive hover:bg-destructive/90"
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
                     </CardContent>
                   </Card>
                 ))}
@@ -309,7 +393,7 @@ export default function FarmerDashboard() {
                           <div className="text-right">
                             <p className="text-sm text-muted-foreground">Total</p>
                             <p className="text-2xl font-bold text-primary">
-                              ${order.totalPrice}
+                              ${(Number(order.totalPrice) || 0).toFixed(2)}
                             </p>
                           </div>
                           {order.status === "pending" && (
@@ -335,6 +419,18 @@ export default function FarmerDashboard() {
                                 Reject
                               </Button>
                             </div>
+                          )}
+                          {order.status === "accepted" && (
+                            <Button 
+                              size="sm" 
+                              variant="default" 
+                              onClick={() => updateOrderMutation.mutate({ orderId: order.id, status: "delivered" })}
+                              disabled={updateOrderMutation.isPending}
+                              data-testid={`button-deliver-${order.id}`}
+                            >
+                              <Package className="h-4 w-4 mr-1" />
+                              Mark as Delivered
+                            </Button>
                           )}
                         </div>
                       </div>

@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/lib/auth";
 import { Mail, Phone, MapPin, ShieldCheck, Building, Sprout } from "lucide-react";
+import { RatingStars } from "@/components/rating-stars";
 
 export default function Profile() {
   const { user } = useAuth();
@@ -42,6 +43,17 @@ export default function Profile() {
                     <Badge variant="outline" className="text-sm">
                       {user.role.replace("_", " ").toUpperCase()}
                     </Badge>
+                    
+                    {/* Show rating for farmers */}
+                    {user.role === "farmer" && user.averageRating && user.reviewCount && user.reviewCount > 0 && (
+                      <div className="mt-3">
+                        <RatingStars 
+                          rating={user.averageRating} 
+                          reviewCount={user.reviewCount}
+                          size="lg"
+                        />
+                      </div>
+                    )}
                   </div>
 
                   <Separator />

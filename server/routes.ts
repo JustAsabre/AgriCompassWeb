@@ -1,11 +1,12 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
+import type { Server as SocketServer } from "socket.io";
 import { storage } from "./storage";
 import { hashPassword, comparePassword, sanitizeUser, SessionUser } from "./auth";
-import { insertUserSchema, insertListingSchema, insertOrderSchema, insertCartItemSchema } from "@shared/schema";
+import { insertUserSchema, insertListingSchema, insertOrderSchema, insertCartItemSchema, insertPricingTierSchema, insertReviewSchema } from "@shared/schema";
 import { sendPasswordResetEmail, sendWelcomeEmail } from "./email";
 import { upload, getFileUrl, deleteUploadedFile } from "./upload";
-import { io, sendNotificationToUser, broadcastNewListing } from "./socket";
+import { sendNotificationToUser, broadcastNewListing } from "./socket";
 import crypto from "crypto";
 
 // Middleware to require authentication
@@ -29,7 +30,7 @@ function requireRole(...roles: string[]) {
   };
 }
 
-export async function registerRoutes(app: Express, httpServer: Server): Promise<void> {
+export async function registerRoutes(app: Express, httpServer: Server, io: SocketServer): Promise<void> {
   // Authentication routes
   app.post("/api/auth/register", async (req, res) => {
     try {
@@ -348,6 +349,71 @@ export async function registerRoutes(app: Express, httpServer: Server): Promise<
     }
   });
 
+  // Get individual order details
+  app.get("/api/orders/:id", async (req, res) => {
+    try {
+      if (!req.session.user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const order = await storage.getOrderWithDetails(req.params.id);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      // Check if user is buyer or farmer of this order
+      const userId = req.session.user.id;
+      if (order.buyerId !== userId && order.farmerId !== userId) {
+        return res.status(403).json({ message: "Forbidden - Not your order" });
+      }
+
+      res.json(order);
+    } catch (error: any) {
+      console.error("Get order error:", error);
+      res.status(500).json({ message: "Failed to fetch order" });
+    }
+  });
+
+  // Update order status (cancel by buyer)
+  app.patch("/api/orders/:id", async (req, res) => {
+    try {
+      if (!req.session.user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const { status } = req.body;
+      const userId = req.session.user.id;
+
+      // Get order
+      const order = await storage.getOrder(req.params.id);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      // Buyers can only cancel their own pending orders
+      if (order.buyerId === userId && status === "cancelled" && order.status === "pending") {
+        const updated = await storage.updateOrderStatus(req.params.id, "cancelled");
+        
+        // Notify farmer
+        await sendNotificationToUser(io, order.farmerId, {
+          userId: order.farmerId,
+          type: "order_update",
+          title: "Order Cancelled",
+          message: `A buyer has cancelled their order`,
+          relatedId: order.id,
+          relatedType: "order",
+        });
+
+        return res.json(updated);
+      }
+
+      return res.status(403).json({ message: "Cannot update this order" });
+    } catch (error: any) {
+      console.error("Update order error:", error);
+      res.status(400).json({ message: error.message || "Update failed" });
+    }
+  });
+
   // Cart routes
   app.get("/api/cart", requireRole("buyer"), async (req, res) => {
     try {
@@ -368,6 +434,24 @@ export async function registerRoutes(app: Express, httpServer: Server): Promise<
         ...req.body,
         buyerId,
       });
+
+      // Validate against listing availability
+      const listing = await storage.getListing(data.listingId);
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+
+      if (data.quantity > listing.quantityAvailable) {
+        return res.status(400).json({ 
+          message: `Only ${listing.quantityAvailable} ${listing.unit} available` 
+        });
+      }
+
+      if (data.quantity < listing.minOrderQuantity) {
+        return res.status(400).json({ 
+          message: `Minimum order is ${listing.minOrderQuantity} ${listing.unit}` 
+        });
+      }
 
       const cartItem = await storage.addToCart(data);
       res.json(cartItem);
@@ -398,6 +482,39 @@ export async function registerRoutes(app: Express, httpServer: Server): Promise<
     }
   });
 
+  app.patch("/api/cart/:id", requireRole("buyer"), async (req, res) => {
+    try {
+      const buyerId = req.session.user!.id;
+      const { quantity } = req.body;
+
+      // Verify ownership
+      const item = await storage.getCartItem(req.params.id);
+      if (!item) {
+        return res.status(404).json({ message: "Cart item not found" });
+      }
+      if (item.buyerId !== buyerId) {
+        return res.status(403).json({ message: "Forbidden - Not your cart item" });
+      }
+
+      // Check listing availability
+      const listing = await storage.getListing(item.listingId);
+      if (!listing) {
+        return res.status(400).json({ message: "Listing no longer available" });
+      }
+      if (quantity > listing.quantityAvailable) {
+        return res.status(400).json({ 
+          message: `Only ${listing.quantityAvailable} ${listing.unit} available` 
+        });
+      }
+
+      const updated = await storage.updateCartQuantity(req.params.id, quantity);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Update cart quantity error:", error);
+      res.status(500).json({ message: "Failed to update cart quantity" });
+    }
+  });
+
   // Order routes
   app.post("/api/orders/checkout", requireRole("buyer"), async (req, res) => {
     try {
@@ -410,10 +527,50 @@ export async function registerRoutes(app: Express, httpServer: Server): Promise<
         return res.status(400).json({ message: "Cart is empty" });
       }
 
+      // Validate all cart items before creating orders
+      for (const item of cartItems) {
+        const listing = await storage.getListing(item.listingId);
+        if (!listing) {
+          return res.status(400).json({ 
+            message: `Listing ${item.listing.productName} no longer available` 
+          });
+        }
+        
+        if (item.quantity > listing.quantityAvailable) {
+          return res.status(400).json({ 
+            message: `Only ${listing.quantityAvailable} ${listing.unit} of ${listing.productName} available` 
+          });
+        }
+      }
+
       // Create orders (one per cart item)
       const orders = [];
       for (const item of cartItems) {
-        const totalPrice = (Number(item.listing.price) * item.quantity).toFixed(2);
+        // Calculate tier-based pricing
+        const tiers = await storage.getPricingTiersByListing(item.listingId);
+        let pricePerUnit = Number(item.listing.price);
+        
+        // Validate base price
+        if (isNaN(pricePerUnit) || !item.listing.price) {
+          console.error(`Invalid base price for listing ${item.listingId}:`, item.listing.price);
+          return res.status(500).json({ 
+            message: `Invalid price for ${item.listing.productName}` 
+          });
+        }
+        
+        if (tiers && tiers.length > 0) {
+          // Sort tiers by minQuantity descending to find the highest applicable tier
+          const sortedTiers = [...tiers].sort((a, b) => b.minQuantity - a.minQuantity);
+          const applicableTier = sortedTiers.find(tier => item.quantity >= tier.minQuantity);
+          if (applicableTier && applicableTier.price) {
+            const tierPrice = Number(applicableTier.price);
+            if (!isNaN(tierPrice)) {
+              pricePerUnit = tierPrice;
+            }
+          }
+        }
+        
+        const totalPrice = (pricePerUnit * item.quantity).toFixed(2);
         
         const order = await storage.createOrder({
           buyerId,
@@ -467,6 +624,7 @@ export async function registerRoutes(app: Express, httpServer: Server): Promise<
       const statusMessages: Record<string, string> = {
         accepted: "Your order has been accepted",
         rejected: "Your order has been rejected",
+        delivered: "Your order has been delivered - please confirm receipt",
         completed: "Your order has been completed",
         cancelled: "Your order has been cancelled",
       };
@@ -492,6 +650,45 @@ export async function registerRoutes(app: Express, httpServer: Server): Promise<
     }
   });
 
+  // Buyer confirms receipt of delivery
+  app.patch("/api/orders/:id/complete", requireRole("buyer"), async (req, res) => {
+    try {
+      const buyerId = req.session.user!.id;
+
+      // Verify ownership
+      const order = await storage.getOrder(req.params.id);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      if (order.buyerId !== buyerId) {
+        return res.status(403).json({ message: "Forbidden - Not your order" });
+      }
+      if (order.status !== "delivered") {
+        return res.status(400).json({ message: "Order must be delivered before completion" });
+      }
+
+      const updated = await storage.updateOrderStatus(req.params.id, "completed");
+
+      // Notify farmer about completion
+      const orderDetails = await storage.getOrderWithDetails(req.params.id);
+      if (orderDetails) {
+        await sendNotificationToUser(io, order.farmerId, {
+          userId: order.farmerId,
+          type: "order_update",
+          title: "Order Completed",
+          message: `Order for ${orderDetails.listing.productName} has been confirmed as received`,
+          relatedId: order.id,
+          relatedType: "order",
+        });
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Complete order error:", error);
+      res.status(400).json({ message: "Failed to complete order" });
+    }
+  });
+
   // ====================
   // VERIFICATION ROUTES
   // ====================
@@ -499,12 +696,12 @@ export async function registerRoutes(app: Express, httpServer: Server): Promise<
   // Get all verifications for field officers
   app.get("/api/verifications", requireRole("field_officer"), async (req: Request, res: Response) => {
     try {
-      const officerId = req.session.user!.id;
-      const verifications = await storage.getVerificationsByOfficer(officerId);
+      // Get ALL verifications, not just ones assigned to this officer
+      const allVerifications = Array.from((storage as any).verifications.values());
       
       // Fetch farmer details for each verification
       const verificationsWithFarmers = await Promise.all(
-        verifications.map(async (v) => {
+        allVerifications.map(async (v: any) => {
           const farmer = await storage.getUser(v.farmerId);
           if (!farmer) return null;
           
@@ -1070,6 +1267,231 @@ export async function registerRoutes(app: Express, httpServer: Server): Promise<
     } catch (error: any) {
       console.error("Get officer analytics error:", error);
       res.status(500).json({ message: "Failed to fetch analytics" });
+    }
+  });
+
+  // ==================== PRICING TIERS ROUTES ====================
+
+  // Get pricing tiers for a listing
+  app.get("/api/listings/:id/pricing-tiers", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const tiers = await storage.getPricingTiersByListing(id);
+      res.json(tiers);
+    } catch (error: any) {
+      console.error("Get pricing tiers error:", error);
+      res.status(500).json({ message: "Failed to fetch pricing tiers" });
+    }
+  });
+
+  // Create pricing tier (farmer only)
+  app.post("/api/listings/:id/pricing-tiers", requireRole("farmer"), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const farmerId = req.session.user!.id;
+
+      // Verify listing ownership
+      const listing = await storage.getListing(id);
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+      if (listing.farmerId !== farmerId) {
+        return res.status(403).json({ message: "Not authorized to modify this listing" });
+      }
+
+      const data = insertPricingTierSchema.parse({ ...req.body, listingId: id });
+      
+      // Validate pricing tier
+      if (data.minQuantity < 1) {
+        return res.status(400).json({ message: "Minimum quantity must be at least 1" });
+      }
+
+      // Check if tier with same minQuantity already exists
+      const existingTiers = await storage.getPricingTiersByListing(id);
+      if (existingTiers.some(t => t.minQuantity === data.minQuantity)) {
+        return res.status(400).json({ message: "A tier with this minimum quantity already exists" });
+      }
+
+      const tier = await storage.createPricingTier(data);
+      res.status(201).json(tier);
+    } catch (error: any) {
+      console.error("Create pricing tier error:", error);
+      res.status(400).json({ message: error.message || "Failed to create pricing tier" });
+    }
+  });
+
+  // Delete pricing tier (farmer only)
+  app.delete("/api/pricing-tiers/:id", requireRole("farmer"), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const deleted = await storage.deletePricingTier(id);
+      
+      if (!deleted) {
+        return res.status(404).json({ message: "Pricing tier not found" });
+      }
+
+      res.json({ message: "Pricing tier deleted successfully" });
+    } catch (error: any) {
+      console.error("Delete pricing tier error:", error);
+      res.status(500).json({ message: "Failed to delete pricing tier" });
+    }
+  });
+
+  // ==================== REVIEWS ROUTES ====================
+
+  // Get reviews for a user (reviewee)
+  app.get("/api/reviews/user/:userId", async (req: Request, res: Response) => {
+    try {
+      const { userId } = req.params;
+      const reviews = await storage.getReviewsByReviewee(userId);
+      const rating = await storage.getAverageRating(userId);
+      
+      res.json({
+        reviews,
+        averageRating: rating.average,
+        reviewCount: rating.count,
+      });
+    } catch (error: any) {
+      console.error("Get user reviews error:", error);
+      res.status(500).json({ message: "Failed to fetch reviews" });
+    }
+  });
+
+  // Get all reviews (admin only)
+  app.get("/api/reviews", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const reviews = await storage.getAllReviews();
+      res.json(reviews);
+    } catch (error: any) {
+      console.error("Get all reviews error:", error);
+      res.status(500).json({ message: "Failed to fetch reviews" });
+    }
+  });
+
+  // Get review by order ID (check if user already reviewed)
+  app.get("/api/reviews/order/:orderId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { orderId } = req.params;
+      const userId = req.session.user!.id;
+
+      const reviews = await storage.getReviewsByOrder(orderId);
+      const userReview = reviews.find(r => r.reviewerId === userId);
+
+      if (!userReview) {
+        return res.status(404).json({ message: "No review found" });
+      }
+
+      res.json(userReview);
+    } catch (error) {
+      console.error("Error fetching order review:", error);
+      res.status(500).json({ message: "Failed to fetch review" });
+    }
+  });
+
+  // Create review (after order completion)
+  app.post("/api/reviews/order/:orderId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { orderId } = req.params;
+      const reviewerId = req.session.user!.id;
+
+      // Get order details
+      const order = await storage.getOrderWithDetails(orderId);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      // Check if user is part of this order
+      if (order.buyerId !== reviewerId && order.farmerId !== reviewerId) {
+        return res.status(403).json({ message: "Not authorized to review this order" });
+      }
+
+      // Check if order is completed
+      if (order.status !== "completed") {
+        return res.status(400).json({ message: "Can only review completed orders" });
+      }
+
+      // Check if review already exists
+      const existingReviews = await storage.getReviewsByOrder(orderId);
+      if (existingReviews.some(r => r.reviewerId === reviewerId)) {
+        return res.status(400).json({ message: "You have already reviewed this order" });
+      }
+
+      // Determine reviewee (buyer reviews farmer, farmer reviews buyer)
+      const revieweeId = reviewerId === order.buyerId ? order.farmerId : order.buyerId;
+
+      const data = insertReviewSchema.parse({
+        ...req.body,
+        orderId,
+        reviewerId,
+        revieweeId,
+      });
+
+      const review = await storage.createReview(data);
+
+      // Notify reviewee about new review
+      await sendNotificationToUser(io, revieweeId, {
+        userId: revieweeId,
+        type: "order_update",
+        title: "New Review Received",
+        message: `You received a ${data.rating}-star review`,
+        relatedId: review.id,
+        relatedType: "review",
+      });
+
+      res.status(201).json(review);
+    } catch (error: any) {
+      console.error("Create review error:", error);
+      res.status(400).json({ message: error.message || "Failed to create review" });
+    }
+  });
+
+  // Update review approval (admin only)
+  app.patch("/api/reviews/:id/approve", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { approved } = req.body;
+
+      const review = await storage.updateReview(id, { approved });
+      if (!review) {
+        return res.status(404).json({ message: "Review not found" });
+      }
+
+      res.json(review);
+    } catch (error: any) {
+      console.error("Update review approval error:", error);
+      res.status(500).json({ message: "Failed to update review" });
+    }
+  });
+
+  // Delete review (admin only or review owner)
+  app.delete("/api/reviews/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const userId = req.session.user!.id;
+      const userRole = req.session.user!.role;
+
+      // Get review to check ownership
+      const reviews = await storage.getAllReviews();
+      const review = reviews.find(r => r.id === id);
+      
+      if (!review) {
+        return res.status(404).json({ message: "Review not found" });
+      }
+
+      // Only admin or review owner can delete
+      if (userRole !== "admin" && review.reviewerId !== userId) {
+        return res.status(403).json({ message: "Not authorized to delete this review" });
+      }
+
+      const deleted = await storage.deleteReview(id);
+      if (!deleted) {
+        return res.status(404).json({ message: "Review not found" });
+      }
+
+      res.json({ message: "Review deleted successfully" });
+    } catch (error: any) {
+      console.error("Delete review error:", error);
+      res.status(500).json({ message: "Failed to delete review" });
     }
   });
 }

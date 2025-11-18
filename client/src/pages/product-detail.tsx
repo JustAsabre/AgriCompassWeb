@@ -25,6 +25,8 @@ import { ListingWithFarmer } from "@shared/schema";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { PricingTierDisplay } from "@/components/pricing-tier-display";
+import { RatingStars } from "@/components/rating-stars";
 
 export default function ProductDetail() {
   const { id } = useParams();
@@ -37,9 +39,29 @@ export default function ProductDetail() {
     queryKey: ["/api/listings", id],
   });
 
-  const addToCartMutation = useMutation({
+  // Fetch pricing tiers
+  const { data: pricingTiers = [] } = useQuery({
+    queryKey: [`/api/listings/${id}/pricing-tiers`],
+    enabled: !!id,
+  });
+
+    const addToCartMutation = useMutation({
     mutationFn: async (data: { listingId: string; quantity: number }) => {
-      return apiRequest("POST", "/api/cart", data);
+      // Validate quantity
+      if (!listing) return;
+      
+      if (data.quantity > listing.quantityAvailable) {
+        throw new Error(`Only ${listing.quantityAvailable} ${listing.unit} available`);
+      }
+      
+      if (data.quantity < listing.minOrderQuantity) {
+        throw new Error(`Minimum order is ${listing.minOrderQuantity} ${listing.unit}`);
+      }
+
+      return apiRequest("POST", "/api/cart", {
+        listingId: data.listingId,
+        quantity: data.quantity,
+      });
     },
     onSuccess: () => {
       toast({
@@ -48,10 +70,10 @@ export default function ProductDetail() {
       });
       queryClient.invalidateQueries({ queryKey: ["/api/cart"] });
     },
-    onError: () => {
+    onError: (error: Error) => {
       toast({
         title: "Error",
-        description: "Failed to add to cart. Please try again.",
+        description: error.message || "Failed to add to cart. Please try again.",
         variant: "destructive",
       });
     },
@@ -205,24 +227,16 @@ export default function ProductDetail() {
               </div>
             </div>
 
-            {listing.pricingTiers && listing.pricingTiers.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Bulk Pricing</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {listing.pricingTiers.map((tier, idx) => (
-                      <div key={idx} className="flex justify-between items-center">
-                        <span className="text-sm">
-                          {tier.minQuantity}+ {listing.unit}
-                        </span>
-                        <span className="font-semibold">${tier.price}/{listing.unit}</span>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
+            <Separator />
+
+            {/* Pricing Tiers Display */}
+            {pricingTiers.length > 0 && (
+              <PricingTierDisplay 
+                basePrice={parseFloat(listing.price)}
+                tiers={pricingTiers}
+                unit={listing.unit}
+                selectedQuantity={quantity}
+              />
             )}
 
             <Separator />
@@ -262,7 +276,7 @@ export default function ProductDetail() {
                     size="lg"
                     variant="outline"
                     className="w-full"
-                    onClick={() => setLocation(`/messages?user=${listing.farmer.id}`)}
+                    onClick={() => setLocation(`/messages?user=${listing.farmer.id}&name=${encodeURIComponent(listing.farmer.fullName)}&role=${listing.farmer.role}`)}
                     data-testid="button-contact-farmer"
                   >
                     <MessageCircle className="h-5 w-5 mr-2" />
@@ -318,6 +332,18 @@ export default function ProductDetail() {
                         </Badge>
                       )}
                     </div>
+                    
+                    {/* Farmer Rating */}
+                    {listing.farmer.averageRating && listing.farmer.reviewCount && listing.farmer.reviewCount > 0 && (
+                      <div className="mb-2">
+                        <RatingStars 
+                          rating={listing.farmer.averageRating} 
+                          reviewCount={listing.farmer.reviewCount}
+                          size="md"
+                        />
+                      </div>
+                    )}
+                    
                     <p className="text-sm text-muted-foreground">
                       {listing.farmer.region}
                     </p>

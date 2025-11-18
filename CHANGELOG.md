@@ -7,9 +7,224 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Planned for Next Release
 - Password reset functionality
-- Bulk pricing system for listings
-- Order success/receipt page
-- Ratings and reviews system
+- Email order confirmations
+- Admin review moderation UI
+- Display average ratings on profiles and marketplace
+
+---
+
+## [0.8.0] - 2025-01-XX
+### Added - Bulk Pricing & Reviews System (Sprint 2 + 4)
+- **Bulk Pricing System**
+  - Farmers can add up to 5 pricing tiers per listing
+  - Each tier specifies minimum quantity and discounted price
+  - API endpoints: GET/POST/DELETE `/api/listings/:id/pricing-tiers`
+  - PricingTierForm component for managing tiers in create-listing page
+  - PricingTierDisplay component shows bulk discounts with savings calculations
+  - Cart automatically applies best tier pricing based on quantity
+  - Real-time price updates and savings badges in cart
+  - Duplicate minQuantity validation to prevent conflicts
+
+- **Ratings & Reviews System**
+  - Complete reviews database schema (orderId, reviewerId, revieweeId, rating, comment, approved)
+  - Bidirectional reviews: buyers review farmers, farmers review buyers
+  - Reviews tied to completed orders (prevents spam)
+  - API endpoints: 
+    - GET `/api/reviews/user/:userId` - Get user's reviews with average rating
+    - GET `/api/reviews/order/:orderId` - Check if review exists for order
+    - POST `/api/reviews/order/:orderId` - Create review after order completion
+    - PATCH `/api/reviews/:id/approve` - Admin moderation (admin only)
+    - DELETE `/api/reviews/:id` - Delete review (admin only)
+  - ReviewForm component with interactive star rating and comment field
+  - ReviewDisplay component with rating distribution bars and average score
+  - Integrated review submission in order-detail page for completed orders
+  - Admin moderation flag for content control
+  - Average rating calculation rounded to 1 decimal
+
+### Technical Implementation
+- **Database**: Added pricing_tiers and reviews tables to schema
+- **Storage Layer**: 10 new methods (7 review methods, 3 pricing tier methods)
+- **Validation**: Zod schemas for pricing tiers and reviews
+- **Type Safety**: TypeScript types for Review, PricingTier, ReviewWithUsers, UserWithRating
+- **Real-time**: Socket.IO notifications for new reviews
+- **Components**: 4 new React components (PricingTierForm, PricingTierDisplay, ReviewForm, ReviewDisplay)
+
+---
+
+## [0.7.2] - 2025-11-16
+### Fixed - Sprint 3 Final Bug Fixes
+- **Regional Listing Notifications**
+  - **CRITICAL FIX**: Fixed Socket.IO instance not being initialized when imported
+  - Changed `registerRoutes` to receive `io` as parameter instead of importing from socket.ts
+  - Regional notifications now working - buyers receive notifications for new listings in their area
+  - Region matching uses partial string matching (buyer.region ↔ listing.location/farmer.region)
+  
+- **Contact Farmer Functionality**
+  - Fixed "Contact Farmer" buttons in order detail and order success pages
+  - Buttons now properly pass farmer information via URL parameters
+  - Consistent with marketplace listing contact farmer behavior
+  
+- **Delete Listing Feature**
+  - Added delete listing functionality to farmer dashboard
+  - Includes confirmation dialog before deletion
+  - Properly invalidates queries after successful deletion
+  
+- **Image Upload System**
+  - Simplified to single image upload (maxFiles=1)
+  - Fixed image preview display after upload
+  - Fixed remove button to properly clear imageUrl field
+  - Removed conflicting preview sections from FileUpload component
+  - Using form.watch('imageUrl') for preview rendering
+  
+- **Form Type Conversions**
+  - Fixed integer field submission (quantityAvailable, minOrderQuantity)
+  - Changed from Number() to parseInt() with base 10
+  - Ensures proper integer conversion before server validation
+
+### Technical Improvements
+- Cleaned up debug logging from production code
+- Improved Socket.IO initialization order
+- Better parameter passing for dependency injection
+- All Sprint 3 tests passing
+
+---
+
+## [0.7.1] - 2025-11-16
+### Fixed - Sprint 3 Bug Fixes (Phase 1)
+- **Cart Validation**
+  - Added client-side quantity validation in product detail page
+  - Added server-side validation in cart and checkout endpoints
+  - Prevents adding more than available quantity
+  - Enforces minimum order quantity requirements
+  - Shows helpful error messages when validation fails
+  - **CRITICAL FIX**: Fixed add to cart mutation to accept parameters
+  - Fixed undefined variable reference (`params` → `id`)
+  - Improved error message display in cart operations
+  
+- **Edit Listing Functionality**
+  - Fixed `/farmer/edit-listing/:id` route to properly load existing data
+  - Added useRoute hook to detect edit mode
+  - Added useQuery to fetch existing listing data
+  - Added useEffect to populate form with fetched data
+  - Mutation now uses PATCH for updates, POST for new listings
+  - Added loading state while fetching listing data
+  - Dynamic UI labels (Create vs Edit)
+  
+- **Notification Actions**
+  - Enhanced markAllAsRead with response validation
+  - Enhanced deleteNotification with response validation
+  - Added await for query invalidations to ensure UI updates
+  - Improved error handling with console logging
+  
+- **Print Receipt Layout**
+  - Added `print:hidden` class to header/navbar
+  - Prevents navigation elements from appearing in printed receipts
+  - Improved print styles for order details and success pages
+  
+- **Cart Badge Persistence**
+  - Fixed cart count showing items after successful checkout
+  - Made checkout onSuccess handler async
+  - Added await for query invalidations before redirect
+  - Ensures cart is cleared and UI updates before navigation
+  
+- **Checkout Validation**
+  - Added validation of all cart items before creating orders
+  - Prevents overselling by checking availability at checkout time
+  - Returns helpful error messages for out-of-stock items
+  - Validates each item individually for accuracy
+
+- **Image Upload & Form Validation**
+  - Fixed form breaking after deleting images with upload errors
+  - Added better error messages for image upload failures
+  - Improved numeric field validation to prevent type mismatches
+  - Added preview gallery for uploaded images with remove buttons
+  - **CRITICAL FIX**: Fixed image deletion not removing images from preview
+  - Added proper key prop to image list for React re-rendering
+  - Added preventDefault and stopPropagation to delete button
+  - Added shouldValidate and shouldDirty flags to form.setValue for proper validation
+  - Image URL field now properly clears when all images are deleted
+  - Fixed image URL field showing old value after deletion
+  - **CRITICAL FIX**: Corrected type mismatch in listing creation
+    - Drizzle's `createInsertSchema` converts `integer` → `z.number()` and `decimal` → `z.string()`
+    - Server expects: `price` as string (decimal field), `quantityAvailable` & `minOrderQuantity` as numbers (integer fields)
+    - Fixed client form schema to use `z.coerce.number()` for integer fields
+    - Form now correctly sends price as string and quantities as numbers
+    - Resolved all "Expected number, received string" validation errors
+  - Better error recovery when upload fails
+  - Uploaded images now show in preview with functional delete buttons (hover to see delete button)
+
+- **Registration Form Validation**
+  - Fixed optional fields (phone, businessName, farmSize) validation
+  - Optional fields now accept empty strings without validation errors
+  - Added proper validation messages for required fields (email, confirmPassword)
+  - Improved user experience for conditional fields based on role
+
+- **Contact Farmer / Messaging**
+  - Fixed "Contact Farmer" button not opening chat with farmer
+  - Passes farmer information via URL parameters to messages page
+  - Messages page now handles new conversations without existing chat history
+  - User data stored in session storage for seamless conversation initialization
+  - Automatic cleanup of URL parameters after conversation is loaded
+  - Supports starting conversations from product detail pages
+
+### Technical Improvements
+- Enhanced error handling in notification functions
+- Improved query invalidation patterns for real-time updates
+- Better async/await patterns for data consistency
+- Robust form state management with type safety
+- **CRITICAL DISCOVERY**: Documented Drizzle ORM's `createInsertSchema` type conversion behavior:
+  - `integer` fields → `z.number()` in Zod schema
+  - `decimal` fields → `z.string()` in Zod schema (preserves precision)
+  - This affects all forms that submit to Drizzle-validated endpoints
+  - Forms must match these type expectations to avoid validation errors
+
+---
+
+## [0.7.0] - 2025-11-16
+### Added - Sprint 3: Order Experience Enhancement
+- **Order Success Page** (`/order-success`)
+  - Beautiful confirmation page displayed after checkout
+  - Shows order summary with all purchased items
+  - Displays farmer information for each order
+  - "What Happens Next" timeline explaining the order process
+  - Download receipt and contact farmers buttons
+  - Print-friendly layout
+  
+- **Order Detail Page** (`/orders/:id`)
+  - Comprehensive order view with full details
+  - Interactive status timeline showing order progress
+  - Product details with images and pricing
+  - Farmer contact information
+  - Cancel order functionality for pending orders
+  - Print-ready receipt layout
+  - Permission checks (buyers and farmers can view relevant orders)
+  
+- **API Endpoints**
+  - `GET /api/orders/:id` - Get individual order details
+  - `PATCH /api/orders/:id` - Cancel pending orders
+  - Both endpoints include permission validation
+  
+- **Real-time Data Updates**
+  - Auto-refresh of orders when notifications arrive
+  - No page refresh needed for new orders
+  - Real-time updates for messages, verifications, and listings
+
+- **Farmer Routes**
+  - `/farmer/edit-listing/:id` - Edit existing listings
+
+### Changed
+- Checkout flow now redirects to order success page instead of dashboard
+- Order cards in buyer dashboard are now clickable
+- Improved print styles for receipts and order details
+- Enhanced notification system to auto-invalidate related queries
+- **BREAKING:** `apiRequest` now returns parsed JSON data instead of Response object
+
+### Fixed
+- Print layout for order receipts (removed shadows, adjusted spacing)
+- Real-time notifications now trigger data refresh automatically
+- Checkout redirect to order success page (was returning Response instead of JSON)
+- Farmer edit listing 404 error (route was missing)
+- Added debugging logs for checkout flow
 
 ---
 

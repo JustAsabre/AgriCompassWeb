@@ -11,7 +11,7 @@ export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
-): Promise<Response> {
+): Promise<any> {
   const headers: Record<string, string> = {};
   
   if (data) {
@@ -26,6 +26,12 @@ export async function apiRequest(
   });
 
   await throwIfResNotOk(res);
+  
+  // Return JSON data instead of Response object
+  const contentType = res.headers.get("content-type");
+  if (contentType && contentType.includes("application/json")) {
+    return await res.json();
+  }
   return res;
 }
 
@@ -35,7 +41,10 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
+    // Only use the first element of queryKey as the URL
+    // Additional elements are for cache differentiation only
+    const url = queryKey[0] as string;
+    const res = await fetch(url, {
       credentials: "include", // Important: Send session cookie
     });
 

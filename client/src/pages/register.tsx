@@ -14,15 +14,15 @@ import { Sprout } from "lucide-react";
 import { Link } from "wouter";
 
 const registerSchema = z.object({
-  email: z.string().email("Please enter a valid email"),
+  email: z.string().min(1, "Email is required").email("Please enter a valid email"),
   password: z.string().min(6, "Password must be at least 6 characters"),
-  confirmPassword: z.string(),
+  confirmPassword: z.string().min(1, "Please confirm your password"),
   fullName: z.string().min(2, "Full name is required"),
-  phone: z.string().optional(),
+  phone: z.string().optional().or(z.literal("")),
   role: z.enum(["farmer", "buyer", "field_officer"]),
   region: z.string().min(2, "Region is required"),
-  businessName: z.string().optional(),
-  farmSize: z.string().optional(),
+  businessName: z.string().optional().or(z.literal("")),
+  farmSize: z.string().optional().or(z.literal("")),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],

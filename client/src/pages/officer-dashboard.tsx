@@ -14,17 +14,20 @@ import {
   Phone,
   Mail,
   FileText,
-  TrendingUp
+  TrendingUp,
+  Star
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { User as UserType } from "@shared/schema";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 
 export default function OfficerDashboard() {
   const { user } = useAuth();
+  const [, setLocation] = useLocation();
 
   const { data: farmers, isLoading } = useQuery<UserType[]>({
-    queryKey: ["/api/officer/farmers"],
+    queryKey: ["/api/officer/farmers", user?.id],
+    enabled: !!user?.id,
   });
 
   const verifiedFarmers = farmers?.filter(f => f.verified) || [];
@@ -46,6 +49,12 @@ export default function OfficerDashboard() {
               <Button variant="outline" className="gap-2">
                 <TrendingUp className="h-4 w-4" />
                 View Analytics
+              </Button>
+            </Link>
+            <Link href="/officer/reviews">
+              <Button variant="outline" className="gap-2">
+                <Star className="h-4 w-4" />
+                Review Moderation
               </Button>
             </Link>
             <Link href="/officer/verifications">
@@ -155,16 +164,14 @@ export default function OfficerDashboard() {
                             )}
                           </div>
                         </div>
-                        <div className="flex gap-2">
-                          <Button size="sm" variant="default" data-testid={`button-verify-${farmer.id}`}>
-                            <CheckCircle className="h-4 w-4 mr-2" />
-                            Verify
-                          </Button>
-                          <Button size="sm" variant="destructive" data-testid={`button-reject-${farmer.id}`}>
-                            <XCircle className="h-4 w-4 mr-2" />
-                            Reject
-                          </Button>
-                        </div>
+                        <Button
+                          size="sm"
+                          variant="default"
+                          onClick={() => setLocation("/officer/verifications")}
+                          data-testid={`button-review-${farmer.id}`}
+                        >
+                          Review Application
+                        </Button>
                       </div>
                     </CardContent>
                   </Card>

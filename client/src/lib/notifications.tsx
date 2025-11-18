@@ -24,13 +24,13 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   // Fetch notifications
   const { data: notifications = [] } = useQuery<Notification[]>({
-    queryKey: ["/api/notifications"],
+    queryKey: ["/api/notifications", user?.id],
     enabled: !!user,
   });
 
   // Fetch unread count
   const { data: unreadData } = useQuery<{ count: number }>({
-    queryKey: ["/api/notifications/unread-count"],
+    queryKey: ["/api/notifications/unread-count", user?.id],
     enabled: !!user,
   });
 
@@ -46,13 +46,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     });
 
     newSocket.on("connect", () => {
-      console.log("Socket connected");
       setIsConnected(true);
       newSocket.emit("authenticate", user.id);
     });
 
     newSocket.on("disconnect", () => {
-      console.log("Socket disconnected");
       setIsConnected(false);
     });
 
@@ -60,6 +58,18 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     newSocket.on("new_notification", (notification: Notification) => {
       queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
       queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
+      
+      // Auto-refresh relevant data based on notification type
+      if (notification.type === "order_update") {
+        queryClient.invalidateQueries({ queryKey: ["/api/buyer/orders"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/farmer/orders"] });
+      } else if (notification.type === "message") {
+        queryClient.invalidateQueries({ queryKey: ["/api/messages/conversations"] });
+      } else if (notification.type === "verification_update") {
+        queryClient.invalidateQueries({ queryKey: ["/api/farmer/verification"] });
+      } else if (notification.type === "new_listing") {
+        queryClient.invalidateQueries({ queryKey: ["/api/listings"] });
+      }
     });
 
     // Listen for new listings
@@ -94,12 +104,17 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   const markAllAsRead = async () => {
     try {
-      await fetch("/api/notifications/mark-all-read", {
+      const response = await fetch("/api/notifications/mark-all-read", {
         method: "PATCH",
         credentials: "include",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
+      
+      if (!response.ok) {
+        throw new Error("Failed to mark notifications as read");
+      }
+      
+      await queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
     } catch (error) {
       console.error("Failed to mark all notifications as read:", error);
     }
@@ -107,12 +122,17 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   const deleteNotification = async (id: string) => {
     try {
-      await fetch(`/api/notifications/${id}`, {
+      const response = await fetch(`/api/notifications/${id}`, {
         method: "DELETE",
         credentials: "include",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
+      
+      if (!response.ok) {
+        throw new Error("Failed to delete notification");
+      }
+      
+      await queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
     } catch (error) {
       console.error("Failed to delete notification:", error);
     }

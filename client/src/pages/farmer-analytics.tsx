@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
+import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -35,9 +36,11 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
 export default function FarmerAnalytics() {
   const [, setLocation] = useLocation();
+  const { user } = useAuth();
 
   const { data: analytics, isLoading } = useQuery<FarmerAnalytics>({
-    queryKey: ["/api/analytics/farmer"],
+    queryKey: ["/api/analytics/farmer", user?.id],
+    enabled: !!user?.id,
   });
 
   if (isLoading) {

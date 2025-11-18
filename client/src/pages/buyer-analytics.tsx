@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ShoppingBag, CheckCircle, Clock, XCircle, DollarSign, TrendingDown } from "lucide-react";
@@ -15,8 +16,11 @@ interface BuyerAnalytics {
 }
 
 export default function BuyerAnalytics() {
+  const { user } = useAuth();
+  
   const { data: analytics, isLoading } = useQuery<BuyerAnalytics>({
-    queryKey: ["/api/analytics/buyer"],
+    queryKey: ["/api/analytics/buyer", user?.id],
+    enabled: !!user?.id,
   });
 
   if (isLoading) {

@@ -29,6 +29,17 @@ export default function Messages() {
     const userId = urlParams.get('user');
     if (userId) {
       setSelectedConversation(userId);
+      // Store user info from URL params if provided
+      const userName = urlParams.get('name');
+      const userRole = urlParams.get('role');
+      if (userName && userRole) {
+        // Store in session storage for this user
+        sessionStorage.setItem(`user_${userId}`, JSON.stringify({
+          id: userId,
+          fullName: decodeURIComponent(userName),
+          role: userRole
+        }));
+      }
       // Clean up URL
       window.history.replaceState({}, '', '/messages');
     }
@@ -36,19 +47,33 @@ export default function Messages() {
 
   // Fetch conversations list
   const { data: conversations, isLoading: conversationsLoading } = useQuery<Conversation[]>({
-    queryKey: ["/api/messages/conversations"],
+    queryKey: ["/api/messages/conversations", user?.id],
+    enabled: !!user?.id,
   });
 
-  // Fetch user data for selected conversation if not in conversations list
-  const { data: selectedUserData } = useQuery<any>({
-    queryKey: ["/api/user", selectedConversation],
-    enabled: !!selectedConversation && !conversations?.find(c => c.otherUser.id === selectedConversation),
-  });
+  // Get user data from conversations or session storage
+  const getUserData = () => {
+    if (!selectedConversation) return null;
+    
+    // Try to find in conversations first
+    const fromConversations = conversations?.find(c => c.otherUser.id === selectedConversation)?.otherUser;
+    if (fromConversations) return fromConversations;
+    
+    // Try to get from session storage
+    const stored = sessionStorage.getItem(`user_${selectedConversation}`);
+    if (stored) {
+      return JSON.parse(stored);
+    }
+    
+    return null;
+  };
+  
+  const selectedUserData = getUserData();
 
   // Fetch messages for selected conversation
   const { data: messages, isLoading: messagesLoading } = useQuery<MessageWithUsers[]>({
-    queryKey: ["/api/messages", selectedConversation],
-    enabled: !!selectedConversation,
+    queryKey: ["/api/messages", user?.id, selectedConversation],
+    enabled: !!selectedConversation && !!user?.id,
   });
 
   // Mark conversation as read mutation
@@ -63,6 +88,7 @@ export default function Messages() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/messages/conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/messages/unread/count"] });
     },
   });
 
@@ -71,21 +97,29 @@ export default function Messages() {
     if (!socket) return;
 
     const handleNewMessage = (message: MessageWithUsers) => {
-      // Update messages list if conversation is open
-      if (selectedConversation === message.senderId) {
+      // Update messages list if conversation is open with either sender or receiver
+      const isRelevantConversation = 
+        selectedConversation === message.senderId || 
+        selectedConversation === message.receiverId;
+      
+      if (isRelevantConversation && selectedConversation) {
         queryClient.setQueryData<MessageWithUsers[]>(
           ["/api/messages", selectedConversation],
           (old = []) => [...old, message]
         );
-        // Mark as read
-        socket.emit("mark_conversation_read", message.senderId);
+        // Mark as read if message is from the other person
+        if (message.senderId === selectedConversation) {
+          socket.emit("mark_conversation_read", message.senderId);
+        }
       }
 
-      // Always update conversations list
+      // Always update conversations list and unread counts
       queryClient.invalidateQueries({ queryKey: ["/api/messages/conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/messages/unread/count"] });
     };
 
     const handleTyping = (data: { userId: string; isTyping: boolean }) => {
+      // Show typing indicator if the typing user is the selected conversation partner
       if (data.userId === selectedConversation) {
         setIsTyping(data.isTyping);
       }
@@ -108,8 +142,18 @@ export default function Messages() {
   // Handle conversation selection
   const handleSelectConversation = (otherUserId: string) => {
     setSelectedConversation(otherUserId);
+    setIsTyping(false); // Reset typing indicator when switching conversations
     markReadMutation.mutate(otherUserId);
   };
+
+  // Cleanup typing timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Send message
   const handleSendMessage = () => {
@@ -120,13 +164,10 @@ export default function Messages() {
       content: messageInput.trim(),
     }, (response: any) => {
       if (response.success) {
-        // Add message to local state
-        queryClient.setQueryData<MessageWithUsers[]>(
-          ["/api/messages", selectedConversation],
-          (old = []) => [...old, response.message]
-        );
-        queryClient.invalidateQueries({ queryKey: ["/api/messages/conversations"] });
+        // Message will be added via socket event handler, just clear input
         setMessageInput("");
+        // Invalidate conversations to update last message
+        queryClient.invalidateQueries({ queryKey: ["/api/messages/conversations"] });
       }
     });
 
@@ -158,11 +199,7 @@ export default function Messages() {
 
   // If no conversation exists but we have a selected user, create a temporary conversation object
   const effectiveConversationData = selectedConversationData || (selectedUserData && selectedConversation ? {
-    otherUser: {
-      id: selectedConversation,
-      fullName: selectedUserData.fullName,
-      role: selectedUserData.role,
-    },
+    otherUser: selectedUserData,
     lastMessage: null,
     unreadCount: 0
   } : null);
@@ -276,7 +313,7 @@ export default function Messages() {
                       </div>
                     ) : (
                       <div className="space-y-4">
-                        {messages?.map((message) => {
+                        {(messages && messages.length > 0) ? messages.map((message) => {
                           const isOwn = message.senderId === user?.id;
                           return (
                             <div
@@ -305,7 +342,13 @@ export default function Messages() {
                               </div>
                             </div>
                           );
-                        })}
+                        }) : (
+                          <div className="text-center text-muted-foreground py-8">
+                            <MessageSquare className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                            <p>No messages yet</p>
+                            <p className="text-sm">Start the conversation below</p>
+                          </div>
+                        )}
                         {isTyping && (
                           <div className="flex justify-start">
                             <div className="bg-muted rounded-lg p-3">

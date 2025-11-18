@@ -29,6 +29,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
+import { RatingStars } from "@/components/rating-stars";
 
 const categories = [
   "All Categories",
@@ -70,7 +71,7 @@ export default function Marketplace() {
   }, [maxPrice]);
 
   const regions = listings 
-    ? ["All Regions", ...Array.from(new Set(listings.map(l => l.location)))]
+    ? ["All Regions", ...Array.from(new Set(listings.map(l => l.location).filter(Boolean)))]
     : ["All Regions"];
 
   const filteredListings = listings?.filter(listing => {
@@ -414,6 +415,16 @@ export default function Marketplace() {
                           <h3 className="font-semibold text-lg text-foreground line-clamp-1" data-testid={`text-product-name-${listing.id}`}>
                             {listing.productName}
                           </h3>
+                          
+                          {/* Farmer Rating */}
+                          {listing.farmer.averageRating !== undefined && listing.farmer.averageRating > 0 && (
+                            <RatingStars 
+                              rating={listing.farmer.averageRating} 
+                              reviewCount={listing.farmer.reviewCount || 0}
+                              size="sm"
+                            />
+                          )}
+                          
                           <div className="flex items-center gap-1 text-sm text-muted-foreground">
                             <MapPin className="h-3 w-3" />
                             <span className="line-clamp-1">{listing.location}</span>

@@ -31,6 +31,9 @@ import Messages from "@/pages/messages";
 import FarmerAnalytics from "@/pages/farmer-analytics";
 import BuyerAnalytics from "@/pages/buyer-analytics";
 import OfficerAnalytics from "@/pages/officer-analytics";
+import OrderSuccess from "@/pages/order-success";
+import OrderDetail from "@/pages/order-detail";
+import AdminReviews from "@/pages/admin-reviews";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component, allowedRoles }: { component: any; allowedRoles?: string[] }) {
@@ -75,6 +78,9 @@ function Router() {
           <Route path="/farmer/create-listing">
             {() => <ProtectedRoute component={CreateListing} allowedRoles={["farmer"]} />}
           </Route>
+          <Route path="/farmer/edit-listing/:id">
+            {() => <ProtectedRoute component={CreateListing} allowedRoles={["farmer"]} />}
+          </Route>
           <Route path="/farmer/verification">
             {() => <ProtectedRoute component={VerificationRequest} allowedRoles={["farmer"]} />}
           </Route>
@@ -93,6 +99,14 @@ function Router() {
             {() => <ProtectedRoute component={BuyerAnalytics} allowedRoles={["buyer"]} />}
           </Route>
           
+          {/* Order Routes */}
+          <Route path="/order-success">
+            {() => <ProtectedRoute component={OrderSuccess} allowedRoles={["buyer"]} />}
+          </Route>
+          <Route path="/orders/:id">
+            {() => <ProtectedRoute component={OrderDetail} allowedRoles={["buyer", "farmer"]} />}
+          </Route>
+          
           {/* Field Officer Routes */}
           <Route path="/officer/dashboard">
             {() => <ProtectedRoute component={OfficerDashboard} allowedRoles={["field_officer"]} />}
@@ -102,6 +116,9 @@ function Router() {
           </Route>
           <Route path="/officer/analytics">
             {() => <ProtectedRoute component={OfficerAnalytics} allowedRoles={["field_officer"]} />}
+          </Route>
+          <Route path="/officer/reviews">
+            {() => <ProtectedRoute component={AdminReviews} allowedRoles={["field_officer"]} />}
           </Route>
           
           {/* Profile */}

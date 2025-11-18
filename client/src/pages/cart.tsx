@@ -6,26 +6,82 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
 import { 
   ShoppingCart, 
   Trash2, 
+  Plus, 
+  Minus,
+  TrendingDown,
   ChevronLeft,
   Package
 } from "lucide-react";
-import { CartItemWithListing } from "@shared/schema";
+import { CartItemWithListing, PricingTier } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function Cart() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
   const [deliveryAddress, setDeliveryAddress] = useState("");
   const [notes, setNotes] = useState("");
+  const [pricingTiersMap, setPricingTiersMap] = useState<Record<string, PricingTier[]>>({});
 
   const { data: cartItems, isLoading } = useQuery<CartItemWithListing[]>({
-    queryKey: ["/api/cart"],
+    queryKey: ["/api/cart", user?.id],
+    enabled: !!user?.id,
   });
+
+  // Fetch pricing tiers for all cart items
+  useEffect(() => {
+    if (!cartItems || cartItems.length === 0) return;
+
+    const fetchPricingTiers = async () => {
+      const tiersMap: Record<string, PricingTier[]> = {};
+      
+      await Promise.all(
+        cartItems.map(async (item) => {
+          try {
+            const response = await fetch(`/api/listings/${item.listing.id}/pricing-tiers`, {
+              credentials: 'include'
+            });
+            if (response.ok) {
+              const tiers = await response.json();
+              tiersMap[item.listing.id] = tiers || [];
+            } else {
+              tiersMap[item.listing.id] = [];
+            }
+          } catch (error) {
+            console.error(`Error fetching tiers for listing ${item.listing.id}:`, error);
+            tiersMap[item.listing.id] = [];
+          }
+        })
+      );
+      
+      setPricingTiersMap(tiersMap);
+    };
+
+    fetchPricingTiers();
+  }, [cartItems]);
+
+  // Calculate price with tiered pricing
+  const calculatePrice = (listingId: string, basePrice: string, quantity: number) => {
+    const tiers = pricingTiersMap[listingId] || [];
+    if (tiers.length === 0) {
+      return Number(basePrice) * quantity;
+    }
+
+    // Find applicable tier (highest minQuantity that's <= quantity)
+    const applicableTier = tiers
+      .filter(tier => quantity >= tier.minQuantity)
+      .sort((a, b) => b.minQuantity - a.minQuantity)[0];
+
+    const pricePerUnit = applicableTier ? Number(applicableTier.price) : Number(basePrice);
+    return pricePerUnit * quantity;
+  };
 
   const removeItemMutation = useMutation({
     mutationFn: async (itemId: string) => {
@@ -40,18 +96,59 @@ export default function Cart() {
     },
   });
 
-  const checkoutMutation = useMutation({
-    mutationFn: async (data: any) => {
-      return apiRequest("POST", "/api/orders/checkout", data);
+  const updateQuantityMutation = useMutation({
+    mutationFn: async ({ id, quantity }: { id: string; quantity: number }) => {
+      const response = await fetch(`/api/cart/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ quantity }),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/cart"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/buyer/orders"] });
       toast({
-        title: "Order placed!",
-        description: "Your orders have been submitted successfully.",
+        title: "Quantity updated",
+        description: "Cart has been updated successfully",
       });
-      setLocation("/buyer/dashboard");
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to update quantity",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const checkoutMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const response = await apiRequest("POST", "/api/orders/checkout", data);
+      return response;
+    },
+    onSuccess: async (data: any) => {
+      
+      // Invalidate queries and wait for them to complete
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/cart"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/buyer/orders"] }),
+      ]);
+      
+      // Redirect to order success page with order IDs
+      if (data && data.orders && data.orders.length > 0) {
+        const orderIds = data.orders.map((order: any) => order.id).join(',');
+        setLocation(`/order-success?orders=${orderIds}`);
+      } else {
+        toast({
+          title: "Order placed!",
+          description: "Your orders have been submitted successfully.",
+        });
+        setLocation("/buyer/dashboard");
+      }
     },
     onError: () => {
       toast({
@@ -72,7 +169,8 @@ export default function Cart() {
       };
     }
     acc[farmerId].items.push(item);
-    acc[farmerId].total += Number(item.listing.price) * item.quantity;
+    const itemTotal = calculatePrice(item.listing.id, item.listing.price, item.quantity);
+    acc[farmerId].total += itemTotal;
     return acc;
   }, {} as Record<string, { farmer: any; items: CartItemWithListing[]; total: number }>);
 
@@ -139,7 +237,17 @@ export default function Cart() {
                     </div>
                     <Separator className="mb-4" />
                     <div className="space-y-4">
-                      {group.items.map((item) => (
+                      {group.items.map((item) => {
+                        const tiers = pricingTiersMap[item.listing.id] || [];
+                        const applicableTier = tiers
+                          .filter(tier => item.quantity >= tier.minQuantity)
+                          .sort((a, b) => b.minQuantity - a.minQuantity)[0];
+                        const basePrice = Number(item.listing.price);
+                        const tieredPrice = applicableTier ? Number(applicableTier.price) : basePrice;
+                        const itemTotal = calculatePrice(item.listing.id, item.listing.price, item.quantity);
+                        const savings = applicableTier ? (basePrice - tieredPrice) * item.quantity : 0;
+
+                        return (
                         <div key={item.id} className="flex gap-4" data-testid={`cart-item-${item.id}`}>
                           <div className="w-20 h-20 bg-muted rounded flex items-center justify-center flex-shrink-0">
                             {item.listing.imageUrl ? (
@@ -156,15 +264,85 @@ export default function Cart() {
                             <h4 className="font-semibold truncate">{item.listing.productName}</h4>
                             <p className="text-sm text-muted-foreground">
                               ${item.listing.price} / {item.listing.unit}
+                              {applicableTier && (
+                                <span className="ml-2 text-primary font-medium">
+                                  → ${tieredPrice.toFixed(2)} / {item.listing.unit}
+                                </span>
+                              )}
                             </p>
-                            <p className="text-sm text-muted-foreground">
-                              Quantity: {item.quantity} {item.listing.unit}
-                            </p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-sm text-muted-foreground">Quantity:</span>
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 w-7 p-0"
+                                  onClick={() => {
+                                    if (item.quantity > 1) {
+                                      updateQuantityMutation.mutate({ 
+                                        id: item.id, 
+                                        quantity: item.quantity - 1 
+                                      });
+                                    }
+                                  }}
+                                  disabled={updateQuantityMutation.isPending || item.quantity <= 1}
+                                >
+                                  <Minus className="h-3 w-3" />
+                                </Button>
+                                <Input
+                                  type="number"
+                                  min="1"
+                                  max={item.listing.quantityAvailable}
+                                  value={item.quantity}
+                                  onChange={(e) => {
+                                    const newQty = parseInt(e.target.value);
+                                    if (newQty > 0 && newQty <= item.listing.quantityAvailable) {
+                                      updateQuantityMutation.mutate({ 
+                                        id: item.id, 
+                                        quantity: newQty 
+                                      });
+                                    }
+                                  }}
+                                  className="w-16 h-7 text-center"
+                                  disabled={updateQuantityMutation.isPending}
+                                />
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 w-7 p-0"
+                                  onClick={() => {
+                                    if (item.quantity < item.listing.quantityAvailable) {
+                                      updateQuantityMutation.mutate({ 
+                                        id: item.id, 
+                                        quantity: item.quantity + 1 
+                                      });
+                                    }
+                                  }}
+                                  disabled={updateQuantityMutation.isPending || item.quantity >= item.listing.quantityAvailable}
+                                >
+                                  <Plus className="h-3 w-3" />
+                                </Button>
+                              </div>
+                              <span className="text-xs text-muted-foreground">{item.listing.unit}</span>
+                            </div>
+                            {savings > 0 && (
+                              <Badge variant="secondary" className="mt-1 gap-1">
+                                <TrendingDown className="h-3 w-3" />
+                                Save ${savings.toFixed(2)}
+                              </Badge>
+                            )}
                           </div>
                           <div className="flex flex-col items-end gap-2">
-                            <p className="font-semibold text-primary">
-                              ${(Number(item.listing.price) * item.quantity).toFixed(2)}
-                            </p>
+                            <div className="text-right">
+                              {savings > 0 && (
+                                <p className="text-xs text-muted-foreground line-through">
+                                  ${(basePrice * item.quantity).toFixed(2)}
+                                </p>
+                              )}
+                              <p className="font-semibold text-primary">
+                                ${itemTotal.toFixed(2)}
+                              </p>
+                            </div>
                             <Button
                               variant="ghost"
                               size="sm"
@@ -176,7 +354,8 @@ export default function Cart() {
                             </Button>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                     <Separator className="my-4" />
                     <div className="flex justify-between items-center">

@@ -11,7 +11,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { FileUpload } from "@/components/ui/file-upload";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
-import { ShieldCheck, Upload, CheckCircle, AlertCircle } from "lucide-react";
+import { ShieldCheck, Upload, CheckCircle, AlertCircle, XCircle } from "lucide-react";
 import type { Verification } from "@shared/schema";
 
 interface VerificationFormData {
@@ -25,14 +25,14 @@ export default function VerificationRequest() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
-  const [uploadedDocuments, setUploadedDocuments] = useState<string[]>([]);
+  const [uploadedDocuments, setUploadedDocuments] = useState<Array<{url: string, name: string}>>([]);
   const [isUploading, setIsUploading] = useState(false);
 
   const { register, handleSubmit, formState: { errors } } = useForm<VerificationFormData>();
 
   // Check if user already has a verification request
   const { data: existingVerification } = useQuery<Verification>({
-    queryKey: ["/api/verifications/me"],
+    queryKey: ["/api/verifications/me", user?.id],
     enabled: !!user && user.role === "farmer",
   });
 
@@ -57,7 +57,7 @@ export default function VerificationRequest() {
         title: "Verification Request Submitted",
         description: "Your verification request has been submitted successfully. A field officer will review it soon.",
       });
-      setLocation("/farmer-dashboard");
+      setLocation("/profile");
     },
     onError: (error: Error) => {
       toast({
@@ -87,8 +87,11 @@ export default function VerificationRequest() {
       }
 
       const data = await response.json();
-      const urls = data.files.map((f: any) => f.url);
-      setUploadedDocuments(prev => [...prev, ...urls]);
+      const newDocs = data.files.map((f: any) => ({
+        url: f.url,
+        name: f.filename
+      }));
+      setUploadedDocuments(prev => [...prev, ...newDocs]);
 
       toast({
         title: "Documents Uploaded",
@@ -108,7 +111,15 @@ export default function VerificationRequest() {
   const onSubmit = (data: VerificationFormData) => {
     verificationMutation.mutate({
       ...data,
-      documentUrl: uploadedDocuments[0], // Use first uploaded document
+      documentUrl: uploadedDocuments.length > 0 ? uploadedDocuments[0].url : undefined,
+    });
+  };
+
+  const removeDocument = (index: number) => {
+    setUploadedDocuments(prev => prev.filter((_, i) => i !== index));
+    toast({
+      title: "Document Removed",
+      description: "Document removed from upload list",
     });
   };
 
@@ -151,16 +162,31 @@ export default function VerificationRequest() {
   }
 
   if (existingVerification) {
+    const isApproved = existingVerification.status === 'approved';
+    const isRejected = existingVerification.status === 'rejected';
+    
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="max-w-md w-full">
           <CardHeader>
             <div className="flex items-center gap-2">
-              <AlertCircle className="h-6 w-6 text-yellow-600" />
-              <CardTitle>Verification Pending</CardTitle>
+              {isApproved ? (
+                <CheckCircle className="h-6 w-6 text-green-600" />
+              ) : isRejected ? (
+                <XCircle className="h-6 w-6 text-red-600" />
+              ) : (
+                <AlertCircle className="h-6 w-6 text-yellow-600" />
+              )}
+              <CardTitle>
+                {isApproved ? 'Verification Approved!' : isRejected ? 'Verification Rejected' : 'Verification Pending'}
+              </CardTitle>
             </div>
             <CardDescription>
-              Your verification request is currently being reviewed.
+              {isApproved 
+                ? 'Congratulations! Your farmer account has been verified.' 
+                : isRejected 
+                ? 'Your verification request was not approved. Please review the notes below.' 
+                : 'Your verification request is currently being reviewed.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -174,7 +200,7 @@ export default function VerificationRequest() {
                 <p>{existingVerification.notes}</p>
               </div>
             )}
-            <Button onClick={() => setLocation("/farmer-dashboard")} className="w-full">
+            <Button onClick={() => setLocation("/farmer/dashboard")} className="w-full">
               Go to Dashboard
             </Button>
           </CardContent>
@@ -251,7 +277,7 @@ export default function VerificationRequest() {
               <div className="space-y-2">
                 <Label>Supporting Documents (Optional)</Label>
                 <p className="text-sm text-muted-foreground mb-2">
-                  Upload photos of your farm, land ownership documents, or certifications
+                  Upload photos of your farm, land ownership documents, or certifications (Images or PDF)
                 </p>
                 <FileUpload
                   onChange={handleImageUpload}
@@ -259,12 +285,26 @@ export default function VerificationRequest() {
                   accept="image/*,.pdf"
                 />
                 {uploadedDocuments.length > 0 && (
-                  <Alert>
-                    <Upload className="h-4 w-4" />
-                    <AlertDescription>
-                      {uploadedDocuments.length} document(s) uploaded successfully
-                    </AlertDescription>
-                  </Alert>
+                  <div className="space-y-2 mt-3">
+                    <Label className="text-sm">Uploaded Documents ({uploadedDocuments.length})</Label>
+                    {uploadedDocuments.map((doc, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 border rounded-lg bg-muted/50">
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <Upload className="h-4 w-4 text-primary flex-shrink-0" />
+                          <span className="text-sm truncate">{doc.name}</span>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeDocument(index)}
+                          className="text-destructive hover:text-destructive flex-shrink-0"
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
 

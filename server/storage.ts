@@ -15,10 +15,13 @@ import {
   type InsertNotification,
   type Message,
   type InsertMessage,
+  type Review,
+  type InsertReview,
   type ListingWithFarmer,
   type OrderWithDetails,
   type CartItemWithListing,
   type MessageWithUsers,
+  type ReviewWithUsers,
   type Conversation
 } from "@shared/schema";
 import { randomUUID } from "crypto";
@@ -56,6 +59,7 @@ export interface IStorage {
   getCartItem(id: string): Promise<CartItem | undefined>;
   addToCart(item: InsertCartItem): Promise<CartItem>;
   removeFromCart(id: string): Promise<boolean>;
+  updateCartQuantity(id: string, quantity: number): Promise<CartItem>;
   clearCart(buyerId: string): Promise<boolean>;
 
   // Verification operations
@@ -67,6 +71,7 @@ export interface IStorage {
   // Pricing tier operations
   getPricingTiersByListing(listingId: string): Promise<PricingTier[]>;
   createPricingTier(tier: InsertPricingTier): Promise<PricingTier>;
+  deletePricingTier(id: string): Promise<boolean>;
 
   // Notification operations
   getNotificationsByUser(userId: string): Promise<Notification[]>;
@@ -83,6 +88,15 @@ export interface IStorage {
   markMessageRead(id: string): Promise<Message | undefined>;
   markConversationRead(userId: string, otherUserId: string): Promise<boolean>;
   getUnreadMessageCount(userId: string): Promise<number>;
+
+  // Review operations
+  getReviewsByReviewee(revieweeId: string): Promise<ReviewWithUsers[]>;
+  getReviewsByOrder(orderId: string): Promise<ReviewWithUsers[]>;
+  getAllReviews(): Promise<ReviewWithUsers[]>;
+  createReview(review: InsertReview): Promise<Review>;
+  updateReview(id: string, updates: Partial<Review>): Promise<Review | undefined>;
+  deleteReview(id: string): Promise<boolean>;
+  getAverageRating(userId: string): Promise<{ average: number; count: number }>;
 }
 
 export class MemStorage implements IStorage {
@@ -94,6 +108,7 @@ export class MemStorage implements IStorage {
   private pricingTiers: Map<string, PricingTier>;
   private notifications: Map<string, Notification>;
   private messages: Map<string, Message>;
+  private reviews: Map<string, Review>;
 
   constructor() {
     this.users = new Map();
@@ -104,6 +119,7 @@ export class MemStorage implements IStorage {
     this.pricingTiers = new Map();
     this.notifications = new Map();
     this.messages = new Map();
+    this.reviews = new Map();
 
     // Seed data for testing
     this.seedData();
@@ -296,11 +312,24 @@ export class MemStorage implements IStorage {
       const farmer = await this.getUser(listing.farmerId);
       if (farmer) {
         const pricingTiers = await this.getPricingTiersByListing(listing.id);
+        
+        // Calculate farmer rating
+        const farmerReviews = Array.from(this.reviews.values()).filter(
+          r => r.revieweeId === farmer.id
+        );
+        const averageRating = farmerReviews.length > 0
+          ? farmerReviews.reduce((sum, r) => sum + r.rating, 0) / farmerReviews.length
+          : undefined;
+        
         // Remove password from farmer
         const { password, ...safeFarmer } = farmer;
         result.push({
           ...listing,
-          farmer: safeFarmer as any,
+          farmer: {
+            ...safeFarmer as any,
+            averageRating,
+            reviewCount: farmerReviews.length,
+          },
           pricingTiers,
         });
       }
@@ -459,6 +488,16 @@ export class MemStorage implements IStorage {
 
   async removeFromCart(id: string): Promise<boolean> {
     return this.cartItems.delete(id);
+  }
+
+  async updateCartQuantity(id: string, quantity: number): Promise<CartItem> {
+    const item = this.cartItems.get(id);
+    if (!item) {
+      throw new Error("Cart item not found");
+    }
+    item.quantity = quantity;
+    this.cartItems.set(id, item);
+    return item;
   }
 
   async clearCart(buyerId: string): Promise<boolean> {
@@ -700,6 +739,128 @@ export class MemStorage implements IStorage {
     return Array.from(this.messages.values())
       .filter((m) => m.receiverId === userId && !m.read)
       .length;
+  }
+
+  // Pricing Tier Operations
+  async getPricingTiersByListing(listingId: string): Promise<PricingTier[]> {
+    return Array.from(this.pricingTiers.values())
+      .filter((tier) => tier.listingId === listingId)
+      .sort((a, b) => a.minQuantity - b.minQuantity);
+  }
+
+  async createPricingTier(insertTier: InsertPricingTier): Promise<PricingTier> {
+    const id = randomUUID();
+    const tier: PricingTier = {
+      ...insertTier,
+      id,
+    };
+    this.pricingTiers.set(id, tier);
+    return tier;
+  }
+
+  async deletePricingTier(id: string): Promise<boolean> {
+    return this.pricingTiers.delete(id);
+  }
+
+  // Review Operations
+  async getReviewsByReviewee(revieweeId: string): Promise<ReviewWithUsers[]> {
+    const reviews = Array.from(this.reviews.values())
+      .filter((r) => r.revieweeId === revieweeId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+    const reviewsWithUsers: ReviewWithUsers[] = [];
+    for (const review of reviews) {
+      const reviewer = await this.getUser(review.reviewerId);
+      const reviewee = await this.getUser(review.revieweeId);
+      if (reviewer && reviewee) {
+        reviewsWithUsers.push({
+          ...review,
+          reviewer,
+          reviewee,
+        });
+      }
+    }
+    return reviewsWithUsers;
+  }
+
+  async getReviewsByOrder(orderId: string): Promise<ReviewWithUsers[]> {
+    const reviews = Array.from(this.reviews.values())
+      .filter((r) => r.orderId === orderId);
+
+    const reviewsWithUsers: ReviewWithUsers[] = [];
+    for (const review of reviews) {
+      const reviewer = await this.getUser(review.reviewerId);
+      const reviewee = await this.getUser(review.revieweeId);
+      if (reviewer && reviewee) {
+        reviewsWithUsers.push({
+          ...review,
+          reviewer,
+          reviewee,
+        });
+      }
+    }
+    return reviewsWithUsers;
+  }
+
+  async getAllReviews(): Promise<ReviewWithUsers[]> {
+    const reviews = Array.from(this.reviews.values())
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+    const reviewsWithUsers: ReviewWithUsers[] = [];
+    for (const review of reviews) {
+      const reviewer = await this.getUser(review.reviewerId);
+      const reviewee = await this.getUser(review.revieweeId);
+      if (reviewer && reviewee) {
+        reviewsWithUsers.push({
+          ...review,
+          reviewer,
+          reviewee,
+        });
+      }
+    }
+    return reviewsWithUsers;
+  }
+
+  async createReview(insertReview: InsertReview): Promise<Review> {
+    const id = randomUUID();
+    const review: Review = {
+      ...insertReview,
+      id,
+      comment: insertReview.comment ?? null,
+      approved: true,
+      createdAt: new Date(),
+    };
+    this.reviews.set(id, review);
+    return review;
+  }
+
+  async updateReview(id: string, updates: Partial<Review>): Promise<Review | undefined> {
+    const review = this.reviews.get(id);
+    if (!review) return undefined;
+    const updated = { ...review, ...updates };
+    this.reviews.set(id, updated);
+    return updated;
+  }
+
+  async deleteReview(id: string): Promise<boolean> {
+    return this.reviews.delete(id);
+  }
+
+  async getAverageRating(userId: string): Promise<{ average: number; count: number }> {
+    const reviews = Array.from(this.reviews.values())
+      .filter((r) => r.revieweeId === userId && r.approved);
+    
+    if (reviews.length === 0) {
+      return { average: 0, count: 0 };
+    }
+
+    const sum = reviews.reduce((acc, r) => acc + r.rating, 0);
+    const average = sum / reviews.length;
+    
+    return {
+      average: Math.round(average * 10) / 10, // Round to 1 decimal
+      count: reviews.length,
+    };
   }
 }
 

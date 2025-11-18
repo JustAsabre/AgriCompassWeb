@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Users, ShieldCheck, Clock, CheckCircle, XCircle } from "lucide-react";
@@ -23,8 +24,11 @@ interface OfficerAnalytics {
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82ca9d'];
 
 export default function OfficerAnalytics() {
+  const { user } = useAuth();
+  
   const { data: analytics, isLoading } = useQuery<OfficerAnalytics>({
-    queryKey: ["/api/analytics/officer"],
+    queryKey: ["/api/analytics/officer", user?.id],
+    enabled: !!user?.id,
   });
 
   if (isLoading) {

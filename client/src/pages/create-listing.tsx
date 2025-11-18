@@ -1,8 +1,8 @@
-import { useState } from "react";
-import { useLocation } from "wouter";
+import { useState, useEffect } from "react";
+import { useLocation, useRoute } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery, useIsMutating } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,8 +13,9 @@ import { FileUpload } from "@/components/ui/file-upload";
 import { useToast } from "@/hooks/use-toast";
 import { insertListingSchema } from "@shared/schema";
 import { z } from "zod";
-import { ChevronLeft, Loader2 } from "lucide-react";
+import { ChevronLeft, Loader2, X } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { PricingTierForm } from "@/components/pricing-tier-form";
 
 const categories = [
   "Vegetables",
@@ -31,17 +32,30 @@ const units = ["kg", "tons", "boxes", "pieces", "liters"];
 
 const formSchema = insertListingSchema.extend({
   price: z.string().min(1, "Price is required"),
-  quantityAvailable: z.string().min(1, "Quantity is required"),
-  minOrderQuantity: z.string().min(1, "Minimum order is required"),
+  quantityAvailable: z.coerce.number().int().positive("Quantity must be positive"),
+  minOrderQuantity: z.coerce.number().int().positive("Minimum order must be positive"),
 });
 
 type FormValues = z.infer<typeof formSchema>;
 
 export default function CreateListing() {
   const [, setLocation] = useLocation();
+  const [match, params] = useRoute("/farmer/edit-listing/:id");
+  const isEditMode = !!match && !!params?.id;
   const { toast } = useToast();
-  const [uploadedImages, setUploadedImages] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  
+  // Track if any pricing tier mutations are in progress
+  const pricingTierMutating = useIsMutating({ 
+    predicate: (mutation) => 
+      mutation.options.mutationKey?.[0]?.toString().includes('pricing-tiers') ?? false
+  });
+
+  // Fetch existing listing if in edit mode
+  const { data: existingListing, isLoading: isLoadingListing } = useQuery({
+    queryKey: ["/api/listings", params?.id],
+    enabled: isEditMode,
+  });
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -51,8 +65,8 @@ export default function CreateListing() {
       description: "",
       price: "",
       unit: "kg",
-      quantityAvailable: "",
-      minOrderQuantity: "",
+      quantityAvailable: 0,
+      minOrderQuantity: 0,
       harvestDate: "",
       location: "",
       imageUrl: "",
@@ -60,22 +74,49 @@ export default function CreateListing() {
     },
   });
 
+  // Populate form when editing
+  useEffect(() => {
+    if (isEditMode && existingListing) {
+      form.reset({
+        productName: existingListing.productName,
+        category: existingListing.category,
+        description: existingListing.description || "",
+        price: existingListing.price.toString(),
+        unit: existingListing.unit,
+        quantityAvailable: Number(existingListing.quantityAvailable),
+        minOrderQuantity: Number(existingListing.minOrderQuantity),
+        harvestDate: existingListing.harvestDate || "",
+        location: existingListing.location,
+        imageUrl: existingListing.imageUrl || "",
+        farmerId: existingListing.farmerId,
+      });
+    }
+  }, [isEditMode, existingListing, form]);
+
   const createListingMutation = useMutation({
     mutationFn: async (data: any) => {
+      if (isEditMode && params?.id) {
+        return apiRequest("PATCH", `/api/listings/${params.id}`, data);
+      }
       return apiRequest("POST", "/api/listings", data);
     },
     onSuccess: () => {
       toast({
         title: "Success!",
-        description: "Your listing has been created successfully.",
+        description: isEditMode 
+          ? "Your listing has been updated successfully."
+          : "Your listing has been created successfully.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/farmer/listings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/listings"] });
       setLocation("/farmer/dashboard");
     },
     onError: () => {
       toast({
         title: "Error",
-        description: "Failed to create listing. Please try again.",
+        description: isEditMode
+          ? "Failed to update listing. Please try again."
+          : "Failed to create listing. Please try again.",
         variant: "destructive",
       });
     },
@@ -96,26 +137,25 @@ export default function CreateListing() {
       });
 
       if (!response.ok) {
-        throw new Error('Upload failed');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Upload failed');
       }
 
       const data = await response.json();
-      const urls = data.files.map((f: any) => f.url);
-      setUploadedImages(prev => [...prev, ...urls]);
+      const url = data.files[0].url;
       
-      // Set first image as the main imageUrl
-      if (uploadedImages.length === 0 && urls.length > 0) {
-        form.setValue('imageUrl', urls[0]);
-      }
+      // Set the uploaded image URL directly in the form
+      form.setValue('imageUrl', url, { shouldValidate: true, shouldDirty: true });
 
       toast({
         title: "Success",
-        description: `${files.length} image(s) uploaded successfully`,
+        description: "Image uploaded successfully",
       });
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Image upload error:', error);
       toast({
         title: "Upload Error",
-        description: "Failed to upload images. Please try again.",
+        description: error.message || "Failed to upload images. Please check file format and size.",
         variant: "destructive",
       });
     } finally {
@@ -123,18 +163,45 @@ export default function CreateListing() {
     }
   };
 
-  const onSubmit = async (data: FormValues) => {
-    // Use first uploaded image if no URL specified
-    const imageUrl = data.imageUrl || (uploadedImages.length > 0 ? uploadedImages[0] : '');
+    const onSubmit = async (data: FormValues) => {
+    // Check if pricing tier operations are in progress
+    if (pricingTierMutating > 0) {
+      toast({
+        title: "Please Wait",
+        description: "Pricing tier operations are in progress. Please wait for them to complete.",
+        variant: "destructive",
+      });
+      return;
+    }
     
-    createListingMutation.mutate({
+    // Validate that numeric fields are not empty
+    if (!data.price || !data.quantityAvailable || !data.minOrderQuantity) {
+      toast({
+        title: "Validation Error",
+        description: "Please fill in all required fields.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Server schema expects: price as string (decimal), quantities as numbers (integer)
+    const submitData = {
       ...data,
-      imageUrl,
-      price: data.price,
-      quantityAvailable: parseInt(data.quantityAvailable),
-      minOrderQuantity: parseInt(data.minOrderQuantity),
-    });
+      price: String(data.price),
+      quantityAvailable: parseInt(String(data.quantityAvailable), 10),
+      minOrderQuantity: parseInt(String(data.minOrderQuantity), 10),
+    };
+
+    createListingMutation.mutate(submitData);
   };
+
+  if (isEditMode && isLoadingListing) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -150,10 +217,14 @@ export default function CreateListing() {
         </Button>
 
         <Card>
-          <CardHeader>
-            <CardTitle className="text-2xl md:text-3xl">Create New Listing</CardTitle>
+                    <CardHeader>
+            <CardTitle className="text-3xl font-bold">
+              {isEditMode ? "Edit Listing" : "Create New Listing"}
+            </CardTitle>
             <CardDescription>
-              Add a new product to the marketplace
+              {isEditMode 
+                ? "Update your product information"
+                : "List your agricultural products for buyers"}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -351,14 +422,42 @@ export default function CreateListing() {
                   <FormLabel>Product Images</FormLabel>
                   <FileUpload
                     onChange={handleImageUpload}
-                    maxFiles={5}
+                    accept="image/*"
+                    maxFiles={1}
                     maxSize={5}
                     disabled={isUploading}
                   />
                   {isUploading && (
                     <div className="flex items-center justify-center py-4">
                       <Loader2 className="h-6 w-6 animate-spin mr-2" />
-                      <span className="text-sm text-muted-foreground">Uploading images...</span>
+                      <span className="text-sm text-muted-foreground">Uploading image...</span>
+                    </div>
+                  )}
+                  
+                  {/* Image Preview */}
+                  {form.watch('imageUrl') && !isUploading && (
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">Uploaded Image:</p>
+                      <div className="relative group aspect-video max-w-md rounded-lg overflow-hidden border">
+                        <img 
+                          src={form.watch('imageUrl')} 
+                          alt="Product preview" 
+                          className="w-full h-full object-cover" 
+                        />
+                        <div className="absolute top-2 right-2 flex gap-2">
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => {
+                              form.setValue('imageUrl', '', { shouldValidate: true, shouldDirty: true });
+                            }}
+                          >
+                            <X className="h-4 w-4 mr-1" />
+                            Remove
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -373,12 +472,12 @@ export default function CreateListing() {
                         <Input 
                           placeholder="https://example.com/image.jpg" 
                           {...field}
-                          value={field.value ?? ""}
+                          value={field.value || ''}
                           data-testid="input-image-url"
                         />
                       </FormControl>
                       <FormDescription>
-                        Or upload images above, or provide a URL to an image
+                        Upload an image above, or provide a URL to an image
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -398,16 +497,38 @@ export default function CreateListing() {
                   <Button
                     type="submit"
                     className="flex-1"
-                    disabled={createListingMutation.isPending}
+                    disabled={createListingMutation.isPending || pricingTierMutating > 0}
                     data-testid="button-submit"
                   >
-                    {createListingMutation.isPending ? "Creating..." : "Create Listing"}
+                    {createListingMutation.isPending 
+                      ? (isEditMode ? "Updating..." : "Creating...") 
+                      : pricingTierMutating > 0
+                      ? "Wait for tier operations..."
+                      : (isEditMode ? "Update Listing" : "Create Listing")}
                   </Button>
                 </div>
               </form>
             </Form>
           </CardContent>
         </Card>
+
+        {/* Pricing Tiers Section - Only show after listing is created (edit mode) */}
+        {isEditMode && params?.id && (
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle>Bulk Pricing Tiers</CardTitle>
+              <CardDescription>
+                Offer discounts for larger orders to incentivize bulk purchases
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <PricingTierForm 
+                listingId={params.id}
+                basePrice={typeof form.watch('price') === 'string' ? parseFloat(form.watch('price') || '0') : form.watch('price') || 0}
+              />
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );

@@ -93,6 +93,9 @@ export function initializeSocket(httpServer: HTTPServer) {
           // Send to receiver if they're online
           io.to(`user:${data.receiverId}`).emit("new_message", messageWithUsers);
           
+          // Also send to sender so they see their own message
+          io.to(`user:${senderId}`).emit("new_message", messageWithUsers);
+          
           // Send confirmation to sender
           callback?.({ success: true, message: messageWithUsers });
 
@@ -160,16 +163,23 @@ export async function broadcastNewListing(
   
   // Create notifications for all buyers in the same region
   const buyers = await storage.getUsersByRole("buyer");
-  const buyersInRegion = buyers.filter((u: any) => 
-    !listing.farmer.region || u.region === listing.farmer.region
-  );
+  
+  // Match based on listing location or farmer's region
+  const listingRegion = listing.location || listing.farmer.region;
+  
+  const buyersInRegion = buyers.filter((u: any) => {
+    if (!u.region || !listingRegion) return false;
+    // Check if buyer's region matches listing location or farmer's region
+    return u.region.toLowerCase().includes(listingRegion.toLowerCase()) || 
+           listingRegion.toLowerCase().includes(u.region.toLowerCase());
+  });
   
   for (const buyer of buyersInRegion) {
     await sendNotificationToUser(io, buyer.id, {
       userId: buyer.id,
       type: "new_listing",
       title: "New Product Available",
-      message: `${listing.farmer.fullName} listed ${listing.productName} in your region`,
+      message: `${listing.farmer.fullName} listed ${listing.productName} near you`,
       relatedId: listing.id,
       relatedType: "listing",
     });
