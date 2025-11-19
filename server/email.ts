@@ -380,7 +380,7 @@ export async function sendNewOrderNotificationToFarmer(
                     <span>Buyer:</span>
                     <strong>${orderDetails.buyerName}</strong>
                   </div>
-                  <div class="detail-row total">
+                    orderId: string;
                     <span>Total Earnings:</span>
                     <span>$${orderDetails.totalPrice.toFixed(2)}</span>
                   </div>
@@ -476,7 +476,7 @@ export async function sendVerificationStatusEmail(
                   <div style="text-align: center;">
                     <a href="${dashboardUrl}" class="button">Go to Dashboard</a>
                   </div>
-
+                      orderId: string;
                   <p><strong>What's Next?</strong></p>
                   <ul>
                     <li>Your listings now show the verified badge</li>
