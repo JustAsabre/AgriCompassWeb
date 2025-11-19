@@ -11,6 +11,13 @@ export default defineConfig({
       ['client/src/**', 'jsdom'],
       ['server/**', 'node'],
     ],
+    // Only include our project's test files and exclude node_modules/.trash
+    include: [
+      'client/src/**/*.{test,spec}.{ts,tsx,js,jsx}',
+      'server/**/*.{test,spec}.{ts,tsx,js,jsx}'
+    ],
+    // Exclude trash folders and dependencies from collection
+    exclude: ['**/.trash/**', 'node_modules/**'],
     setupFiles: ['./server/tests/setup.ts', './client/src/tests/setup.ts'],
     coverage: {
       provider: 'v8',
