@@ -51,6 +51,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.4] - 2025-11-18
+### Fixed - Critical Security & Session Isolation
+- **CRITICAL SECURITY FIX: User Session Isolation**
+  - **Issue:** React Query cache showing previous user's data after logout/login
+  - **Root Cause:** Query cache keys didn't differentiate between users
+  - **Impact:** User A could see User B's data after switching accounts
+  - **Fix:** Added `user?.id` to all query keys across 15 files
+  - **Files Modified:**
+    - `lib/auth.tsx` - Added `queryClient.clear()` on logout
+    - `lib/notifications.tsx` - User-specific notification cache
+    - `components/header.tsx` - User-specific cart/message counts
+    - All dashboard pages (farmer, buyer, officer, admin)
+    - All analytics pages (farmer, buyer, officer)
+    - Cart, messages, verifications, and order pages
+  - **Pattern:** `queryKey: ["/api/endpoint", user?.id]` with `enabled: !!user?.id`
+  - **Result:** Complete data isolation between user sessions
+
+- **Query Client URL Construction Bug**
+  - **Issue:** API requests malformed as `/api/verifications/me/user-id` instead of `/api/verifications/me`
+  - **Root Cause:** Default queryFn used `queryKey.join("/")` concatenating all array elements
+  - **Impact:** Forms not saving, server returning 404 errors
+  - **Fix:** Changed to `queryKey[0]` to use only first element as URL
+  - **File:** `lib/queryClient.ts`
+  - **Explanation:** Query keys now use format `[url, user?.id, ...params]` where only `url` is for fetching
+
+- **Officer Dashboard Navigation**
+  - Fixed `setLocation is not defined` error
+  - Added `useLocation` hook import from wouter
+  - Corrected verification route from `/verifications` to `/officer/verifications`
+  - File: `client/src/pages/officer-dashboard.tsx`
+
+- **Code Cleanup**
+  - Removed all temporary `console.log` debugging statements from client code
+  - Files cleaned: `pricing-tier-form.tsx`, `cart.tsx`, `notifications.tsx`
+  - Production-ready code with zero debugging artifacts
+
+### Security Impact
+- ✅ Zero data leakage between user sessions
+- ✅ Cache properly cleared on logout
+- ✅ All queries disabled until user authenticated
+- ✅ 15 files updated for complete security coverage
+- ✅ All user types (farmer, buyer, officer, admin) properly isolated
+
+### Technical Details
+- **Cache Strategy:** User ID appended to all query keys for differentiation
+- **Cache Invalidation:** `queryClient.clear()` wipes all cache on logout
+- **Query Enablement:** `enabled: !!user?.id` prevents premature queries
+- **URL Construction:** First array element only, remaining for cache differentiation
+
+---
+
 ## [0.7.2] - 2025-11-16
 ### Fixed - Sprint 3 Final Bug Fixes
 - **Regional Listing Notifications**
@@ -627,5 +678,5 @@ For questions about this changelog or version history:
 ---
 
 **Changelog Maintained By:** AgriCompass Development Team  
-**Last Updated:** November 16, 2025  
-**Next Review:** End of Sprint 1 (Week 2)
+**Last Updated:** November 18, 2025  
+**Next Review:** End of Sprint 4
