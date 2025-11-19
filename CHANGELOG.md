@@ -4,12 +4,37 @@ All notable changes to AgriCompass will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-### Planned for Next Release
-- Password reset functionality
-- Email order confirmations
-- Admin review moderation UI
-- Display average ratings on profiles and marketplace
+
+## [0.8.1] - 2025-11-19
+### Changed - Sprint 4: Email System Overhaul & Cleanup
+- **Email System Migration**
+  - Migrated all transactional email sending from Resend (free tier) to Gmail SMTP using Nodemailer
+  - Removed all Resend code and dependencies (`npm uninstall resend`)
+  - Updated `server/email.ts` to use `nodemailer.createTransport({ service: 'gmail', ... })`
+  - Improved SMTP/TLS configuration for Gmail reliability
+  - Updated `.env` to use Gmail SMTP credentials (removed Resend API key)
+  - Updated all documentation for new email setup (QUICK_TEST.md, EMAIL_SETUP.md, TESTING_GUIDE.md)
+  - All email tests (welcome, password reset, order, verification) now work for any address
+
+### Fixed
+- Fixed nodemailer import/usage bugs (`createTransporter` typo, TLS/STARTTLS issues)
+- Fixed product detail page crash when farmer data missing (added optional chaining)
+- Fixed React Query to fetch correct listing data for product detail
+
+### Removed
+- Deleted all Resend-related code and configuration
+- Cleaned up unwanted documentation and test files:
+  - `EMAIL_SETUP.md`, `TESTING_GUIDE.md`, `SPRINT4_PROGRESS.md`, `QUICK_TEST.md`
+  - `client/src/tests/button.test.tsx`, `server/tests/auth.test.ts`, `server/tests/upload.test.ts`
+  - Moved to `.trash` folder for safe deletion
+
+### Documentation
+- Created `SPRINT4_COMPLETION.md` summarizing all Sprint 4 changes and results
+- Updated all setup and troubleshooting guides for Gmail SMTP
+
+### Sprint 4 Completion
+- All email features fully tested and working
+- Workspace cleaned and documented for next sprint
 
 ---
 
@@ -678,5 +703,5 @@ For questions about this changelog or version history:
 ---
 
 **Changelog Maintained By:** AgriCompass Development Team  
-**Last Updated:** November 18, 2025  
-**Next Review:** End of Sprint 4
+**Last Updated:** November 19, 2025  
+**Next Review:** End of Sprint 5

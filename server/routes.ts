@@ -4,7 +4,7 @@ import type { Server as SocketServer } from "socket.io";
 import { storage } from "./storage";
 import { hashPassword, comparePassword, sanitizeUser, SessionUser } from "./auth";
 import { insertUserSchema, insertListingSchema, insertOrderSchema, insertCartItemSchema, insertPricingTierSchema, insertReviewSchema } from "@shared/schema";
-import { sendPasswordResetEmail, sendWelcomeEmail } from "./email";
+import { sendPasswordResetEmail, sendWelcomeEmail, sendPasswordChangedEmail, sendOrderConfirmationEmail, sendNewOrderNotificationToFarmer, sendVerificationStatusEmail } from "./email";
 import { upload, getFileUrl, deleteUploadedFile } from "./upload";
 import { sendNotificationToUser, broadcastNewListing } from "./socket";
 import crypto from "crypto";
@@ -65,6 +65,11 @@ export async function registerRoutes(app: Express, httpServer: Server, io: Socke
       // Create session
       req.session.user = sanitizeUser(user);
 
+      // Send welcome email (async, don't wait for it)
+      sendWelcomeEmail(user.email, user.fullName, user.role).catch(err => {
+        console.error('Failed to send welcome email:', err);
+      });
+
       res.status(201).json({ user: sanitizeUser(user) });
     } catch (error: any) {
       console.error("Registration error:", error);
@@ -110,6 +115,92 @@ export async function registerRoutes(app: Express, httpServer: Server, io: Socke
       }
       res.json({ success: true });
     });
+  });
+
+  // Password reset endpoints
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const { email } = req.body;
+
+      if (!email) {
+        return res.status(400).json({ message: "Email is required" });
+      }
+
+      const normalizedEmail = email.toLowerCase();
+      const user = await storage.getUserByEmail(normalizedEmail);
+
+      // Always return success to prevent email enumeration
+      if (!user) {
+        return res.json({ success: true, message: "If an account exists, a reset link has been sent" });
+      }
+
+      // Generate reset token
+      const resetToken = crypto.randomBytes(32).toString('hex');
+      const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour from now
+
+      // Save token to user
+      await storage.updateUser(user.id, {
+        resetToken,
+        resetTokenExpiry,
+      });
+
+      // Send reset email
+      const result = await sendPasswordResetEmail(user.email, resetToken, user.fullName);
+
+      if (!result.success) {
+        console.error('Failed to send password reset email:', result.error);
+      }
+
+      res.json({ success: true, message: "If an account exists, a reset link has been sent" });
+    } catch (error: any) {
+      console.error("Forgot password error:", error);
+      res.status(500).json({ message: "An error occurred. Please try again later." });
+    }
+  });
+
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const { token, newPassword } = req.body;
+
+      if (!token || !newPassword) {
+        return res.status(400).json({ message: "Token and new password are required" });
+      }
+
+      // Validate password strength
+      if (newPassword.length < 8) {
+        return res.status(400).json({ message: "Password must be at least 8 characters" });
+      }
+
+      // Find user with this token
+      const user = await storage.getUserByResetToken(token);
+
+      if (!user) {
+        return res.status(400).json({ message: "Invalid or expired reset token" });
+      }
+
+      // Check if token is expired
+      if (!user.resetTokenExpiry || new Date() > user.resetTokenExpiry) {
+        return res.status(400).json({ message: "Reset token has expired" });
+      }
+
+      // Hash new password
+      const hashedPassword = await hashPassword(newPassword);
+
+      // Update password and clear reset token
+      await storage.updateUser(user.id, {
+        password: hashedPassword,
+        resetToken: null,
+        resetTokenExpiry: null,
+      });
+
+      // Send confirmation email
+      await sendPasswordChangedEmail(user.email, user.fullName);
+
+      res.json({ success: true, message: "Password successfully reset" });
+    } catch (error: any) {
+      console.error("Reset password error:", error);
+      res.status(500).json({ message: "An error occurred. Please try again later." });
+    }
   });
 
   app.get("/api/auth/me", (req, res) => {
@@ -583,6 +674,38 @@ export async function registerRoutes(app: Express, httpServer: Server, io: Socke
         });
         orders.push(order);
 
+        // Send email notifications (async, non-blocking)
+        const buyer = await storage.getUser(buyerId);
+        const farmer = await storage.getUser(item.listing.farmerId);
+        
+        if (buyer) {
+          sendOrderConfirmationEmail(
+            buyer.email,
+            buyer.fullName,
+            {
+              orderId: order.id,
+              productName: item.listing.productName,
+              quantity: item.quantity,
+              totalPrice: Number(totalPrice),
+              farmerName: farmer?.fullName || 'Farmer',
+            }
+          ).catch(err => console.error('Failed to send order confirmation email:', err));
+        }
+
+        if (farmer) {
+          sendNewOrderNotificationToFarmer(
+            farmer.email,
+            farmer.fullName,
+            {
+              orderId: order.id,
+              productName: item.listing.productName,
+              quantity: item.quantity,
+              totalPrice: Number(totalPrice),
+              buyerName: buyer?.fullName || 'Buyer',
+            }
+          ).catch(err => console.error('Failed to send farmer notification email:', err));
+        }
+
         // Notify farmer about new order
         await sendNotificationToUser(io, item.listing.farmerId, {
           userId: item.listing.farmerId,
@@ -797,6 +920,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io: Socke
         };
 
         if (statusMessages[status]) {
+          // Send in-app notification
           await sendNotificationToUser(io, verification.farmerId, {
             userId: verification.farmerId,
             type: "verification_update",
@@ -805,6 +929,16 @@ export async function registerRoutes(app: Express, httpServer: Server, io: Socke
             relatedId: verification.id,
             relatedType: "verification",
           });
+
+          // Send email notification (async, non-blocking)
+          if (status === 'approved' || status === 'rejected') {
+            sendVerificationStatusEmail(
+              farmer.email,
+              farmer.fullName,
+              status,
+              notes
+            ).catch(err => console.error('Failed to send verification status email:', err));
+          }
         }
       }
 

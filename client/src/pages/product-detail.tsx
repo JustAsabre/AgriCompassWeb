@@ -36,7 +36,7 @@ export default function ProductDetail() {
   const [quantity, setQuantity] = useState(1);
 
   const { data: listing, isLoading } = useQuery<ListingWithFarmer>({
-    queryKey: ["/api/listings", id],
+    queryKey: [`/api/listings/${id}`],
   });
 
   // Fetch pricing tiers
@@ -177,7 +177,7 @@ export default function ProductDetail() {
                 <h1 className="text-3xl md:text-4xl font-bold text-foreground" data-testid="text-product-name">
                   {listing.productName}
                 </h1>
-                {listing.farmer.verified && (
+                {listing.farmer?.verified && (
                   <Badge variant="secondary" className="gap-1" data-testid="badge-verified">
                     <ShieldCheck className="h-3 w-3" />
                     Verified
