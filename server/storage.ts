@@ -559,21 +559,6 @@ export class MemStorage implements IStorage {
 
     return updated;
   }
-
-  // Pricing tier operations
-  async getPricingTiersByListing(listingId: string): Promise<PricingTier[]> {
-    return Array.from(this.pricingTiers.values()).filter(
-      (tier) => tier.listingId === listingId
-    );
-  }
-
-  async createPricingTier(insertTier: InsertPricingTier): Promise<PricingTier> {
-    const id = randomUUID();
-    const tier: PricingTier = { ...insertTier, id };
-    this.pricingTiers.set(id, tier);
-    return tier;
-  }
-
   // Notification operations
   async getNotificationsByUser(userId: string): Promise<Notification[]> {
     return Array.from(this.notifications.values())
