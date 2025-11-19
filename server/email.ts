@@ -235,7 +235,7 @@ export async function sendOrderConfirmationEmail(
   email: string,
   userName: string,
   orderDetails: {
-    orderId: number;
+    orderId: string;
     productName: string;
     quantity: number;
     totalPrice: number;
@@ -326,7 +326,7 @@ export async function sendNewOrderNotificationToFarmer(
   email: string,
   farmerName: string,
   orderDetails: {
-    orderId: number;
+    orderId: string;
     productName: string;
     quantity: number;
     totalPrice: number;
