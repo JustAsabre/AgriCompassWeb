@@ -751,7 +751,7 @@ export class MemStorage implements IStorage {
   async getReviewsByReviewee(revieweeId: string): Promise<ReviewWithUsers[]> {
     const reviews = Array.from(this.reviews.values())
       .filter((r) => r.revieweeId === revieweeId)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
 
     const reviewsWithUsers: ReviewWithUsers[] = [];
     for (const review of reviews) {
@@ -789,7 +789,7 @@ export class MemStorage implements IStorage {
 
   async getAllReviews(): Promise<ReviewWithUsers[]> {
     const reviews = Array.from(this.reviews.values())
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
 
     const reviewsWithUsers: ReviewWithUsers[] = [];
     for (const review of reviews) {
