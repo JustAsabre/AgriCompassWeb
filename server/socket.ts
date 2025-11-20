@@ -2,6 +2,37 @@ import { Server as HTTPServer } from "http";
 import { Server, Socket } from "socket.io";
 import { storage } from "./storage";
 import { Notification, InsertNotification, Message } from "@shared/schema";
+import { sessionStore, sessionCookieName } from "./session";
+
+// Simple cookie parser for handshake cookies
+function parseCookies(cookieHeader?: string) {
+  const out: Record<string, string> = {};
+  if (!cookieHeader) return out;
+  const parts = cookieHeader.split(";");
+  for (const part of parts) {
+    const idx = part.indexOf("=");
+    if (idx === -1) continue;
+    const key = part.slice(0, idx).trim();
+    const val = part.slice(idx + 1).trim();
+    out[key] = val;
+  }
+  return out;
+}
+
+function normalizeSessionId(raw?: string) {
+  if (!raw) return undefined;
+  try {
+    // cookies are often URL encoded
+    let v = decodeURIComponent(raw);
+    // express-session may prefix signed cookies with 's:'; strip it
+    if (v.startsWith('s:')) v = v.slice(2);
+    // if there's a dot signature suffix, remove it (best-effort)
+    if (v.includes('.')) v = v.split('.')[0];
+    return v;
+  } catch {
+    return raw;
+  }
+}
 
 // Map to track connected users
 const connectedUsers = new Map<string, string>(); // userId -> socketId
@@ -20,12 +51,59 @@ export function initializeSocket(httpServer: HTTPServer) {
   io.on("connection", (socket: Socket) => {
     console.log(`Socket connected: ${socket.id}`);
 
-    // Authenticate user on connection
+    // Attempt server-side session-based authentication on connection
+    try {
+      const cookieHeader = (socket.handshake.headers && (socket.handshake.headers.cookie as string)) || undefined;
+      const cookies = parseCookies(cookieHeader);
+      const rawSid = cookies[sessionCookieName];
+      const sid = normalizeSessionId(rawSid);
+      if (sid) {
+        sessionStore.get(sid, (err: any, sess: any) => {
+          if (!err && sess && sess.user && sess.user.id) {
+            const userId = sess.user.id;
+            connectedUsers.set(userId, socket.id);
+            socket.join(`user:${userId}`);
+            console.log(`User ${userId} authenticated (session) with socket ${socket.id}`);
+            socket.emit('authenticated', { userId });
+          }
+        });
+      }
+    } catch (err) {
+      console.error('Error during socket session auth:', err);
+    }
+
+    // Authenticate user on connection (fallback - still verified against session)
     socket.on("authenticate", (userId: string) => {
-      if (userId) {
-        connectedUsers.set(userId, socket.id);
-        socket.join(`user:${userId}`);
-        console.log(`User ${userId} authenticated with socket ${socket.id}`);
+      // verify that the session associated with this socket belongs to the same user
+      try {
+        const cookieHeader = (socket.handshake.headers && (socket.handshake.headers.cookie as string)) || undefined;
+        const cookies = parseCookies(cookieHeader);
+        const rawSid = cookies[sessionCookieName];
+        const sid = normalizeSessionId(rawSid);
+        if (!sid) {
+          socket.emit('unauthorized', { message: 'No session' });
+          return;
+        }
+
+        sessionStore.get(sid, (err: any, sess: any) => {
+          if (err || !sess || !sess.user) {
+            socket.emit('unauthorized', { message: 'Invalid session' });
+            return;
+          }
+
+          if (sess.user.id !== userId) {
+            socket.emit('unauthorized', { message: 'Mismatched user id' });
+            return;
+          }
+
+          connectedUsers.set(userId, socket.id);
+          socket.join(`user:${userId}`);
+          console.log(`User ${userId} authenticated-with-check with socket ${socket.id}`);
+          socket.emit('authenticated', { userId });
+        });
+      } catch (e) {
+        console.error('Error during authenticate handler:', e);
+        socket.emit('unauthorized', { message: 'auth error' });
       }
     });
 

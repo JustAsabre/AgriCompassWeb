@@ -1,7 +1,6 @@
 import 'dotenv/config';
 import express, { type Request, Response, NextFunction } from "express";
-import session from "express-session";
-import MemoryStore from "memorystore";
+import sessionMiddleware, { sessionStore } from "./session";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import mongoSanitize from "express-mongo-sanitize";
@@ -14,6 +13,19 @@ import { initializeSocket } from "./socket";
 
 const app = express();
 const httpServer = createServer(app);
+
+// Configure trust proxy to ensure req.protocol and secure cookies work behind proxies/load-balancers.
+// Can be configured via TRUST_PROXY env var. Defaults to 1 (typical single proxy/load-balancer).
+{
+  const raw = process.env.TRUST_PROXY;
+  if (raw !== undefined) {
+    // allow values: 'true' (=> 1), numeric string, or other express accepted values
+    const val = raw === 'true' ? 1 : (isNaN(Number(raw)) ? raw : Number(raw));
+    app.set('trust proxy', val as any);
+  } else {
+    app.set('trust proxy', 1);
+  }
+}
 
 // Initialize Socket.IO
 export const io = initializeSocket(httpServer);
@@ -45,22 +57,8 @@ app.use('/api/', limiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 
-// Session configuration
-const SessionStore = MemoryStore(session);
-app.use(session({
-  secret: process.env.SESSION_SECRET || "agricompass-dev-secret-change-in-production",
-  resave: false,
-  saveUninitialized: false,
-  store: new SessionStore({
-    checkPeriod: 86400000 // prune expired entries every 24h
-  }),
-  cookie: {
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-  }
-}));
+// Session configuration (centralized)
+app.use(sessionMiddleware);
 
 declare module 'http' {
   interface IncomingMessage {
@@ -111,21 +109,37 @@ app.use((req, res, next) => {
   next();
 });
 
+// Attach a lightweight request id for tracking in logs and responses
+app.use((req, res, next) => {
+  const rid = `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+  (req as any).requestId = rid;
+  res.setHeader('X-Request-Id', rid);
+  next();
+});
+
 (async () => {
   await registerRoutes(app, httpServer, io);
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
+    const rid = (req as any).requestId || "-";
 
-    res.status(status).json({ message });
-    throw err;
+    // Log the error server-side with request id, don't rethrow to avoid crashing the process
+    log(`ERROR [${rid}] ${message}`);
+    if (err.stack) {
+      // keep stack printing limited in dev
+      if (process.env.NODE_ENV === "development") {
+        console.error(err.stack);
+      }
+    }
+
+    res.status(status).json({ message, requestId: rid });
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  const isDevelopment = process.env.NODE_ENV !== "production";
+  // only setup vite when explicitly running in development mode
+  // (so `npm start` without NODE_ENV won't accidentally enable dev middleware)
+  const isDevelopment = process.env.NODE_ENV === "development";
   if (isDevelopment) {
     await setupVite(app, httpServer);
   } else {

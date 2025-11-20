@@ -5,7 +5,7 @@ import { storage } from "./storage";
 import { hashPassword, comparePassword, sanitizeUser, SessionUser } from "./auth";
 import { insertUserSchema, insertListingSchema, insertOrderSchema, insertCartItemSchema, insertPricingTierSchema, insertReviewSchema } from "@shared/schema";
 import { sendPasswordResetEmail, sendWelcomeEmail, sendPasswordChangedEmail, sendOrderConfirmationEmail, sendNewOrderNotificationToFarmer, sendVerificationStatusEmail } from "./email";
-import { upload, getFileUrl, deleteUploadedFile } from "./upload";
+import { upload, getFileUrl, deleteUploadedFile, isValidFilename } from "./upload";
 import { sendNotificationToUser, broadcastNewListing } from "./socket";
 import crypto from "crypto";
 
@@ -334,8 +334,23 @@ export async function registerRoutes(app: Express, httpServer: Server, io: Socke
   // Delete uploaded file endpoint
   app.delete("/api/upload/:filename", requireAuth, async (req, res) => {
     try {
-      await deleteUploadedFile(req.params.filename);
-      res.json({ message: "File deleted successfully" });
+      const filename = req.params.filename;
+
+      // Validate filename to prevent path traversal or malformed requests
+      if (!filename || !isValidFilename(filename)) {
+        return res.status(400).json({ message: "Invalid filename" });
+      }
+
+      try {
+        await deleteUploadedFile(filename);
+        return res.json({ message: "File deleted successfully" });
+      } catch (err: any) {
+        if (err && err.code === 'ENOENT') {
+          return res.status(404).json({ message: 'File not found' });
+        }
+        console.error('File deletion error:', err);
+        return res.status(500).json({ message: 'Failed to delete file' });
+      }
     } catch (error: any) {
       console.error("File deletion error:", error);
       res.status(400).json({ message: "Failed to delete file" });

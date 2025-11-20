@@ -1,0 +1,91 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import request from 'supertest';
+import express, { type Express } from 'express';
+import { createServer } from 'http';
+import { registerRoutes } from '../routes';
+import { initializeSocket } from '../socket';
+import sessionMiddleware from '../session';
+import { io as ClientIO, Socket as ClientSocket } from 'socket.io-client';
+
+describe('Socket.IO authentication', () => {
+  let app: Express;
+  let httpServer: any;
+  let serverUrl = '';
+  let clientSocket: ClientSocket | null = null;
+
+  beforeEach(async () => {
+    app = express();
+    app.use(express.json());
+    app.use(sessionMiddleware as any);
+    httpServer = createServer(app);
+    await registerRoutes(app, httpServer);
+    initializeSocket(httpServer);
+    await new Promise<void>((resolve) => {
+      httpServer.listen(0, '127.0.0.1', () => {
+        const port = httpServer.address().port;
+        serverUrl = `http://127.0.0.1:${port}`;
+        resolve();
+      });
+    });
+  });
+
+  afterEach(() => {
+    if (clientSocket) {
+      clientSocket.disconnect();
+      clientSocket = null;
+    }
+    if (httpServer && httpServer.listening) {
+      httpServer.close();
+    }
+  });
+
+  it('authenticates socket with session cookie after login', async () => {
+    const agent = request.agent(app as any);
+
+    // Register a user
+    const registerRes = await agent.post('/api/auth/register').send({
+      email: 'socket-test@example.com',
+      password: 'password123',
+      fullName: 'Socket Test',
+      role: 'buyer',
+    });
+    expect(registerRes.status).toBe(201);
+
+    // Login to create session cookie
+    const loginRes = await agent.post('/api/auth/login').send({
+      email: 'socket-test@example.com',
+      password: 'password123',
+    });
+    expect(loginRes.status).toBe(200);
+
+    const setCookie = loginRes.headers['set-cookie'];
+    expect(setCookie).toBeDefined();
+
+    const cookieHeader = Array.isArray(setCookie) ? setCookie.map((c) => c.split(';')[0]).join('; ') : setCookie.split(';')[0];
+
+    // Connect socket.io client with Cookie header
+    clientSocket = ClientIO(serverUrl, {
+      extraHeaders: {
+        Cookie: cookieHeader,
+      },
+      reconnection: false,
+    }) as unknown as ClientSocket;
+
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('timeout waiting for authenticated event')), 3000);
+      clientSocket!.on('connect', () => {
+        // Wait for server to emit authenticated
+      });
+      clientSocket!.on('authenticated', (data: any) => {
+        clearTimeout(timer);
+        try {
+          expect(data).toHaveProperty('userId');
+          resolve();
+        } catch (e) {
+          reject(e);
+        }
+      });
+      clientSocket!.on('connect_error', (err: any) => reject(err));
+    });
+  });
+});

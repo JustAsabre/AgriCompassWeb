@@ -1,17 +1,51 @@
 import nodemailer, { type Transporter } from 'nodemailer';
+import emailQueue from './emailQueue';
 
-// Email service: Gmail SMTP (free - 500 emails/day)
+// Email transporter (may be null if not configured). We support two modes:
+// 1) Generic SMTP via SMTP_HOST/SMTP_PORT/SMTP_SECURE + SMTP_USER/SMTP_PASS
+// 2) Gmail via SMTP_SERVICE=gmail with SMTP_USER/SMTP_PASS
 let transporter: Transporter | null = null;
 
-if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
-  transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
+function createTransporterIfConfigured(): void {
+  const host = process.env.SMTP_HOST;
+  const port = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined;
+  const secureEnv = process.env.SMTP_SECURE;
+  const secure = secureEnv === 'true' || secureEnv === '1' || (port === 465);
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  const service = process.env.SMTP_SERVICE; // e.g. 'gmail'
+
+  if (host) {
+    // Generic SMTP config
+    const transportOpts: any = {
+      host,
+      port: port || 587,
+      secure: !!secure,
+    };
+    if (user && pass) transportOpts.auth = { user, pass };
+    transporter = nodemailer.createTransport(transportOpts);
+  } else if (service === 'gmail' && user && pass) {
+    transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user, pass },
+    });
+  } else {
+    transporter = null;
+  }
+
+  if (transporter) {
+    transporter.verify().then(() => {
+      console.log('Email transporter configured and verified');
+    }).catch((err) => {
+      console.warn('Email transporter verification failed:', err && err.message ? err.message : err);
+      // keep transporter but let send attempts surface errors
+    });
+  } else {
+    console.log('No SMTP transporter configured. Emails will be logged only.');
+  }
 }
+
+createTransporterIfConfigured();
 
 // Email sending function
 async function sendEmail(options: {
@@ -19,25 +53,15 @@ async function sendEmail(options: {
   subject: string;
   html: string;
 }): Promise<{ success: boolean; error?: string }> {
-  if (transporter) {
-    try {
-      await transporter.sendMail({
-        from: process.env.SMTP_FROM || '"AgriCompass" <noreply@agricompass.com>',
-        to: options.to,
-        subject: options.subject,
-        html: options.html,
-      });
-      console.log(`Email sent via SMTP to ${options.to}`);
-      return { success: true };
-    } catch (error: any) {
-      console.error('SMTP failed:', error.message);
-      return { success: false, error: error.message };
-    }
+  try {
+    // Enqueue the email for background delivery and return immediately
+    const jobId = emailQueue.enqueueEmail({ to: options.to, subject: options.subject, html: options.html });
+    console.log(`Enqueued email job ${jobId} for ${options.to}`);
+    return { success: true };
+  } catch (error: any) {
+    console.error('Failed to enqueue email:', error);
+    return { success: false, error: error.message };
   }
-
-  // No email service configured
-  console.log('No email service configured, email not sent');
-  return { success: true }; // Return success to not block app functionality
 }
 
 export async function sendPasswordResetEmail(

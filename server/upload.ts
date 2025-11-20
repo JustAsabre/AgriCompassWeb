@@ -44,11 +44,30 @@ export const upload = multer({
 
 // Helper to delete file
 export async function deleteUploadedFile(filename: string): Promise<void> {
+  // Basic validation: filename should not contain path separators
+  if (!isValidFilename(filename)) {
+    throw new Error('Invalid filename');
+  }
+
+  const filePath = path.resolve(uploadDir, filename);
+
+  // Ensure resolved path is inside uploadDir to prevent path traversal
+  if (!filePath.startsWith(path.resolve(uploadDir) + path.sep) && filePath !== path.resolve(uploadDir, filename)) {
+    throw new Error('Invalid filename path');
+  }
+
   try {
-    const filePath = path.join(uploadDir, filename);
+    // Check that the file exists before attempting to unlink
+    await fs.access(filePath);
     await fs.unlink(filePath);
-  } catch (error) {
+  } catch (error: any) {
+    if (error.code === 'ENOENT') {
+      const e: any = new Error('File not found');
+      e.code = 'ENOENT';
+      throw e;
+    }
     console.error('Error deleting file:', error);
+    throw error;
   }
 }
 
@@ -56,5 +75,12 @@ export async function deleteUploadedFile(filename: string): Promise<void> {
 export function getFileUrl(filename: string, req: any): string {
   const protocol = req.protocol;
   const host = req.get('host');
-  return `${protocol}://${host}/uploads/${filename}`;
+  // encode filename for URLs
+  return `${protocol}://${host}/uploads/${encodeURIComponent(filename)}`;
+}
+
+// Validate filename contains only safe characters (no path separators)
+export function isValidFilename(filename: string) {
+  // Allow letters, numbers, dots, hyphens and underscores
+  return /^[A-Za-z0-9._-]+$/.test(filename);
 }
