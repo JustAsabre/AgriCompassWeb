@@ -58,7 +58,9 @@ describe('Socket.IO authentication', () => {
     });
     expect(loginRes.status).toBe(200);
 
-    const setCookie = loginRes.headers['set-cookie'];
+    // Prefer cookie from login response; fall back to register response if needed
+    let setCookie = loginRes.headers['set-cookie'];
+    if (!setCookie) setCookie = registerRes.headers['set-cookie'];
     expect(setCookie).toBeDefined();
 
     const cookieHeader = Array.isArray(setCookie) ? setCookie.map((c) => c.split(';')[0]).join('; ') : setCookie.split(';')[0];
