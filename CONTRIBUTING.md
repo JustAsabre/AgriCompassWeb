@@ -276,3 +276,18 @@ npm run check
 ---
 
 Thank you for contributing to AgriCompassWeb! 🚀
+
+## Uploads
+
+- **Field name**: When sending files to the API endpoint `POST /api/upload` the server expects the multipart form field name to be `images` (plural). The route uses `upload.array('images', 5)` so you can send up to 5 files in a single request.
+- **Curl example**:
+
+```powershell
+# Authenticate and save cookie (example)
+curl.exe -c cookiejar.txt -H "Content-Type: application/json" -d '{"email":"you@example.com","password":"password"}' http://localhost:5000/api/auth/login
+
+# Upload a single file (authenticated)
+curl.exe -b cookiejar.txt -F "images=@server/tests/_tmp_upload.png" http://localhost:5000/api/upload
+```
+
+- **Notes**: keep the field name `images` to avoid `Unexpected field` errors from multer.
