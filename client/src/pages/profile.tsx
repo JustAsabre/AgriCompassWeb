@@ -3,6 +3,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/lib/auth";
+import { UserWithRating } from "@shared/schema";
 import { Mail, Phone, MapPin, ShieldCheck, Building, Sprout } from "lucide-react";
 import { RatingStars } from "@/components/rating-stars";
 
@@ -12,6 +13,8 @@ export default function Profile() {
   if (!user) {
     return null;
   }
+
+  const currentUser = user as UserWithRating;
 
   return (
     <div className="min-h-screen bg-background">
@@ -33,7 +36,7 @@ export default function Profile() {
                       <h2 className="text-2xl font-bold" data-testid="text-name">
                         {user.fullName}
                       </h2>
-                      {user.verified && (
+                      {currentUser.verified && (
                         <Badge variant="secondary" className="gap-1">
                           <ShieldCheck className="h-3 w-3" />
                           Verified
@@ -45,11 +48,11 @@ export default function Profile() {
                     </Badge>
                     
                     {/* Show rating for farmers */}
-                    {user.role === "farmer" && user.averageRating && user.reviewCount && user.reviewCount > 0 && (
+                    {currentUser.role === "farmer" && currentUser.averageRating && currentUser.reviewCount && currentUser.reviewCount > 0 && (
                       <div className="mt-3">
                         <RatingStars 
-                          rating={user.averageRating} 
-                          reviewCount={user.reviewCount}
+                          rating={currentUser.averageRating} 
+                          reviewCount={currentUser.reviewCount}
                           size="lg"
                         />
                       </div>
@@ -61,17 +64,17 @@ export default function Profile() {
                   <div className="grid md:grid-cols-2 gap-4">
                     <div className="flex items-center gap-2 text-sm">
                       <Mail className="h-4 w-4 text-muted-foreground" />
-                      <span data-testid="text-email">{user.email}</span>
+                      <span data-testid="text-email">{currentUser.email}</span>
                     </div>
-                    {user.phone && (
+                    {currentUser.phone && (
                       <div className="flex items-center gap-2 text-sm">
                         <Phone className="h-4 w-4 text-muted-foreground" />
-                        <span>{user.phone}</span>
+                        <span>{currentUser.phone}</span>
                       </div>
                     )}
                     <div className="flex items-center gap-2 text-sm">
                       <MapPin className="h-4 w-4 text-muted-foreground" />
-                      <span data-testid="text-region">{user.region}</span>
+                      <span data-testid="text-region">{currentUser.region}</span>
                     </div>
                   </div>
                 </div>
@@ -79,7 +82,7 @@ export default function Profile() {
             </CardContent>
           </Card>
 
-          {user.role === "buyer" && user.businessName && (
+          {currentUser.role === "buyer" && currentUser.businessName && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -93,7 +96,7 @@ export default function Profile() {
             </Card>
           )}
 
-          {user.role === "farmer" && user.farmSize && (
+          {currentUser.role === "farmer" && currentUser.farmSize && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">

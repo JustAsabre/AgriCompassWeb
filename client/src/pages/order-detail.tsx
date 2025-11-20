@@ -38,7 +38,7 @@ interface OrderDetail {
   listingId: string;
   quantity: number;
   totalPrice: string;
-  status: "pending" | "accepted" | "rejected" | "completed" | "cancelled";
+  status: "pending" | "accepted" | "rejected" | "completed" | "cancelled" | "delivered";
   deliveryAddress?: string;
   notes?: string;
   createdAt: string;

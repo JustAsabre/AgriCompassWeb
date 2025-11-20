@@ -21,7 +21,7 @@ import {
   ChevronLeft,
   MessageCircle
 } from "lucide-react";
-import { ListingWithFarmer } from "@shared/schema";
+import { ListingWithFarmer, PricingTier } from "@shared/schema";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -40,7 +40,7 @@ export default function ProductDetail() {
   });
 
   // Fetch pricing tiers
-  const { data: pricingTiers = [] } = useQuery({
+  const { data: pricingTiers = [] } = useQuery<PricingTier[]>({
     queryKey: [`/api/listings/${id}/pricing-tiers`],
     enabled: !!id,
   });

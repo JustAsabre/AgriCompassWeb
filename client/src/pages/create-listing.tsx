@@ -11,7 +11,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDes
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FileUpload } from "@/components/ui/file-upload";
 import { useToast } from "@/hooks/use-toast";
-import { insertListingSchema } from "@shared/schema";
+import { insertListingSchema, Listing } from "@shared/schema";
 import { z } from "zod";
 import { ChevronLeft, Loader2, X } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -52,7 +52,7 @@ export default function CreateListing() {
   });
 
   // Fetch existing listing if in edit mode
-  const { data: existingListing, isLoading: isLoadingListing } = useQuery({
+  const { data: existingListing, isLoading: isLoadingListing } = useQuery<Listing>({
     queryKey: ["/api/listings", params?.id],
     enabled: isEditMode,
   });
@@ -440,7 +440,7 @@ export default function CreateListing() {
                       <p className="text-sm font-medium">Uploaded Image:</p>
                       <div className="relative group aspect-video max-w-md rounded-lg overflow-hidden border">
                         <img 
-                          src={form.watch('imageUrl')} 
+                          src={form.watch('imageUrl') ?? undefined} 
                           alt="Product preview" 
                           className="w-full h-full object-cover" 
                         />
@@ -524,7 +524,7 @@ export default function CreateListing() {
             <CardContent>
               <PricingTierForm 
                 listingId={params.id}
-                basePrice={typeof form.watch('price') === 'string' ? parseFloat(form.watch('price') || '0') : form.watch('price') || 0}
+                basePrice={Number(form.watch('price') ?? 0)}
               />
             </CardContent>
           </Card>

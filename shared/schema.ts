@@ -205,14 +205,14 @@ export type InsertReview = z.infer<typeof insertReviewSchema>;
 
 // Extended types for frontend
 export type ListingWithFarmer = Listing & {
-  farmer: User;
+  farmer: UserWithRating;
   pricingTiers?: PricingTier[];
 };
 
 export type OrderWithDetails = Order & {
   listing: Listing;
-  farmer: User;
-  buyer: User;
+  farmer: UserWithRating;
+  buyer: UserWithRating;
 };
 
 export type CartItemWithListing = CartItem & {
