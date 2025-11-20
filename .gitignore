@@ -6,3 +6,6 @@ server/uploads/*
 !server/uploads/.gitkeep
 vite.config.ts.*
 *.tar.gz
+*.env
+server/.trash/
+server/tests/login.json
