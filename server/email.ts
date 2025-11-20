@@ -5,6 +5,7 @@ import emailQueue from './emailQueue';
 // 1) Generic SMTP via SMTP_HOST/SMTP_PORT/SMTP_SECURE + SMTP_USER/SMTP_PASS
 // 2) Gmail via SMTP_SERVICE=gmail with SMTP_USER/SMTP_PASS
 let transporter: Transporter | null = null;
+let lastVerifyError: Error | null = null;
 
 function createTransporterIfConfigured(): void {
   const host = process.env.SMTP_HOST;
@@ -34,11 +35,61 @@ function createTransporterIfConfigured(): void {
   }
 
   if (transporter) {
+    // Verify connectivity/auth without crashing startup.
+    // If verification fails we will attempt common fallbacks (use secure port 465 or `service: 'gmail'`) before giving up.
     transporter.verify().then(() => {
       console.log('Email transporter configured and verified');
-    }).catch((err) => {
-      console.warn('Email transporter verification failed:', err && err.message ? err.message : err);
-      // keep transporter but let send attempts surface errors
+      lastVerifyError = null;
+    }).catch(async (err: any) => {
+      lastVerifyError = err instanceof Error ? err : new Error(String(err));
+      console.warn('Email transporter verification failed (primary):', lastVerifyError.message);
+      if (lastVerifyError.stack) console.debug(lastVerifyError.stack);
+
+      // Try Gmail-specific fallback if host looks like smtp.gmail.com
+      const hostLower = (process.env.SMTP_HOST || '').toLowerCase();
+      const user = process.env.SMTP_USER;
+      const pass = process.env.SMTP_PASS;
+
+      if ((hostLower === 'smtp.gmail.com' || process.env.SMTP_SERVICE === 'gmail') && user && pass) {
+        try {
+          console.info('Attempting Gmail fallback using secure port 465...');
+          const fallback = nodemailer.createTransport({
+            host: 'smtp.gmail.com',
+            port: 465,
+            secure: true,
+            auth: { user, pass },
+            // explicit timeouts to avoid hanging
+            connectionTimeout: 10000,
+            greetingTimeout: 5000,
+            socketTimeout: 20000,
+          });
+          await fallback.verify();
+          transporter = fallback as Transporter;
+          lastVerifyError = null;
+          console.log('Gmail fallback transporter verified and enabled (port 465)');
+          return;
+        } catch (fbErr: any) {
+          console.warn('Gmail fallback verify failed:', fbErr && fbErr.message ? fbErr.message : fbErr);
+          if (fbErr && fbErr.stack) console.debug(fbErr.stack);
+        }
+        try {
+          console.info('Attempting Gmail service transport fallback...');
+          const fallback2 = nodemailer.createTransport({ service: 'gmail', auth: { user, pass } });
+          await fallback2.verify();
+          transporter = fallback2 as Transporter;
+          lastVerifyError = null;
+          console.log('Gmail service transporter verified and enabled');
+          return;
+        } catch (fb2Err: any) {
+          console.warn('Gmail service fallback verify failed:', fb2Err && fb2Err.message ? fb2Err.message : fb2Err);
+          if (fb2Err && fb2Err.stack) console.debug(fb2Err.stack);
+        }
+      }
+
+      // If fallbacks failed, disable transporter and log guidance.
+      transporter = null;
+      console.info('SMTP disabled due to verification failure — emails will be logged only.');
+      console.info('If you are using Gmail, ensure you created an App Password (2FA required) and try using port 465 or setting SMTP_SERVICE=gmail.');
     });
   } else {
     console.log('No SMTP transporter configured. Emails will be logged only.');
@@ -119,6 +170,17 @@ export async function sendPasswordResetEmail(
     console.error('Password reset email error:', error);
     return { success: false, error: error.message || 'Failed to send email' };
   }
+}
+
+// Diagnostic helper: returns current SMTP status for debugging and health checks.
+export function getSmtpStatus() {
+  return {
+    configured: !!transporter,
+    host: process.env.SMTP_HOST || null,
+    port: process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : null,
+    service: process.env.SMTP_SERVICE || null,
+    lastVerifyError: lastVerifyError ? { message: lastVerifyError.message, stack: lastVerifyError.stack } : null,
+  };
 }
 
 export async function sendWelcomeEmail(

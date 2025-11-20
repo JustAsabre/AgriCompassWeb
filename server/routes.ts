@@ -4,7 +4,7 @@ import type { Server as SocketServer } from "socket.io";
 import { storage } from "./storage";
 import { hashPassword, comparePassword, sanitizeUser, SessionUser } from "./auth";
 import { insertUserSchema, insertListingSchema, insertOrderSchema, insertCartItemSchema, insertPricingTierSchema, insertReviewSchema } from "@shared/schema";
-import { sendPasswordResetEmail, sendWelcomeEmail, sendPasswordChangedEmail, sendOrderConfirmationEmail, sendNewOrderNotificationToFarmer, sendVerificationStatusEmail } from "./email";
+import { sendPasswordResetEmail, sendWelcomeEmail, sendPasswordChangedEmail, sendOrderConfirmationEmail, sendNewOrderNotificationToFarmer, sendVerificationStatusEmail, getSmtpStatus } from "./email";
 import { upload, getFileUrl, deleteUploadedFile, isValidFilename } from "./upload";
 import { sendNotificationToUser, broadcastNewListing } from "./socket";
 import crypto from "crypto";
@@ -31,6 +31,15 @@ function requireRole(...roles: string[]) {
 }
 
 export async function registerRoutes(app: Express, httpServer: Server, io: SocketServer): Promise<void> {
+  // Health endpoint for SMTP diagnostics. Note: updating routes requires restarting the server to take effect.
+  app.get('/health/smtp', (req, res) => {
+    try {
+      const status = getSmtpStatus();
+      res.json({ ok: true, status });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err && err.message ? err.message : String(err) });
+    }
+  });
   // Authentication routes
   app.post("/api/auth/register", async (req, res) => {
     try {

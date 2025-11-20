@@ -79,12 +79,36 @@ async function attemptSend(job: EmailJob): Promise<SentMessageInfo | null> {
     return null;
   }
 
-  return transporter.sendMail({
-    from: process.env.SMTP_FROM || '"AgriCompass" <noreply@agricompass.com>',
-    to: job.to,
-    subject: job.subject,
-    html: job.html,
-  });
+  // Give more detailed diagnostics: verify connection/auth before sending so errors are clearer.
+  try {
+    // Set reasonable timeouts
+    transporter.options = transporter.options || {};
+    transporter.options.connectionTimeout = transporter.options.connectionTimeout || 10000;
+    transporter.options.greetingTimeout = transporter.options.greetingTimeout || 5000;
+    transporter.options.socketTimeout = transporter.options.socketTimeout || 20000;
+
+    await transporter.verify();
+  } catch (err: any) {
+    // Throw a wrapped error so callers can see stack and message
+    const e = err instanceof Error ? err : new Error(String(err));
+    log(`SMTP verify error for job ${job.id}: ${e.message}`);
+    e.name = 'SmtpVerifyError';
+    throw e;
+  }
+
+  try {
+    return await transporter.sendMail({
+      from: process.env.SMTP_FROM || '"AgriCompass" <noreply@agricompass.com>',
+      to: job.to,
+      subject: job.subject,
+      html: job.html,
+    });
+  } catch (err: any) {
+    const e = err instanceof Error ? err : new Error(String(err));
+    log(`SMTP sendMail error for job ${job.id}: ${e.message}`);
+    if (e.stack) log(e.stack);
+    throw e;
+  }
 }
 
 export default {
