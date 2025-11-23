@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,6 +39,8 @@ export default function OrderSuccess() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const [orderIds, setOrderIds] = useState<string[]>([]);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   // Get order IDs from URL params
   useEffect(() => {
@@ -44,11 +48,63 @@ export default function OrderSuccess() {
     const ids = params.get('orders');
     if (ids) {
       setOrderIds(ids.split(','));
-    } else {
-      // No orders specified, redirect to dashboard
-      setLocation('/buyer/dashboard');
+      return;
     }
+    // If no orders in params, but a paystack reference is present, try to fetch the related orders
+    const reference = params.get('reference') || params.get('paystack_ref');
+    if (!reference) {
+      // No orders or reference; redirect back
+      setLocation('/buyer/dashboard');
+      return;
+    }
+
+    (async () => {
+      try {
+        // Optionally attempt client verify first
+        await fetch('/api/payments/paystack/verify-client', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reference }) });
+      } catch (err) {
+        // ignore
+      }
+
+      try {
+        const res = await fetch(`/api/payments/transaction/${encodeURIComponent(reference)}`, { credentials: 'include' });
+        if (!res.ok) {
+          setLocation('/buyer/dashboard');
+          return;
+        }
+        const body = await res.json();
+        const payments: any[] = body.payments || [];
+        if (payments.length === 0) {
+          setLocation('/buyer/dashboard');
+          return;
+        }
+        const idsFromPayments = Array.from(new Set(payments.map(p => p.orderId)));
+        setOrderIds(idsFromPayments);
+      } catch (err) {
+        setLocation('/buyer/dashboard');
+      }
+    })();
   }, [setLocation]);
+
+  // Auto verify after Paystack redirect if reference query param is present
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const reference = url.searchParams.get('reference') || url.searchParams.get('paystack_ref');
+    if (!reference) return;
+    (async () => {
+      try {
+        await fetch('/api/payments/paystack/verify-client', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reference }) });
+        // refresh queries
+        await queryClient.invalidateQueries({ queryKey: ['/api/buyer/orders', user?.id] });
+        await queryClient.invalidateQueries({ queryKey: ['/api/payments/order'] });
+        toast({ title: 'Payment verified', description: 'Your payment has been verified.' });
+        // Clean up parameters
+        url.searchParams.delete('reference');
+        url.searchParams.delete('paystack_ref');
+        window.history.replaceState({}, '', url.toString());
+      } catch (err) { /* ignore */ }
+    })();
+  }, [queryClient, user, toast]);
 
   // Fetch order details
   const { data: orders, isLoading } = useQuery<OrderWithDetails[]>({

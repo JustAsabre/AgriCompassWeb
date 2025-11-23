@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { Payout } from '@shared/schema';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/lib/auth';
@@ -12,11 +13,15 @@ export default function AdminPayouts() {
   const [loading, setLoading] = useState(false);
   const [reason, setReason] = useState('');
 
-  const { data: payouts } = useQuery(['admin/payouts'], async () => {
-    const res = await fetch('/api/admin/payouts', { credentials: 'include' });
-    if (!res.ok) throw new Error('Failed to fetch payouts');
-    return res.json();
-  }, { enabled: !!user && user.role === 'admin' });
+  const { data: payouts } = useQuery<Payout[]>({
+    queryKey: ['admin/payouts'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/payouts', { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch payouts');
+      return res.json();
+    },
+    enabled: !!user && user.role === 'admin',
+  });
 
   const processMutation = useMutation({
     mutationFn: async ({ payoutId, reason }: { payoutId: string; reason?: string }) => {
@@ -25,7 +30,7 @@ export default function AdminPayouts() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['admin/payouts']);
+      queryClient.invalidateQueries({ queryKey: ['admin/payouts'] });
       toast({ title: 'Payout queued', description: 'Payout has been queued for processing' });
     },
     onError: (err: any) => {
@@ -48,9 +53,12 @@ export default function AdminPayouts() {
             <CardContent>
               <div className="flex items-center justify-between">
                 <div>
-                  <div>Farmer: {p.farmerId}</div>
+                      <div>Farmer: {p.farmerId}</div>
                   <div>Amount: {p.amount}</div>
                   <div>Status: {p.status}</div>
+                      <div>Mobile: {p.mobileNumber ?? '—'}</div>
+                      <div>Network: {p.mobileNetwork ?? '—'}</div>
+                      <div>Recipient Code: {p.paystackTransferId ?? p.paystackRecipientCode ?? '—'}</div>
                 </div>
                 <div className="flex items-center gap-2">
                   <input className="border rounded px-2 py-1" placeholder="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)} />

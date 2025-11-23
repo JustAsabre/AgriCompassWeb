@@ -50,6 +50,177 @@ describe('Payments API', () => {
     expect(initRes.status).toBe(200);
     expect(initRes.body.payment).toBeDefined();
     expect(initRes.body.payment.orderId).toBe(orderId);
+    // Verify notifications created for buyer and farmer
+    const buyerNotifications = await storage.getNotificationsByUser(orders[0].buyerId);
+    const farmerNotifications = await storage.getNotificationsByUser(orders[0].farmerId);
+    expect(buyerNotifications.some(n => n.title.includes('Payment'))).toBe(true);
+    expect(farmerNotifications.some(n => n.title.includes('Buyer')) || farmerNotifications.some(n => n.title.includes('Payment'))).toBe(true);
+  }, 20000);
+
+  it('appends order ids to paystack callback_url when autoPay is used', async () => {
+    // Mock PAYSTACK secret
+    process.env.PAYSTACK_SECRET_KEY = 'test-paystack-secret';
+    // Spy on global.fetch
+    // @ts-ignore
+    const origFetch = global.fetch;
+    let lastBody: any = null;
+    // @ts-ignore
+    global.fetch = vi.fn().mockImplementation(async (url: string, opts: any) => {
+      try {
+        lastBody = JSON.parse(opts.body || '{}');
+      } catch (err) {}
+      return {
+        ok: true,
+        json: async () => ({ data: { authorization_url: 'https://paystack/checkout', reference: 'ref-test-123' } }),
+      } as any;
+    });
+
+    // Register farmer/listing/buyer and add to cart
+    const farmerRes = await request(app).post('/api/auth/register').send({ email: 'payf@test.com', password: 'password123', fullName: 'PayFarmer', role: 'farmer' });
+    const farmerLogin = await request(app).post('/api/auth/login').send({ email: 'payf@test.com', password: 'password123' });
+    const farmerCookie = farmerLogin.headers['set-cookie'];
+    const listingRes = await request(app).post('/api/listings').set('Cookie', farmerCookie).send({ productName: 'Checkout Product', category: 'Grains', description: 'T', price: '12.00', unit: 'kg', quantityAvailable: 50, minOrderQuantity: 1, location: 'Test' });
+    const listing = listingRes.body;
+
+    const buyerRes = await request(app).post('/api/auth/register').send({ email: 'payb@test.com', password: 'password123', fullName: 'PayBuyer', role: 'buyer' });
+    const buyerLogin = await request(app).post('/api/auth/login').send({ email: 'payb@test.com', password: 'password123' });
+    const buyerCookie = buyerLogin.headers['set-cookie'];
+
+    await request(app).post('/api/cart').set('Cookie', buyerCookie).send({ listingId: listing.id, quantity: 1 });
+
+    try {
+      const checkoutRes = await request(app).post('/api/orders/checkout').set('Cookie', buyerCookie).send({ deliveryAddress: '123 Market', notes: 'Auto pay', autoPay: true, returnUrl: 'https://example.com/order-success' });
+      expect(checkoutRes.status).toBe(200);
+      const data = checkoutRes.body.autoPay;
+      expect(data).toBeDefined();
+      expect(data.authorization_url).toBeDefined();
+      // Confirm that the callback_url we sent to paystack contains orders param
+      expect(lastBody && lastBody.callback_url && lastBody.callback_url.includes('orders=')).toBe(true);
+    } finally {
+      // Restore original fetch
+      // @ts-ignore
+      global.fetch = origFetch;
+    }
+  }, 20000);
+
+  it('creates payments for each order during autoPay and verify-client marks them as completed', async () => {
+    process.env.PAYSTACK_SECRET_KEY = 'test-paystack-secret';
+    // @ts-ignore
+    const origFetch = global.fetch;
+    let lastBody: any = null;
+    // @ts-ignore
+    global.fetch = vi.fn().mockImplementation(async (url: string, opts: any) => {
+      try { lastBody = JSON.parse(opts.body || '{}'); } catch (err) {}
+      return { ok: true, json: async () => ({ data: { authorization_url: 'https://paystack/checkout', reference: 'multi-ref-123' } }) } as any;
+    });
+    try {
+      const farmerRes = await request(app).post('/api/auth/register').send({ email: 'mpfarmer@test.com', password: 'password123', fullName: 'MPFarmer', role: 'farmer' });
+      const farmerLogin = await request(app).post('/api/auth/login').send({ email: 'mpfarmer@test.com', password: 'password123' });
+      const farmerCookie = farmerLogin.headers['set-cookie'];
+      const listingRes = await request(app).post('/api/listings').set('Cookie', farmerCookie).send({ productName: 'MP Product', category: 'Grains', description: 'T', price: '2.00', unit: 'kg', quantityAvailable: 50, minOrderQuantity: 1, location: 'Test' });
+      const listing = listingRes.body;
+
+      // second listing
+      const listingRes2 = await request(app).post('/api/listings').set('Cookie', farmerCookie).send({ productName: 'MP Product 2', category: 'Grains', description: 'T', price: '3.00', unit: 'kg', quantityAvailable: 50, minOrderQuantity: 1, location: 'Test' });
+      const listing2 = listingRes2.body;
+
+      const buyerRes = await request(app).post('/api/auth/register').send({ email: 'mpbuyer@test.com', password: 'password123', fullName: 'MPBuyer', role: 'buyer' });
+      const buyerLogin = await request(app).post('/api/auth/login').send({ email: 'mpbuyer@test.com', password: 'password123' });
+      const buyerCookie = buyerLogin.headers['set-cookie'];
+
+      await request(app).post('/api/cart').set('Cookie', buyerCookie).send({ listingId: listing.id, quantity: 1 });
+      await request(app).post('/api/cart').set('Cookie', buyerCookie).send({ listingId: listing2.id, quantity: 2 });
+
+      const checkoutRes = await request(app).post('/api/orders/checkout').set('Cookie', buyerCookie).send({ deliveryAddress: '123 Market', notes: 'Auto pay', autoPay: true, returnUrl: 'https://example.com/order-success' });
+      expect(checkoutRes.status).toBe(200);
+      const payments = checkoutRes.body.autoPay.payments;
+      expect(payments).toBeDefined();
+      expect(payments.length).toBeGreaterThanOrEqual(2);
+      expect(payments.every((p: any) => p.transactionId === 'multi-ref-123')).toBe(true);
+
+      // Mock Paystack verify response for successful payment
+      // @ts-ignore
+      global.fetch = vi.fn().mockImplementation(async (url: string) => ({ ok: true, json: async () => ({ data: { status: 'success' } }) }) as any);
+
+      // Verify via client endpoint
+      const verifyRes = await request(app).post('/api/payments/paystack/verify-client').set('Cookie', buyerCookie).send({ reference: 'multi-ref-123' });
+      expect(verifyRes.status).toBe(200);
+
+      // All payments should now be completed
+      const orderIds = checkoutRes.body.orders.map((o: any) => o.id);
+      for (const oid of orderIds) {
+        const paymentsByOrder = await storage.getPaymentsByOrder(oid);
+        expect(paymentsByOrder.some((p: any) => p.status === 'completed')).toBe(true);
+        const order = await storage.getOrder(oid);
+        expect(order?.status).toBe('accepted');
+      }
+    } finally {
+      // @ts-ignore
+      global.fetch = origFetch;
+    }
+
+  }, 25000);
+
+  it('returns payments for a transaction via GET /api/payments/transaction/:transactionId', async () => {
+    process.env.PAYSTACK_SECRET_KEY = 'test-paystack-secret';
+    // @ts-ignore
+    const origFetch = global.fetch;
+    // @ts-ignore
+    global.fetch = vi.fn().mockImplementation(async (url: string, opts: any) => ({ ok: true, json: async () => ({ data: { authorization_url: 'https://paystack/checkout', reference: 'txn-lookup-123' } }) }) as any);
+    try {
+      const farmerRes = await request(app).post('/api/auth/register').send({ email: 'lookupfarmer@test.com', password: 'password123', fullName: 'Lookup Farmer', role: 'farmer' });
+      const farmerLogin = await request(app).post('/api/auth/login').send({ email: 'lookupfarmer@test.com', password: 'password123' });
+      const farmerCookie = farmerLogin.headers['set-cookie'];
+      const listingRes = await request(app).post('/api/listings').set('Cookie', farmerCookie).send({ productName: 'Lookup Product', category: 'Grains', description: 'T', price: '7.00', unit: 'kg', quantityAvailable: 50, minOrderQuantity: 1, location: 'Test' });
+      const listing = listingRes.body;
+
+      const buyerRes = await request(app).post('/api/auth/register').send({ email: 'lookupbuyer@test.com', password: 'password123', fullName: 'LookupBuyer', role: 'buyer' });
+      const buyerLogin = await request(app).post('/api/auth/login').send({ email: 'lookupbuyer@test.com', password: 'password123' });
+      const buyerCookie = buyerLogin.headers['set-cookie'];
+
+      await request(app).post('/api/cart').set('Cookie', buyerCookie).send({ listingId: listing.id, quantity: 1 });
+      const checkoutRes = await request(app).post('/api/orders/checkout').set('Cookie', buyerCookie).send({ deliveryAddress: '123 Market', notes: 'Test', autoPay: true, returnUrl: 'https://example.com/order-success' });
+      expect(checkoutRes.status).toBe(200);
+      const reference = checkoutRes.body.autoPay.reference;
+      expect(reference).toBeDefined();
+
+      const res = await request(app).get(`/api/payments/transaction/${encodeURIComponent(reference)}`).set('Cookie', buyerCookie);
+      expect(res.status).toBe(200);
+      expect(res.body.payments).toBeDefined();
+      expect(res.body.payments.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      // @ts-ignore
+      global.fetch = origFetch;
+    }
+  }, 20000);
+
+  it('returns missingRecipients when some farmers have no paystack recipient', async () => {
+    process.env.PAYSTACK_SECRET_KEY = 'test-paystack-secret';
+    // @ts-ignore
+    const origFetch = global.fetch;
+    // @ts-ignore
+    global.fetch = vi.fn().mockImplementation(async (url: string, opts: any) => ({ ok: true, json: async () => ({ data: { authorization_url: 'https://paystack/checkout', reference: 'ref-missing-001' } }) }) as any);
+    try {
+      const farmerRes = await request(app).post('/api/auth/register').send({ email: 'missingfarmer@test.com', password: 'password123', fullName: 'Missing Farmer', role: 'farmer' });
+      const farmerLogin = await request(app).post('/api/auth/login').send({ email: 'missingfarmer@test.com', password: 'password123' });
+      const farmerCookie = farmerLogin.headers['set-cookie'];
+      const listingRes = await request(app).post('/api/listings').set('Cookie', farmerCookie).send({ productName: 'Missing Product', category: 'Grains', description: 'T', price: '4.00', unit: 'kg', quantityAvailable: 50, minOrderQuantity: 1, location: 'Test' });
+      const listing = listingRes.body;
+
+      const buyerRes = await request(app).post('/api/auth/register').send({ email: 'missingbuyer@test.com', password: 'password123', fullName: 'MissingBuyer', role: 'buyer' });
+      const buyerLogin = await request(app).post('/api/auth/login').send({ email: 'missingbuyer@test.com', password: 'password123' });
+      const buyerCookie = buyerLogin.headers['set-cookie'];
+
+      await request(app).post('/api/cart').set('Cookie', buyerCookie).send({ listingId: listing.id, quantity: 1 });
+      const checkoutRes = await request(app).post('/api/orders/checkout').set('Cookie', buyerCookie).send({ deliveryAddress: '123 Market', notes: 'Test', autoPay: true, returnUrl: 'https://example.com/order-success' });
+      expect(checkoutRes.status).toBe(200);
+      const missing = checkoutRes.body.autoPay.missingRecipients;
+      expect(Array.isArray(missing)).toBe(true);
+      expect(missing.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      // @ts-ignore
+      global.fetch = origFetch;
+    }
   }, 20000);
 
   it('handles paystack webhook event and marks payment completed', async () => {
@@ -82,6 +253,11 @@ describe('Payments API', () => {
 
     const order = await storage.getOrder(orderId);
     expect(order?.status).toBe('accepted');
+    // Notifications should have been created for buyer and farmer
+    const buyerNotifications = await storage.getNotificationsByUser(orders[0].buyerId);
+    const farmerNotifications = await storage.getNotificationsByUser(orders[0].farmerId);
+    expect(buyerNotifications.some(n => n.title.includes('Payment received'))).toBe(true);
+    expect(farmerNotifications.some(n => n.title.includes('Payment received'))).toBe(true);
   }, 20000);
 
   it('creates a payout after order completion', async () => {
@@ -103,7 +279,9 @@ describe('Payments API', () => {
 
     // Simulate farmer accepting the order
     await request(app).patch(`/api/orders/${orderId}/status`).set('Cookie', farmerCookie).send({ status: 'accepted' });
-    // Mark as delivered
+    // Create a completed payment record first so farmer can mark as delivered
+    await storage.createPayment({ orderId, payerId: orders[0].buyerId, amount: '16.00', paymentMethod: 'manual', transactionId: null, status: 'completed' } as any);
+    // Now mark as delivered (farmer)
     await request(app).patch(`/api/orders/${orderId}/status`).set('Cookie', farmerCookie).send({ status: 'delivered' });
     // Buyer confirms receipt
     await request(app).patch(`/api/orders/${orderId}/complete`).set('Cookie', buyerCookie).send({});
@@ -116,5 +294,40 @@ describe('Payments API', () => {
     const payout = payouts.find(p => p.amount);
     expect(payout).toBeDefined();
     expect(Number(payout!.amount)).toBeGreaterThan(0);
+  });
+
+  it('rejects completion when no payment exists', async () => {
+    // Setup farmer, listing, buyer & checkout
+    const farmerRes = await request(app).post('/api/auth/register').send({ email: 'nopay_farmer@test.com', password: 'password123', fullName: 'NoPayFarmer', role: 'farmer' });
+    const farmerLogin = await request(app).post('/api/auth/login').send({ email: 'nopay_farmer@test.com', password: 'password123' });
+    const farmerCookie = farmerLogin.headers['set-cookie'];
+    const listingRes = await request(app).post('/api/listings').set('Cookie', farmerCookie).send({ productName: 'NoPay Product', category: 'Vegetables', description: 'T', price: '6.00', unit: 'kg', quantityAvailable: 50, minOrderQuantity: 1, location: 'Test' });
+    const listing = listingRes.body;
+
+    const buyerRes = await request(app).post('/api/auth/register').send({ email: 'nopay_buyer@test.com', password: 'password123', fullName: 'NoPayBuyer', role: 'buyer' });
+    const buyerLogin = await request(app).post('/api/auth/login').send({ email: 'nopay_buyer@test.com', password: 'password123' });
+    const buyerCookie = buyerLogin.headers['set-cookie'];
+
+    await request(app).post('/api/cart').set('Cookie', buyerCookie).send({ listingId: listing.id, quantity: 1 });
+    const checkoutRes = await request(app).post('/api/orders/checkout').set('Cookie', buyerCookie).send({ deliveryAddress: '1', notes: '' });
+    const orders = checkoutRes.body.orders;
+    const orderId = orders[0].id;
+
+    // Farmer tries to mark as accepted
+    await request(app).patch(`/api/orders/${orderId}/status`).set('Cookie', farmerCookie).send({ status: 'accepted' });
+    // Farmer attempts to mark delivered without a payment - should be rejected
+    const deliverRes = await request(app).patch(`/api/orders/${orderId}/status`).set('Cookie', farmerCookie).send({ status: 'delivered' });
+    expect(deliverRes.status).toBe(400);
+    expect(deliverRes.body.message).toMatch(/no confirmed payment/i);
+    const buyerNotifications = await storage.getNotificationsByUser(orders[0].buyerId);
+    expect(buyerNotifications.some(n => /Payment Required/i.test(n.title) || /Payment Required/i.test(n.message))).toBe(true);
+
+    // Simulate order being marked delivered (force backend change) and buyer attempting to complete without payment
+    await storage.updateOrderStatus(orderId, 'delivered');
+    const completeRes = await request(app).patch(`/api/orders/${orderId}/complete`).set('Cookie', buyerCookie).send({});
+    expect(completeRes.status).toBe(400);
+    // Farmer should receive notification about completion blocked
+    const farmerNotifications = await storage.getNotificationsByUser(orders[0].farmerId);
+    expect(farmerNotifications.some(n => /Completion Blocked/i.test(n.title) || /Completion Blocked/i.test(n.message))).toBe(true);
   });
 });

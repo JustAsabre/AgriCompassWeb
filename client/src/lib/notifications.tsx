@@ -45,13 +45,21 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       transports: ["websocket", "polling"],
     });
 
+    let authSent = false;
     newSocket.on("connect", () => {
       setIsConnected(true);
-      newSocket.emit("authenticate", user.id);
+      if (!authSent) {
+        newSocket.emit("authenticate", user.id);
+        authSent = true;
+      }
+    });
+    newSocket.on('authenticated', () => {
+      authSent = true;
     });
 
     newSocket.on("disconnect", () => {
       setIsConnected(false);
+      authSent = false;
     });
 
     // Listen for new notifications

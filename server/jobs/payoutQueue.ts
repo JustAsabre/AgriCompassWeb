@@ -77,7 +77,10 @@ async function initMemoryBackend() {
 // BULL backend (uses Redis). Load dynamically so CI/test environments without Redis or bull installed won't break.
 async function initBullBackend() {
   try {
-    const { default: Bull } = await import('bull');
+    // Dynamic import of bull - treat as any to avoid type issues if not present in environment
+    // @ts-ignore
+    const bullModule: any = await import('bull');
+    const Bull: any = bullModule.default || bullModule;
     const redisUrl = process.env.REDIS_URL;
     const redisHost = process.env.REDIS_HOST;
     const redisPort = Number(process.env.REDIS_PORT || '6379');
@@ -93,7 +96,7 @@ async function initBullBackend() {
     });
     usingBull = true;
     return true;
-  } catch (err) {
+  } catch (err: any) {
     console.warn('Bull backend unavailable. Falling back to memory backend. Error:', err && err.message ? err.message : err);
     return false;
   }

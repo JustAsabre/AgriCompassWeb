@@ -28,6 +28,7 @@ export default function Cart() {
   const { user } = useAuth();
   const [deliveryAddress, setDeliveryAddress] = useState("");
   const [notes, setNotes] = useState("");
+  const [autoPay, setAutoPay] = useState(true);
   const [pricingTiersMap, setPricingTiersMap] = useState<Record<string, PricingTier[]>>({});
 
   const { data: cartItems, isLoading } = useQuery<CartItemWithListing[]>({
@@ -141,6 +142,16 @@ export default function Cart() {
       // Redirect to order success page with order IDs
       if (data && data.orders && data.orders.length > 0) {
         const orderIds = data.orders.map((order: any) => order.id).join(',');
+        // If autoPay was requested and we received an authorization URL, redirect to Paystack
+        if (data.autoPay && data.autoPay.authorization_url) {
+          // If some farmers lack recipients, show a warning to the buyer before redirect
+          if (data.autoPay.missingRecipients && data.autoPay.missingRecipients.length > 0) {
+            toast({ title: 'Note', description: 'Some farmers do not have payout recipients configured. Payouts may be delayed; farmers will be notified to set up payout details.' });
+          }
+          // If we need to preserve return state, let Paystack redirect back to the site
+          window.location.href = data.autoPay.authorization_url;
+          return;
+        }
         setLocation(`/order-success?orders=${orderIds}`);
       } else {
         toast({
@@ -186,9 +197,13 @@ export default function Cart() {
       return;
     }
 
+    const returnUrl = `${window.location.origin}/order-success`;
+    // If autoPay is requested, ensure buyer has email registered etc. (server validates amount)
     checkoutMutation.mutate({
       deliveryAddress,
       notes,
+      autoPay,
+      returnUrl,
     });
   };
 
@@ -419,6 +434,10 @@ export default function Cart() {
                   >
                     {checkoutMutation.isPending ? "Processing..." : "Place Order"}
                   </Button>
+                  <div className="mt-2 flex items-center gap-2">
+                    <input type="checkbox" id="autoPay" checked={autoPay} onChange={(e) => setAutoPay(e.target.checked)} />
+                    <label htmlFor="autoPay" className="text-sm text-muted-foreground">Pay now (one-click)</label>
+                  </div>
                 </CardContent>
               </Card>
             </div>

@@ -103,9 +103,11 @@ export interface IStorage {
   getAverageRating(userId: string): Promise<{ average: number; count: number }>;
   // Payments & Payouts
   createPayment(payment: InsertPayment): Promise<Payment>;
+  getPaymentsByOrder(orderId: string): Promise<Payment[]>;
   getPayment(id: string): Promise<Payment | undefined>;
   updatePaymentStatus(id: string, status: string): Promise<Payment | undefined>;
   getPaymentByTransactionId(transactionId: string): Promise<Payment | undefined>;
+  getPaymentsByTransactionId(transactionId: string): Promise<Payment[]>;
   createPayout(payout: InsertPayout): Promise<Payout>;
   getPayout(id: string): Promise<Payout | undefined>;
   updatePayout(id: string, updates: Partial<Payout>): Promise<Payout | undefined>;
@@ -166,6 +168,8 @@ export class MemStorage implements IStorage {
       role: "farmer",
       region: "South Region",
       phone: "+1234567891",
+      mobileNumber: "+233555000001",
+      mobileNetwork: "mtn",
       farmSize: "5 acres",
     });
     // Manually set verified after creation
@@ -272,7 +276,8 @@ export class MemStorage implements IStorage {
       phone: insertUser.phone ?? null,
       businessName: insertUser.businessName ?? null,
       farmSize: insertUser.farmSize ?? null,
-      bankAccount: (insertUser as any).bankAccount ?? null,
+      mobileNumber: (insertUser as any).mobileNumber ?? null,
+      mobileNetwork: (insertUser as any).mobileNetwork ?? null,
       paystackRecipientCode: (insertUser as any).paystackRecipientCode ?? null,
       resetToken: null,
       resetTokenExpiry: null,
@@ -493,6 +498,14 @@ export class MemStorage implements IStorage {
 
   async getPaymentByTransactionId(transactionId: string): Promise<Payment | undefined> {
     return Array.from(this.payments.values()).find(p => p.transactionId === transactionId);
+  }
+
+  async getPaymentsByTransactionId(transactionId: string): Promise<Payment[]> {
+    return Array.from(this.payments.values()).filter(p => p.transactionId === transactionId);
+  }
+
+  async getPaymentsByOrder(orderId: string): Promise<Payment[]> {
+    return Array.from(this.payments.values()).filter(p => p.orderId === orderId);
   }
 
   async updatePaymentStatus(id: string, status: string): Promise<Payment | undefined> {

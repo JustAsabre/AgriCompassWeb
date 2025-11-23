@@ -145,10 +145,10 @@ Payouts & Recipients (Farmer payouts):
 
 API endpoints related to payouts and recipients:
 
-- `POST /api/payouts/request` (farmer) — request a payout (amount + bankAccount)
+- `POST /api/payouts/request` (farmer) — request a payout (amount + mobileNumber, mobileNetwork)
 - `POST /api/payouts/process` (admin) — process a payout and optionally transfer funds via Paystack transfer API
-- `POST /api/payouts/recipient` (farmer) — create Paystack transfer recipient (bank code + account)
-- `GET /api/payouts/recipient/me` (farmer) — fetch your saved recipient code & bank account
+- `POST /api/payouts/recipient` (farmer) — create Paystack transfer recipient (mobileNetwork + mobileNumber)
+- `GET /api/payouts/recipient/me` (farmer) — fetch your saved recipient code & mobile details (mobileNumber + mobileNetwork)
 
 Notes:
 - The server validates amounts server-side, schedules payouts, and uses `PAYSTACK_WEBHOOK_SECRET` to validate incoming webhook events.

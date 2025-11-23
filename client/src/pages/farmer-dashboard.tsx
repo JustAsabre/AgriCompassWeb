@@ -37,6 +37,8 @@ import { Listing, OrderWithDetails } from "@shared/schema";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEffect, useRef } from "react";
 import { useState } from "react";
+import { Input } from '@/components/ui/input';
+import { Select, SelectItem, SelectContent, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export default function FarmerDashboard() {
   const { user, refreshUser } = useAuth();
@@ -44,9 +46,10 @@ export default function FarmerDashboard() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [payoutAmount, setPayoutAmount] = useState('');
-  const [bankAccount, setBankAccount] = useState('');
-  const [recipientBankCode, setRecipientBankCode] = useState('');
-  const [recipientAccountNumber, setRecipientAccountNumber] = useState('');
+  const [mobileNumber, setMobileNumber] = useState('');
+  const [mobileNetwork, setMobileNetwork] = useState('');
+  const [recipientMobileNetwork, setRecipientMobileNetwork] = useState('');
+  const [recipientMobileNumber, setRecipientMobileNumber] = useState('');
   const recipientAccountRef = useRef<HTMLInputElement | null>(null);
 
   // Refresh user data on mount to ensure verified status is up to date
@@ -62,6 +65,16 @@ export default function FarmerDashboard() {
   const { data: orders, isLoading: ordersLoading } = useQuery<OrderWithDetails[]>({
     queryKey: ["/api/farmer/orders", user?.id],
     enabled: !!user?.id,
+  });
+
+  const { data: recipient } = useQuery({
+    queryKey: ['/api/payouts/recipient/me', user?.id],
+    queryFn: async () => {
+      const res = await fetch('/api/payouts/recipient/me', { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch recipient');
+      return res.json();
+    },
+    enabled: !!user,
   });
 
   const updateOrderMutation = useMutation({
@@ -123,12 +136,12 @@ export default function FarmerDashboard() {
   });
 
   const requestPayoutMutation = useMutation({
-    mutationFn: async ({ amount, bankAccount }: { amount: string; bankAccount?: string }) => {
+    mutationFn: async ({ amount, mobileNumber }: { amount: string; mobileNumber?: string }) => {
       const response = await fetch('/api/payouts/request', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount, bankAccount }),
+        body: JSON.stringify({ amount, mobileNumber }),
       });
       if (!response.ok) {
         const body = await response.json();
@@ -145,12 +158,12 @@ export default function FarmerDashboard() {
   });
 
   const createRecipientMutation = useMutation({
-    mutationFn: async ({ accountNumber, bankCode }: { accountNumber: string; bankCode: string }) => {
+    mutationFn: async ({ mobileNumber, mobileNetwork }: { mobileNumber: string; mobileNetwork: string }) => {
       const response = await fetch('/api/payouts/recipient', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountNumber, bankCode }),
+        body: JSON.stringify({ mobileNumber, mobileNetwork }),
       });
       if (!response.ok) {
         const body = await response.json();
@@ -165,6 +178,14 @@ export default function FarmerDashboard() {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
     },
   });
+
+  // Client-side validation for Ghana mobile number E.164 or local
+  function isValidGhanaMobile(mobile?: string) {
+    if (!mobile) return false;
+    const e164Regex = /^\+233[0-9]{9}$/;
+    const localRegex = /^0[0-9]{9}$/;
+    return e164Regex.test(mobile) || localRegex.test(mobile);
+  }
 
   const activeListings = listings?.filter(l => l.status === "active") || [];
   const totalRevenue = orders
@@ -505,48 +526,93 @@ export default function FarmerDashboard() {
           <div className="mb-4">
             <Alert>
               <AlertDescription className="flex items-center justify-between">
-                <span>You haven't set up a payout recipient yet. Add your bank details to receive payouts automatically.</span>
+                <span>You haven't set up a payout recipient yet. Add your mobile money details to receive payouts automatically.</span>
                 <Button size="sm" onClick={() => recipientAccountRef.current?.focus()}>Add Recipient</Button>
               </AlertDescription>
             </Alert>
           </div>
         )}
 
-        <div className="mt-8 p-4 bg-muted rounded-md">
-          <h3 className="font-semibold mb-2">Request Payout</h3>
-          <div className="flex gap-2 items-center">
-            <input
-              className="border rounded px-3 py-2 w-40"
-              placeholder="Amount"
-              value={payoutAmount}
-              onChange={(e) => setPayoutAmount(e.target.value)}
-            />
-            <input
-              className="border rounded px-3 py-2 w-48"
-              placeholder="Bank account"
-              value={bankAccount}
-              onChange={(e) => setBankAccount(e.target.value)}
-            />
-            <Button
-              onClick={() => requestPayoutMutation.mutate({ amount: payoutAmount, bankAccount })}
-              disabled={requestPayoutMutation.isPending}
-              size="sm"
-            >
-              <DollarSign className="h-4 w-4 mr-2" />
-              Request
-            </Button>
-          </div>
-        </div>
-        <div className="mt-4 p-4 bg-muted rounded-md">
-          <h3 className="font-semibold mb-2">Manage Payout Recipient</h3>
-          <div className="flex gap-2 items-center">
-            <input className="border rounded px-3 py-2 w-36" placeholder="Bank code" value={recipientBankCode} onChange={(e) => setRecipientBankCode(e.target.value)} />
-            <input ref={recipientAccountRef} className="border rounded px-3 py-2 w-48" placeholder="Account number" value={recipientAccountNumber} onChange={(e) => setRecipientAccountNumber(e.target.value)} />
-            <Button onClick={() => createRecipientMutation.mutate({ accountNumber: recipientAccountNumber, bankCode: recipientBankCode })} size="sm" disabled={createRecipientMutation.isPending}>
-              <DollarSign className="h-4 w-4 mr-2" /> Save Recipient
-            </Button>
-          </div>
-        </div>
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Request Payout</CardTitle>
+          </CardHeader>
+          <CardContent>
+              <div className="flex flex-col md:flex-row md:items-center gap-3">
+              <Input className="w-40" placeholder="Amount (GHS)" value={payoutAmount} onChange={(e: any) => setPayoutAmount(e.target.value)} />
+              <Input className="w-48" placeholder="Mobile number (e.g. +233...)" value={mobileNumber} onChange={(e: any) => setMobileNumber(e.target.value)} />
+              <Button onClick={() => {
+                if (!isValidGhanaMobile(mobileNumber)) {
+                  toast({ title: 'Invalid mobile number', description: 'Please enter a valid Ghana mobile number (e.g., +233XXXXXXXXX or 0XXXXXXXXX)', variant: 'destructive' });
+                  return;
+                }
+                if (!mobileNetwork) {
+                  toast({ title: 'Network required', description: 'Please choose your mobile network', variant: 'destructive' });
+                  return;
+                }
+                requestPayoutMutation.mutate({ amount: payoutAmount, mobileNumber });
+              }} disabled={requestPayoutMutation.isPending} size="sm">
+                <DollarSign className="h-4 w-4 mr-2" />
+                Request
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="mt-4">
+          <CardHeader>
+            <CardTitle>Manage Payout Recipient</CardTitle>
+          </CardHeader>
+          <CardContent>
+              <div className="flex flex-col md:flex-row items-center gap-3">
+              <div className="w-36">
+                <Select value={recipientMobileNetwork} onValueChange={(v) => setRecipientMobileNetwork(v)}>
+                  <SelectTrigger className="w-full"><SelectValue placeholder="Network" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mtn">MTN</SelectItem>
+                    <SelectItem value="vodafone">Vodafone</SelectItem>
+                    <SelectItem value="airteltigo">AirtelTigo</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Input ref={recipientAccountRef} className="w-48" placeholder="Mobile number (e.g., +233...)" value={recipientMobileNumber} onChange={(e: any) => setRecipientMobileNumber(e.target.value)} />
+              <Button onClick={() => {
+                // validation before submit
+                const mobile = recipientMobileNumber;
+                const ghLocal = /^0[0-9]{9}$/;
+                const e164 = /^\+233[0-9]{9}$/;
+                if (!mobile || (!ghLocal.test(mobile) && !e164.test(mobile))) {
+                  toast({ title: 'Invalid mobile', description: 'Please enter a valid Ghana mobile number', variant: 'destructive' });
+                  return;
+                }
+                if (!isValidGhanaMobile(recipientMobileNumber)) {
+                  toast({ title: 'Invalid mobile number', description: 'Please enter a valid Ghana mobile number in the form +233XXXXXXXXX or 0XXXXXXXXX', variant: 'destructive' });
+                  return;
+                }
+                if (!recipientMobileNetwork) {
+                  toast({ title: 'Network required', description: 'Please select your mobile network for payouts', variant: 'destructive' });
+                  return;
+                }
+                createRecipientMutation.mutate({ mobileNumber: recipientMobileNumber, mobileNetwork: recipientMobileNetwork });
+              }} size="sm" disabled={createRecipientMutation.isPending}>
+                <DollarSign className="h-4 w-4 mr-2" /> Save Recipient
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+        {recipient?.paystackRecipientCode && (
+          <Card className="mt-4">
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm text-muted-foreground">Saved Recipient</div>
+                  <div className="font-medium">{recipient?.mobileNumber} ({recipient?.mobileNetwork})</div>
+                </div>
+                <div className="text-xs text-muted-foreground">Recipient Code: {recipient?.paystackRecipientCode}</div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );

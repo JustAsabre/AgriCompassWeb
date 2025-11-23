@@ -47,6 +47,53 @@
    - Next steps guidance
    - Support contact info
 
+### 2. Production Hardening & Bug Fixes (ADDITIONAL COMPLETED)
+
+#### Multi-Order Payment Support ✅
+- Implemented individual payments per order for multi-order checkouts
+- Shared transactionId across payments for tracking
+- Prevents single payment creation for multiple orders
+- Maintains payment integrity and prevents overselling
+
+#### Mobile Number Validation ✅
+- Server-side Ghana mobile number validation in payout/recipient endpoints
+- Client-side validation in farmer dashboard with error messages
+- Enforces +233XXXXXXXXX or 0XXXXXXXXX format
+
+#### Paystack Recipient UX Improvements ✅
+- Toast warnings for missing recipients during autoPay
+- Guides farmers to create recipients before enabling autoPay
+- Prevents failed payouts due to missing recipients
+
+#### Order Success Page Enhancements ✅
+- Fallback lookup of order IDs from Paystack reference
+- Improved UX for redirects that don't preserve callback_url
+- New API endpoint: GET /api/payments/transaction/:reference
+
+#### Database Migration Plan ✅
+- SQL script to migrate bank_account to mobile_number
+- Comprehensive README with testing and rollback steps
+- Safe legacy data transition
+
+#### Bug Fixes ✅
+- Fixed double socket authentication logs with dedupe flag
+- Added notifications for failed order transitions without payment
+- Fixed NaN display in order details with safe price parsing
+- Enhanced test coverage for new flows
+
+#### Files Modified/Created (Additional)
+- **server/routes.ts**: Multi-order autoPay, transaction lookup, validations, notifications
+- **server/storage.ts**: getPaymentsByTransactionId method
+- **server/socket.ts**: Authentication dedupe logic
+- **client/src/pages/cart.tsx**: Missing recipients toast
+- **client/src/pages/order-success.tsx**: Order fallback lookup
+- **client/src/pages/order-detail.tsx**: Safe price parsing
+- **client/src/pages/farmer-dashboard.tsx**: Mobile validations
+- **server/tests/payments.test.ts**: Multi-payment and notification tests
+- **server/tests/socket-auth.test.ts**: Dedupe authentication test
+- **drizzle/migrations/0006_migrate_bankaccount_to_mobile.sql**: Migration script
+- **drizzle/migrations/0006_migration_readme.md**: Migration documentation
+
 ---
 
 ## 📁 Files Modified/Created

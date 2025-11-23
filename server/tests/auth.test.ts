@@ -110,5 +110,18 @@ describe('Authentication API', () => {
 
       expect(response.status).toBe(401);
     });
+
+    it('does not create duplicate sessions when already logged in', async () => {
+      const first = await request(app)
+        .post('/api/auth/login')
+        .send({ email: 'login@example.com', password: 'password123' });
+      expect(first.status).toBe(200);
+      const cookie = first.headers['set-cookie'];
+
+      // Call login again using the same session cookie - the server should return the existing user
+      const second = await request(app).post('/api/auth/login').set('Cookie', cookie).send({ email: 'login@example.com', password: 'password123' });
+      expect(second.status).toBe(200);
+      expect(second.body.user.email).toBe('login@example.com');
+    });
   });
 });

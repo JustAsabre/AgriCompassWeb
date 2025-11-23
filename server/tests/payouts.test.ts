@@ -26,7 +26,7 @@ describe('Payouts API', () => {
     const farmerLogin = await request(app).post('/api/auth/login').send({ email: 'payout_farmer@test.com', password: 'password123' });
     const farmerCookie = farmerLogin.headers['set-cookie'];
 
-    const requestRes = await request(app).post('/api/payouts/request').set('Cookie', farmerCookie).send({ amount: '10.00', bankAccount: '12345678' });
+    const requestRes = await request(app).post('/api/payouts/request').set('Cookie', farmerCookie).send({ amount: '10.00', mobileNumber: '+233555123456', mobileNetwork: 'mtn' });
     expect(requestRes.status).toBe(200);
     expect(requestRes.body.payout).toBeDefined();
     const payoutId = requestRes.body.payout.id;
@@ -58,7 +58,7 @@ describe('Payouts API', () => {
     const farmerLogin = await request(app).post('/api/auth/login').send({ email: 'payout_farmer@test.com', password: 'password123' });
     const farmerCookie = farmerLogin.headers['set-cookie'];
 
-    const res = await request(app).post('/api/payouts/recipient').set('Cookie', farmerCookie).send({ accountNumber: '12345678', bankCode: '058' });
+    const res = await request(app).post('/api/payouts/recipient').set('Cookie', farmerCookie).send({ mobileNumber: '0555123456', mobileNetwork: 'mtn' });
     expect(res.status).toBe(400);
   });
 
@@ -70,7 +70,7 @@ describe('Payouts API', () => {
     const farmerLogin = await request(app).post('/api/auth/login').send({ email: 'payout_need_recipient_farmer@test.com', password: 'password123' });
     const farmerCookie = farmerLogin.headers['set-cookie'];
 
-    const requestRes = await request(app).post('/api/payouts/request').set('Cookie', farmerCookie).send({ amount: '20.00', bankAccount: '12345678' });
+    const requestRes = await request(app).post('/api/payouts/request').set('Cookie', farmerCookie).send({ amount: '20.00', mobileNumber: '+233555123457', mobileNetwork: 'vodafone' });
     expect(requestRes.status).toBe(200);
     expect(requestRes.body.payout).toBeDefined();
     const payoutId = requestRes.body.payout.id;

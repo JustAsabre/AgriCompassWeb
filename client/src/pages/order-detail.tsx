@@ -1,4 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { useRoute, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -111,12 +112,17 @@ const statusConfig = {
 
 export default function OrderDetail() {
   const [match, params] = useRoute("/orders/:id");
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const { user } = useAuth();
   const { toast } = useToast();
 
   const { data: order, isLoading } = useQuery<OrderDetail>({
     queryKey: [`/api/orders/${params?.id}`],
+    enabled: !!params?.id,
+  });
+
+  const { data: payments } = useQuery<any[]>({
+    queryKey: [`/api/payments/order/${params?.id}`],
     enabled: !!params?.id,
   });
 
@@ -196,10 +202,12 @@ export default function OrderDetail() {
 
   const initiatePaymentMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("POST", "/api/payments/initiate", { orderId: order?.id, paymentMethod: 'paystack' });
+      const retUrl = window.location.href;
+      return apiRequest("POST", "/api/payments/initiate", { orderId: order?.id, paymentMethod: 'paystack', returnUrl: retUrl });
     },
     onSuccess: (response: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders/", params?.id] });
+      queryClient.invalidateQueries({ queryKey: [`/api/payments/order/${params?.id}`] });
       // If using Paystack, the response may include an authorization_url; redirect the buyer to Paystack
       const d: any = response;
       if (d && typeof d === 'object') {
@@ -215,6 +223,29 @@ export default function OrderDetail() {
       toast({ title: 'Payment Error', description: error.message || 'Failed to initiate payment', variant: 'destructive' });
     }
   });
+
+  // Auto-verify after Paystack redirect if reference query param is present
+  useEffect(() => {
+    if (!params?.id) return;
+    const url = new URL(window.location.href);
+    const reference = url.searchParams.get('reference') || url.searchParams.get('paystack_ref');
+    if (!reference) return;
+    // Ask the server to verify the reference (client-side verification)
+    (async () => {
+      try {
+        await apiRequest('POST', '/api/payments/paystack/verify-client', { reference });
+        await queryClient.invalidateQueries({ queryKey: ["/api/orders/", params?.id] });
+        await queryClient.invalidateQueries({ queryKey: [`/api/payments/order/${params?.id}`] });
+        toast({ title: 'Payment verified', description: 'Payment has been verified successfully' });
+        // Clean up url parameters to avoid repeated verification
+        url.searchParams.delete('reference');
+        url.searchParams.delete('paystack_ref');
+        window.history.replaceState({}, '', url.toString());
+      } catch (err) {
+        // ignore; user can retry
+      }
+    })();
+  }, [params?.id]);
 
   if (!match || !params?.id) {
     return null;
@@ -253,8 +284,10 @@ export default function OrderDetail() {
   const statusInfo = statusConfig[order.status];
   const StatusIcon = statusInfo.icon;
   const canCancel = order.status === "pending";
-  const canMarkDelivered = user?.role === "farmer" && order.status === "accepted";
-  const canConfirmReceipt = user?.role === "buyer" && order.status === "delivered";
+  const hasCompletedPayment = (payments || []).some((p: any) => p.status === 'completed');
+  const canMarkDelivered = user?.role === "farmer" && order.status === "accepted" && hasCompletedPayment;
+  const hasPendingPayment = (payments || []).some((p: any) => p.status === 'pending');
+  const canConfirmReceipt = user?.role === "buyer" && order.status === "delivered" && hasCompletedPayment;
 
   const handlePrintReceipt = () => {
     window.print();
@@ -277,7 +310,7 @@ export default function OrderDetail() {
             <div>
               <h1 className="text-3xl font-bold mb-1 print:text-2xl">Order Details</h1>
               <p className="text-muted-foreground print:text-sm print:text-gray-600">Order ID: {order.id}</p>
-            </div>
+          if (!match || !params?.id) { 
             <Badge className={`${statusInfo.bgColor} ${statusInfo.textColor} border-0 print:self-start`}>
               {statusInfo.label}
             </Badge>
@@ -400,10 +433,10 @@ export default function OrderDetail() {
                       Quantity: <span className="font-medium text-foreground">{order.quantity} {order.listing.unit}</span>
                     </p>
                     <p className="text-muted-foreground">
-                      Price per unit: <span className="font-medium text-foreground">${parseFloat(order.listing.pricePerUnit).toFixed(2)}</span>
+                      Price per unit: <span className="font-medium text-foreground">${(() => { const v = parseFloat(order.listing.pricePerUnit as any); return isNaN(v) ? '0.00' : v.toFixed(2); })()}</span>
                     </p>
                     <p className="font-semibold text-lg mt-2">
-                      Total: ${parseFloat(order.totalPrice).toFixed(2)}
+                      Total: ${(() => { const v = parseFloat(order.totalPrice as any); return isNaN(v) ? '0.00' : v.toFixed(2); })()}
                     </p>
                   </div>
                 </div>
@@ -579,14 +612,19 @@ export default function OrderDetail() {
               </AlertDialogContent>
             </AlertDialog>
           )}
-          {order.status === 'pending' && user?.role === 'buyer' && (
+          {order.status === 'pending' && user?.role === 'buyer' && !hasCompletedPayment && !hasPendingPayment && (
             <Button
               onClick={() => initiatePaymentMutation.mutate()}
               size="lg"
               className="flex-1"
               disabled={initiatePaymentMutation.isPending}
             >
-              {initiatePaymentMutation.isPending ? 'Initiating...' : 'Initiate Payment'}
+                {initiatePaymentMutation.isPending ? 'Initiating...' : 'Initiate Payment'}
+            </Button>
+          )}
+          {hasPendingPayment && (
+            <Button size="lg" className="flex-1" disabled>
+              Payment Pending
             </Button>
           )}
         </div>

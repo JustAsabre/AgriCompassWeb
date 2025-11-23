@@ -63,8 +63,15 @@ export function initializeSocket(httpServer: HTTPServer) {
             const userId = sess.user.id;
             connectedUsers.set(userId, socket.id);
             socket.join(`user:${userId}`);
-            console.log(`User ${userId} authenticated (session) with socket ${socket.id}`);
-            socket.emit('authenticated', { userId });
+            (socket as any).data = (socket as any).data || {};
+            const alreadyAuth = !!(socket as any).data.isAuthenticated;
+            (socket as any).data.isAuthenticated = true;
+            if (!alreadyAuth) {
+              console.log(`User ${userId} authenticated (session) with socket ${socket.id}`);
+            } else {
+              // already authenticated - skip duplicate session log
+            }
+              socket.emit('authenticated', { userId });
           }
         });
       }
@@ -76,6 +83,8 @@ export function initializeSocket(httpServer: HTTPServer) {
     socket.on("authenticate", (userId: string) => {
       // verify that the session associated with this socket belongs to the same user
       try {
+        // If already authenticated for this socket, skip
+        if ((socket as any).data && (socket as any).data.isAuthenticated) return;
         const cookieHeader = (socket.handshake.headers && (socket.handshake.headers.cookie as string)) || undefined;
         const cookies = parseCookies(cookieHeader);
         const rawSid = cookies[sessionCookieName];
@@ -98,7 +107,14 @@ export function initializeSocket(httpServer: HTTPServer) {
 
           connectedUsers.set(userId, socket.id);
           socket.join(`user:${userId}`);
-          console.log(`User ${userId} authenticated-with-check with socket ${socket.id}`);
+          (socket as any).data = (socket as any).data || {};
+          const alreadyAuth2 = !!(socket as any).data.isAuthenticated;
+          (socket as any).data.isAuthenticated = true;
+          if (!alreadyAuth2) {
+            console.log(`User ${userId} authenticated-with-check with socket ${socket.id}`);
+          } else {
+            // already authenticated - skip logging duplicate authenticate
+          }
           socket.emit('authenticated', { userId });
         });
       } catch (e) {
@@ -178,14 +194,14 @@ export function initializeSocket(httpServer: HTTPServer) {
           callback?.({ success: true, message: messageWithUsers });
 
           // Also send a notification to the receiver
-          await sendNotificationToUser(io, data.receiverId, {
+          await sendNotificationToUser(data.receiverId, {
             userId: data.receiverId,
             type: "message",
             title: "New Message",
             message: `${sender.fullName} sent you a message`,
             relatedId: message.id,
             relatedType: "message",
-          });
+          }, io);
         }
       } catch (error) {
         console.error("Error sending message:", error);
@@ -223,9 +239,9 @@ export function initializeSocket(httpServer: HTTPServer) {
 
 // Helper function to send notification to a specific user
 export async function sendNotificationToUser(
-  io?: Server,
   userId: string,
-  notificationData: InsertNotification
+  notificationData: InsertNotification,
+  io?: Server
 ) {
   const notification = await storage.createNotification(notificationData);
   // io may be undefined during tests or if socket server not initialized - guard
@@ -237,8 +253,8 @@ export async function sendNotificationToUser(
 
 // Helper function to broadcast new listing to all users and create notifications
 export async function broadcastNewListing(
-  io?: Server,
-  listing: any
+  listing: any,
+  io?: Server
 ) {
   if (typeof io?.emit === 'function') {
     io.emit("new_listing", listing);
@@ -258,22 +274,22 @@ export async function broadcastNewListing(
   });
   
   for (const buyer of buyersInRegion) {
-    await sendNotificationToUser(io, buyer.id, {
+    await sendNotificationToUser(buyer.id, {
       userId: buyer.id,
       type: "new_listing",
       title: "New Product Available",
       message: `${listing.farmer.fullName} listed ${listing.productName} near you`,
       relatedId: listing.id,
       relatedType: "listing",
-    });
+    }, io);
   }
 }
 
 // Helper function to notify about price change
 export function notifyPriceChange(
-  io?: Server,
   userId: string,
-  listing: any
+  listing: any,
+  io?: Server
 ) {
   if (typeof io?.to === 'function') {
     io.to(`user:${userId}`).emit("price_change", listing);

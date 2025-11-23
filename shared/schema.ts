@@ -12,7 +12,9 @@ export const users = pgTable("users", {
   role: text("role").notNull(), // "farmer" | "buyer" | "field_officer" | "admin"
   phone: text("phone"),
   region: text("region"),
-  bankAccount: text("bank_account"),
+  // Mobile money details
+  mobileNumber: text("mobile_number"),
+  mobileNetwork: text("mobile_network"),
   paystackRecipientCode: text("paystack_recipient_code"),
   // security fields for account lockouts
   failedLoginAttempts: integer("failed_login_attempts").default(0),
@@ -92,7 +94,10 @@ export const payouts = pgTable("payouts", {
   farmerId: varchar("farmer_id").notNull().references(() => users.id),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   status: text("status").default("pending"), // pending, processing, completed, failed
+  // Allow either bank or mobile number as a payout destination
   bankAccount: text("bank_account"),
+  mobileNumber: text("mobile_number"),
+  mobileNetwork: text("mobile_network"),
   scheduledDate: timestamp("scheduled_date"),
   completedAt: timestamp("completed_at"),
   adminNote: text("admin_note"),

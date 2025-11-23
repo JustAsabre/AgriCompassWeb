@@ -10,6 +10,23 @@ import { sendNotificationToUser, broadcastNewListing } from "./socket";
 import { enqueuePayout } from './jobs/payoutQueue';
 import crypto from "crypto";
 
+// Helper: Validate Ghana mobile number E.164 format (e.g., +233XXXXXXXXX)
+function isValidGhanaMobileNumber(mobile?: string) {
+  if (!mobile) return false;
+  // Accept +233 followed by 9 digits, or leading 0 followed by 9 digits; normalize later
+  const e164Regex = /^\+233[0-9]{9}$/;
+  const localRegex = /^0[0-9]{9}$/;
+  return e164Regex.test(mobile) || localRegex.test(mobile);
+}
+
+function normalizeGhanaMobileToE164(mobile: string) {
+  if (!mobile) return mobile;
+  if (/^0[0-9]{9}$/.test(mobile)) {
+    return `+233${mobile.slice(1)}`;
+  }
+  return mobile;
+}
+
 // Middleware to require authentication
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session.user) {
@@ -95,6 +112,11 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       const normalizedEmail = email?.toLowerCase();
       if (!normalizedEmail) {
         return res.status(400).json({ message: "Email is required" });
+      }
+
+      // If the session already has a logged in user that matches the requested email, return early
+      if (req.session.user && req.session.user.email === normalizedEmail) {
+        return res.json({ user: req.session.user });
       }
 
       const user = await storage.getUserByEmail(normalizedEmail);
@@ -373,7 +395,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       // Broadcast new listing to all connected users
       const listingWithFarmer = await storage.getListingWithFarmer(listing.id);
       if (listingWithFarmer) {
-        broadcastNewListing(io, listingWithFarmer);
+        broadcastNewListing(listingWithFarmer, io);
       }
       
       res.json(listing);
@@ -467,12 +489,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
       const order = await storage.getOrderWithDetails(req.params.id);
       if (!order) {
+        console.warn(`Order not found: ${req.params.id} requested by user: ${req.session.user?.id} role: ${req.session.user?.role}`);
         return res.status(404).json({ message: "Order not found" });
       }
 
       // Check if user is buyer or farmer of this order
       const userId = req.session.user.id;
-      if (order.buyerId !== userId && order.farmerId !== userId) {
+      // If user is admin, allow access. Otherwise, ensure the user is the buyer or farmer.
+      if (req.session.user.role !== 'admin' && order.buyerId !== userId && order.farmerId !== userId) {
         return res.status(403).json({ message: "Forbidden - Not your order" });
       }
 
@@ -496,6 +520,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       // Get order
       const order = await storage.getOrder(req.params.id);
       if (!order) {
+        console.warn(`Order not found: ${req.params.id} requested by user: ${req.session.user?.id} role: ${req.session.user?.role}`);
         return res.status(404).json({ message: "Order not found" });
       }
 
@@ -504,14 +529,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         const updated = await storage.updateOrderStatus(req.params.id, "cancelled");
         
         // Notify farmer
-        await sendNotificationToUser(io, order.farmerId, {
+        await sendNotificationToUser(order.farmerId, {
           userId: order.farmerId,
           type: "order_update",
           title: "Order Cancelled",
           message: `A buyer has cancelled their order`,
           relatedId: order.id,
           relatedType: "order",
-        });
+        }, io);
 
         return res.json(updated);
       }
@@ -628,7 +653,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
   app.post("/api/orders/checkout", requireRole("buyer"), async (req, res) => {
     try {
       const buyerId = req.session.user!.id;
-      const { deliveryAddress, notes } = req.body;
+      const { deliveryAddress, notes, autoPay } = req.body;
 
       // Get cart items
       const cartItems = await storage.getCartItemsByBuyer(buyerId);
@@ -725,18 +750,86 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         }
 
         // Notify farmer about new order
-        await sendNotificationToUser(io, item.listing.farmerId, {
+          await sendNotificationToUser(item.listing.farmerId, {
           userId: item.listing.farmerId,
           type: "order_update",
           title: "New Order Received",
           message: `You have a new order for ${item.listing.productName} (${item.quantity} ${item.listing.unit})`,
           relatedId: order.id,
           relatedType: "order",
-        });
+          }, io);
       }
 
       // Clear cart
       await storage.clearCart(buyerId);
+
+      // If autoPay requested, initiate payment for the first order (one-click flow)
+      if (autoPay && orders.length > 0) {
+        const firstOrder = orders[0];
+        const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
+        if (paystackSecret) {
+          const expectedAmount = Number(firstOrder.totalPrice || 0);
+          const amountInKobo = Math.round(expectedAmount * 100);
+          const buyer = await storage.getUser(buyerId);
+          // Collect farmers with missing recipients so frontend can warn buyers
+          const farmerIds = Array.from(new Set(orders.map(o => o.farmerId)));
+          const missingRecipients: string[] = [];
+          for (const fid of farmerIds) {
+            const f = await storage.getUser(fid);
+            if (!f || !(f as any).paystackRecipientCode) missingRecipients.push(fid);
+          }
+
+          const bodyPayload: any = { email: buyer?.email, amount: amountInKobo, metadata: { orderId: firstOrder.id } };
+          // Use the frontend provided returnUrl for client verification
+          if (req.body.returnUrl) {
+            // Append order IDs to callback URL so that the client can determine which orders this payment maps to.
+            try {
+              const parsed = new URL(req.body.returnUrl);
+              // Append a query param 'orders' with csv of order ids
+              parsed.searchParams.set('orders', orders.map(o => o.id).join(','));
+              bodyPayload.callback_url = parsed.toString();
+            } catch (err) {
+              // If the returnUrl is not a full URL, default to original value provided
+              bodyPayload.callback_url = req.body.returnUrl;
+            }
+          }
+          const initRes = await fetch('https://api.paystack.co/transaction/initialize', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${paystackSecret}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(bodyPayload),
+          });
+          if (!initRes.ok) {
+            const text = await initRes.text().catch(() => '');
+            console.error('Paystack init failed', initRes.status, text);
+            // Return orders but indicate we could not initiate payment
+            return res.json({ orders, autoPay: { queued: false, message: 'Failed to initialize payment provider' } });
+          }
+          const body = await initRes.json();
+          const { authorization_url, reference } = body.data || {};
+
+          // Create a payment record for each order and link them to the same transaction reference
+          const payments = [] as any[];
+          for (const o of orders) {
+            const p = await storage.createPayment({ orderId: o.id, payerId: buyerId, amount: String(o.totalPrice), paymentMethod: 'paystack', transactionId: reference, status: 'pending' } as any);
+            payments.push(p);
+          }
+          // Notify buyer and farmer
+          try {
+            await sendNotificationToUser(buyerId, { userId: buyerId, type: 'order_update', title: 'Payment initiated', message: `Payment initiated for ${orders.length} order(s).`, relatedId: firstOrder.id, relatedType: 'order' }, io);
+              // Notify all farmers involved
+              const farmerIds = Array.from(new Set(orders.map(o => o.farmerId)));
+              for (const fid of farmerIds) {
+                try {
+                  await sendNotificationToUser(fid, { userId: fid, type: 'order_update', title: 'Buyer payment initiated', message: `A buyer has initiated payment for orders.`, relatedId: firstOrder.id, relatedType: 'order' }, io);
+                } catch (err) { /* ignore individual notification errors */ }
+              }
+          } catch (err) { console.error('Failed to create payment notifications', err); }
+            return res.json({ orders, autoPay: { payments, authorization_url, reference, missingRecipients } });
+        }
+      }
 
       res.json({ orders });
     } catch (error: any) {
@@ -753,10 +846,39 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       // Verify ownership
       const order = await storage.getOrder(req.params.id);
       if (!order) {
+        console.warn(`Order not found: ${req.params.id} requested by user: ${req.session.user?.id} role: ${req.session.user?.role}`);
         return res.status(404).json({ message: "Order not found" });
       }
       if (order.farmerId !== farmerId) {
         return res.status(403).json({ message: "Forbidden - Not your order" });
+      }
+
+      // If marking as delivered, ensure order has a completed payment
+      if (status === 'delivered') {
+        const payments = await storage.getPaymentsByOrder(req.params.id);
+        const hasCompletedPayment = payments.some(p => p.status === 'completed');
+        if (!hasCompletedPayment) {
+          // Notify buyer to complete payment and inform farmer that delivery cannot be marked
+          try {
+            await sendNotificationToUser(order.buyerId, {
+              userId: order.buyerId,
+              type: 'order_update',
+              title: 'Payment Required',
+              message: `Cannot mark order ${order.id} as delivered because payment has not been confirmed. Please complete payment.`,
+              relatedId: order.id,
+              relatedType: 'order',
+            }, io);
+            await sendNotificationToUser(order.farmerId, {
+              userId: order.farmerId,
+              type: 'order_update',
+              title: 'Delivery Blocked - Payment Missing',
+              message: `Order ${order.id} cannot be marked as delivered because payment has not been confirmed.`,
+              relatedId: order.id,
+              relatedType: 'order',
+            }, io);
+          } catch (err) { console.error('Failed to notify about missing payment on delivery attempt', err); }
+          return res.status(400).json({ message: 'Cannot mark as delivered: no confirmed payment for this order' });
+        }
       }
 
       const updated = await storage.updateOrderStatus(req.params.id, status);
@@ -772,15 +894,15 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
       if (statusMessages[status]) {
         const orderDetails = await storage.getOrderWithDetails(req.params.id);
-        if (orderDetails) {
-          await sendNotificationToUser(io, order.buyerId, {
+          if (orderDetails) {
+          await sendNotificationToUser(order.buyerId, {
             userId: order.buyerId,
             type: "order_update",
             title: "Order Status Update",
             message: `${statusMessages[status]}: ${orderDetails.listing.productName}`,
             relatedId: order.id,
             relatedType: "order",
-          });
+          }, io);
         }
       }
 
@@ -799,6 +921,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       // Verify ownership
       const order = await storage.getOrder(req.params.id);
       if (!order) {
+        console.warn(`Order not found: ${req.params.id} requested by user: ${req.session.user?.id} role: ${req.session.user?.role}`);
         return res.status(404).json({ message: "Order not found" });
       }
       if (order.buyerId !== buyerId) {
@@ -808,19 +931,52 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         return res.status(400).json({ message: "Order must be delivered before completion" });
       }
 
+      // Ensure payment has been completed for this order before allowing completion
+      const payments = await storage.getPaymentsByOrder(req.params.id);
+      const hasCompletedPayment = payments.some(p => p.status === 'completed');
+      if (!hasCompletedPayment) {
+        try {
+          await sendNotificationToUser(order.buyerId, {
+            userId: order.buyerId,
+            type: 'order_update',
+            title: 'Payment Required',
+            message: `Cannot complete order ${order.id} because no completed payment exists. Please complete payment to confirm receipt.`,
+            relatedId: order.id,
+            relatedType: 'order',
+          }, io);
+          await sendNotificationToUser(order.farmerId, {
+            userId: order.farmerId,
+            type: 'order_update',
+            title: 'Completion Blocked - Payment Missing',
+            message: `Buyer attempted to confirm receipt for order ${order.id} but no confirmed payment was found.`,
+            relatedId: order.id,
+            relatedType: 'order',
+          }, io);
+        } catch (err) { console.error('Failed to notify about missing payment on complete attempt', err); }
+        return res.status(400).json({ message: 'Cannot complete order: no confirmed payment for this order' });
+      }
+
       const updated = await storage.updateOrderStatus(req.params.id, "completed");
 
       // Notify farmer about completion
       const orderDetails = await storage.getOrderWithDetails(req.params.id);
       if (orderDetails) {
-        await sendNotificationToUser(io, order.farmerId, {
+        await sendNotificationToUser(order.farmerId, {
           userId: order.farmerId,
           type: "order_update",
           title: "Order Completed",
           message: `Order for ${orderDetails.listing.productName} has been confirmed as received`,
           relatedId: order.id,
           relatedType: "order",
-        });
+        }, io);
+        await sendNotificationToUser(order.buyerId, {
+          userId: order.buyerId,
+          type: "order_update",
+          title: "Order Completed",
+          message: `You have confirmed receipt for ${orderDetails.listing.productName}. Thank you!`,
+          relatedId: order.id,
+          relatedType: "order",
+        }, io);
       }
 
       // Create payout now that order is completed
@@ -848,7 +1004,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       const payoutAmount = Number((total * (1 - platformCommissionPercent / 100)).toFixed(2));
       console.log('maybeCreatePayoutForOrder', 'total', total, 'payoutAmount', payoutAmount);
       // Create a payout record for farmer; admin or automatic process will transfer later
-      const payoutRecord = await storage.createPayout({ farmerId: order.farmerId, amount: String(payoutAmount), status: 'pending', bankAccount: null } as any);
+      const payoutRecord = await storage.createPayout({ farmerId: order.farmerId, amount: String(payoutAmount), status: 'pending', mobileNumber: null, mobileNetwork: null } as any);
       // Auto payouts are enabled either via global setting OR if we detect a recipient for the farmer
       const farmer = await storage.getUser(order.farmerId);
       const recipient = (farmer as any)?.paystackRecipientCode;
@@ -858,14 +1014,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           // mark payout as waiting for a recipient
           await storage.updatePayout(payoutRecord.id, { status: 'needs_recipient' } as any);
           try {
-            await sendNotificationToUser(io, order.farmerId, {
+            await sendNotificationToUser(order.farmerId, {
               userId: order.farmerId,
               type: 'payout_update',
               title: 'Payout Pending - Recipient Required',
-              message: `A new payout of ${payoutAmount} was created but requires a paystack recipient. Please add your bank details to receive payouts.`,
+              message: `A new payout of ${payoutAmount} was created but requires a paystack recipient. Please add your mobile money details to receive payouts.`,
               relatedId: payoutRecord.id,
               relatedType: 'payout'
-            });
+            }, io);
           } catch (err) { console.error('Failed to notify farmer about recipient requirement', err); }
           console.log(`Auto payout skipped: farmer ${order.farmerId} has no recipient. Marked payout ${payoutRecord.id} as needs_recipient.`);
         } else {
@@ -948,14 +1104,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       // Notify officer about new verification request
       const farmer = await storage.getUser(farmerId);
       if (farmer) {
-        await sendNotificationToUser(io, officers[0].id, {
+        await sendNotificationToUser(officers[0].id, {
           userId: officers[0].id,
           type: "verification_update",
           title: "New Verification Request",
           message: `${farmer.fullName} has submitted a verification request`,
           relatedId: verification.id,
           relatedType: "verification",
-        });
+        }, io);
       }
 
       res.json(verification);
@@ -986,14 +1142,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
         if (statusMessages[status]) {
           // Send in-app notification
-          await sendNotificationToUser(io, verification.farmerId, {
+          await sendNotificationToUser(verification.farmerId, {
             userId: verification.farmerId,
             type: "verification_update",
             title: "Verification Status Update",
             message: statusMessages[status],
             relatedId: verification.id,
             relatedType: "verification",
-          });
+          }, io);
 
           // Send email notification (async, non-blocking)
           if (status === 'approved' || status === 'rejected') {
@@ -1596,6 +1752,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       // Get order details
       const order = await storage.getOrderWithDetails(orderId);
       if (!order) {
+        console.warn(`Order not found for review creation: ${orderId} requested by ${req.session.user?.id} role: ${req.session.user?.role}`);
         return res.status(404).json({ message: "Order not found" });
       }
 
@@ -1628,14 +1785,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       const review = await storage.createReview(data);
 
       // Notify reviewee about new review
-      await sendNotificationToUser(io, revieweeId, {
+      await sendNotificationToUser(revieweeId, {
         userId: revieweeId,
         type: "order_update",
         title: "New Review Received",
         message: `You received a ${data.rating}-star review`,
         relatedId: review.id,
         relatedType: "review",
-      });
+      }, io);
 
       res.status(201).json(review);
     } catch (error: any) {
@@ -1700,11 +1857,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     app.post('/api/payments/initiate', requireRole('buyer'), async (req, res) => {
       try {
         const buyerId = req.session.user!.id;
-        const { orderId, paymentMethod } = req.body;
+        const { orderId, paymentMethod, returnUrl } = req.body;
         if (!orderId) return res.status(400).json({ message: 'orderId is required' });
 
         const order = await storage.getOrder(orderId);
-        if (!order) return res.status(404).json({ message: 'Order not found' });
+        if (!order) {
+          console.warn(`Order not found: ${req.params.orderId || req.params.id || 'unknown'} requested by user: ${req.session.user?.id} role: ${req.session.user?.role}`);
+          return res.status(404).json({ message: 'Order not found' });
+        }
         if (order.buyerId !== buyerId) return res.status(403).json({ message: 'Not your order' });
 
         const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
@@ -1718,13 +1878,15 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           const amountInKobo = Math.round(expectedAmount * 100);
           const buyer = await storage.getUser(buyerId);
 
+          const bodyPayload: any = { email: buyer?.email, amount: amountInKobo, metadata: { orderId } };
+          if (returnUrl) bodyPayload.callback_url = returnUrl;
           const initRes = await fetch('https://api.paystack.co/transaction/initialize', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${paystackSecret}`,
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ email: buyer?.email, amount: amountInKobo, metadata: { orderId } }),
+            body: JSON.stringify(bodyPayload),
           });
 
           if (!initRes.ok) {
@@ -1745,11 +1907,21 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
             status: 'pending',
           } as any);
 
+          // Notify buyer and farmer that a payment has been initiated (persist+emit)
+          try {
+            await sendNotificationToUser(buyerId, { userId: buyerId, type: 'order_update', title: 'Payment initiated', message: `Payment initiated for order ${orderId}.`, relatedId: orderId, relatedType: 'order' }, io);
+            await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Buyer payment initiated', message: `A buyer has initiated payment for order ${orderId}.`, relatedId: orderId, relatedType: 'order' }, io);
+          } catch (err) { console.error('Failed to create payment notifications', err); }
+
           return res.json({ payment, authorization_url, reference });
         }
 
         // fallback to manual
         const payment = await storage.createPayment({ orderId, payerId: buyerId, amount: String(order.totalPrice), paymentMethod: paymentMethod || 'manual', transactionId: null, status: 'pending' } as any);
+        try {
+          await sendNotificationToUser(buyerId, { userId: buyerId, type: 'order_update', title: 'Payment created', message: `Your payment record for order ${orderId} has been created.`, relatedId: orderId, relatedType: 'order' }, io);
+          await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Buyer created payment record', message: `Buyer created a payment record for order ${orderId}.`, relatedId: orderId, relatedType: 'order' }, io);
+        } catch (err) { console.error('Failed to create payment notifications', err); }
         res.json({ payment });
       } catch (err: any) {
         console.error('Initiate payment error:', err);
@@ -1757,7 +1929,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       }
     });
 
-    // Verify a payment (admin or provider webhook) - for MVP it's an admin-only endpoint for simulating verification
+    // Verify a payment (admin or provider webhook) - admin-only endpoint for simulating verification
     app.post('/api/payments/verify', requireRole('admin'), async (req, res) => {
       try {
         const { paymentId } = req.body;
@@ -1769,6 +1941,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         const updated = await storage.updatePaymentStatus(paymentId, 'completed');
         if (updated) {
           await storage.updateOrderStatus(updated.orderId, 'accepted');
+          // Notify buyer and farmer
+          try {
+            const order = await storage.getOrder(updated.orderId);
+            if (order) {
+              await sendNotificationToUser(updated.payerId, { userId: updated.payerId, type: 'order_update', title: 'Payment received', message: `Payment completed for order ${order.id}.`, relatedId: order.id, relatedType: 'order' }, io);
+              await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Payment received', message: `A payment for order ${order.id} has been completed.`, relatedId: order.id, relatedType: 'order' }, io);
+            }
+          } catch (err) { console.error('Failed to send payment notifications', err); }
         }
 
         res.json({ payment: updated });
@@ -1799,12 +1979,31 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
         if (event === 'charge.success' || event === 'transaction.success') {
           const reference = data.reference;
-          const payment = await storage.getPaymentByTransactionId(reference);
-          if (payment && payment.status !== 'completed') {
-            await storage.updatePaymentStatus(payment.id, 'completed');
-            // Also update order to accepted
-            await storage.updateOrderStatus(payment.orderId, 'accepted');
+          const payments = await storage.getPaymentsByTransactionId(reference);
+          for (const payment of payments) {
+            if (payment && payment.status !== 'completed') {
+              await storage.updatePaymentStatus(payment.id, 'completed');
+              // Also update order to accepted
+              await storage.updateOrderStatus(payment.orderId, 'accepted');
+            }
           }
+        }
+
+        // Send notifications when payment is completed
+        try {
+          if (event === 'charge.success' || event === 'transaction.success') {
+            const reference = data.reference;
+            const payments = await storage.getPaymentsByTransactionId(reference);
+            for (const payment of payments) {
+              const order = await storage.getOrder(payment.orderId);
+              if (order) {
+                await sendNotificationToUser(payment.payerId, { userId: payment.payerId, type: 'order_update', title: 'Payment received', message: `Your payment for order ${order.id} has been confirmed.`, relatedId: order.id, relatedType: 'order' }, io);
+                await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Payment received', message: `A payment has been received for order ${order.id}.`, relatedId: order.id, relatedType: 'order' }, io);
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Failed to create post-webhook notifications', err);
         }
 
         // return 200 to acknowledge receipt
@@ -1822,7 +2021,10 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         if (!payment) return res.status(404).json({ message: 'Payment not found' });
 
         const order = await storage.getOrder(payment.orderId);
-        if (!order) return res.status(404).json({ message: 'Order not found' });
+        if (!order) {
+          console.warn(`Order not found: ${req.params.orderId || req.params.id || 'unknown'} requested by user: ${req.session.user?.id} role: ${req.session.user?.role}`);
+          return res.status(404).json({ message: 'Order not found' });
+        }
         const userId = req.session.user!.id;
         if (userId !== payment.payerId && userId !== order.farmerId && req.session.user!.role !== 'admin') {
           return res.status(403).json({ message: 'Not authorized' });
@@ -1835,17 +2037,121 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       }
     });
 
+    // List payments for an order
+    app.get('/api/payments/order/:orderId', requireAuth, async (req, res) => {
+      try {
+        const { orderId } = req.params;
+        const userId = req.session.user!.id;
+        const userRole = req.session.user!.role;
+
+        const order = await storage.getOrder(orderId);
+        if (!order) {
+          console.warn(`Order not found: ${req.params.orderId || req.params.id || 'unknown'} requested in payment flow. user: ${req.session.user?.id} role: ${req.session.user?.role}`);
+          return res.status(404).json({ message: 'Order not found' });
+        }
+        // Only buyer, farmer or admin can access
+        if (userId !== order.buyerId && userId !== order.farmerId && userRole !== 'admin') {
+          return res.status(403).json({ message: 'Forbidden' });
+        }
+
+        const payments = await storage.getPaymentsByOrder(orderId);
+        res.json({ payments });
+      } catch (err: any) {
+        console.error('Get payments by order error:', err);
+        res.status(500).json({ message: 'Failed to fetch payments' });
+      }
+    });
+
+    // Get payments by transaction id (useful for finding related orders after redirect)
+    app.get('/api/payments/transaction/:transactionId', requireAuth, async (req, res) => {
+      try {
+        const transactionId = req.params.transactionId;
+        const payments = await storage.getPaymentsByTransactionId(transactionId);
+        if (!payments || payments.length === 0) return res.status(404).json({ message: 'Payments not found for this transaction' });
+        const userId = req.session.user!.id;
+        const userRole = req.session.user!.role;
+        // Only allow if caller is the payer for at least one payment or admin
+        const belongsToUser = payments.some(p => p.payerId === userId);
+        if (!belongsToUser && userRole !== 'admin') return res.status(403).json({ message: 'Forbidden' });
+
+        res.json({ payments });
+      } catch (err: any) {
+        console.error('Get payments by transaction error:', err);
+        res.status(500).json({ message: 'Failed to fetch payments for transaction' });
+      }
+    });
+
+    // Client endpoint to verify a Paystack transaction: buyer can call to verify their payment using reference
+    app.post('/api/payments/paystack/verify-client', requireAuth, async (req, res) => {
+      try {
+        const { reference } = req.body;
+        if (!reference) return res.status(400).json({ message: 'reference is required' });
+        const userId = req.session.user!.id;
+        const paystackKey = process.env.PAYSTACK_SECRET_KEY;
+        if (!paystackKey) return res.status(400).json({ message: 'Paystack not configured' });
+
+        const payments = await storage.getPaymentsByTransactionId(reference);
+        if (!payments || payments.length === 0) return res.status(404).json({ message: 'Payment not found' });
+
+        // Ensure at least one of the payments belongs to this user or the user is admin
+        const userIsAdmin = req.session.user!.role === 'admin';
+        const belongsToUser = payments.some((p: any) => p.payerId === userId);
+        if (!belongsToUser && !userIsAdmin) {
+          return res.status(403).json({ message: 'Forbidden' });
+        }
+
+        // Call Paystack verify
+        const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${paystackKey}` },
+        });
+        if (!verifyRes.ok) {
+          const text = await verifyRes.text().catch(() => '');
+          console.error('Paystack verify failed', verifyRes.status, text);
+          return res.status(502).json({ message: 'Failed to verify with Paystack' });
+        }
+        const data = await verifyRes.json();
+        const status = data.data?.status;
+
+        if (status === 'success' || status === 'completed') {
+          for (const payment of payments) {
+            const updated = await storage.updatePaymentStatus(payment.id, 'completed');
+            if (updated) {
+              await storage.updateOrderStatus(updated.orderId, 'accepted');
+              // Notify buyer and farmer
+              try {
+                const order = await storage.getOrder(updated.orderId);
+                if (order) {
+                  await sendNotificationToUser(updated.payerId, { userId: updated.payerId, type: 'order_update', title: 'Payment received', message: `Your payment for order ${updated.orderId} has been confirmed.`, relatedId: updated.orderId, relatedType: 'order' }, io);
+                  await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Payment received', message: `A payment for order ${updated.orderId} has been confirmed.`, relatedId: updated.orderId, relatedType: 'order' }, io);
+                }
+              } catch (err) { console.error('Failed to create notifications after verification', err); }
+            }
+          }
+        }
+
+        res.json({ status: status, payments: await Promise.all(payments.map((p: any) => storage.getPayment(p.id))) });
+      } catch (err: any) {
+        console.error('Client verify error:', err);
+        res.status(500).json({ message: 'Verification failed' });
+      }
+    });
+
     // ==================== PAYOUTS (MVP) ====================
 
     // Farmer requests a payout
     app.post('/api/payouts/request', requireRole('farmer'), async (req, res) => {
       try {
         const farmerId = req.session.user!.id;
-        const { amount, bankAccount } = req.body;
+        const { amount, mobileNumber, mobileNetwork } = req.body;
         if (!amount) return res.status(400).json({ message: 'Amount required' });
+        if (mobileNumber && !isValidGhanaMobileNumber(mobileNumber)) {
+          return res.status(400).json({ message: 'mobileNumber must be a valid Ghana mobile number (E.164 or local 0XXXXXXXXX)' });
+        }
+        const normalizedMobileNumber = mobileNumber ? normalizeGhanaMobileToE164(mobileNumber) : null;
 
         // In a real implementation validate farmer balance and bank details
-        const payout = await storage.createPayout({ farmerId, amount: String(amount), status: 'pending', bankAccount, scheduledDate: null } as any);
+        const payout = await storage.createPayout({ farmerId, amount: String(amount), status: 'pending', mobileNumber: normalizedMobileNumber ?? null, mobileNetwork: mobileNetwork ?? null, scheduledDate: null } as any);
         // If auto payouts enabled via env or recipient exists, enqueue if recipient exists
         const farmer = await storage.getUser(farmerId);
         const recipient = (farmer as any)?.paystackRecipientCode;
@@ -1854,14 +2160,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           if (!recipient) {
             await storage.updatePayout(payout.id, { status: 'needs_recipient' } as any);
             try {
-              await sendNotificationToUser(io, farmerId, {
+              await sendNotificationToUser(farmerId, {
                 userId: farmerId,
                 type: 'payout_update',
                 title: 'Payout Pending - Recipient Required',
-                message: `Your payout request for ${amount} is pending because no payment recipient has been set. Please add bank details to receive payouts.`,
+                message: `Your payout request for ${amount} is pending because no payout recipient has been set. Please add your mobile money details to receive payouts.`,
                 relatedId: payout.id,
                 relatedType: 'payout'
-              });
+              }, io);
             } catch (err) { console.error('Failed to notify farmer about recipient requirement', err); }
             return res.json({ payout: await storage.getPayout(payout.id), queued: false, message: 'Payout pending recipient' });
           }
@@ -1920,19 +2226,23 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     app.post('/api/payouts/recipient', requireRole('farmer'), async (req, res) => {
       try {
         const farmerId = req.session.user!.id;
-        const { accountNumber, bankCode, name, currency } = req.body;
-        if (!accountNumber || !bankCode) return res.status(400).json({ message: 'accountNumber and bankCode are required' });
+        const { mobileNumber, mobileNetwork, name, currency } = req.body;
+        if (!mobileNumber || !mobileNetwork) return res.status(400).json({ message: 'mobileNumber and mobileNetwork are required' });
+        if (!isValidGhanaMobileNumber(mobileNumber)) {
+          return res.status(400).json({ message: 'mobileNumber must be a valid Ghana mobile number (E.164 or local 0XXXXXXXXX)' });
+        }
+        const normalizedMobile = normalizeGhanaMobileToE164(mobileNumber);
         const paystackKey = process.env.PAYSTACK_SECRET_KEY;
         if (!paystackKey) return res.status(400).json({ message: 'Paystack not configured' });
 
         const farmer = await storage.getUser(farmerId);
         if (!farmer) return res.status(404).json({ message: 'Farmer not found' });
 
-        // Create recipient
+        // Create mobile money recipient
         const recipientRes = await fetch('https://api.paystack.co/transferrecipient', {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${paystackKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'nuban', name: name || farmer.fullName, account_number: accountNumber, bank_code: bankCode, currency: currency || 'NGN' }),
+          body: JSON.stringify({ type: 'mobile_money', name: name || farmer.fullName, currency: currency || 'GHS', mobile_money: { phone: normalizedMobile, provider: mobileNetwork } }),
         });
 
         if (!recipientRes.ok) {
@@ -1947,7 +2257,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           return res.status(502).json({ message: 'Paystack responded without recipient code' });
         }
 
-        await storage.updateUser(farmerId, { paystackRecipientCode: recipientCode, bankAccount: accountNumber } as any);
+        await storage.updateUser(farmerId, { paystackRecipientCode: recipientCode, mobileNumber: normalizedMobile, mobileNetwork } as any);
         res.json({ recipientCode });
       } catch (err: any) {
         console.error('Create recipient error:', err);
@@ -1960,7 +2270,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       try {
         const farmerId = req.session.user!.id;
         const farmer = await storage.getUser(farmerId);
-        res.json({ paystackRecipientCode: (farmer as any)?.paystackRecipientCode, bankAccount: (farmer as any)?.bankAccount });
+        res.json({ paystackRecipientCode: (farmer as any)?.paystackRecipientCode, mobileNumber: (farmer as any)?.mobileNumber, mobileNetwork: (farmer as any)?.mobileNetwork });
       } catch (err: any) {
         console.error('Get recipient error:', err);
         res.status(500).json({ message: 'Failed to fetch recipient' });
@@ -1991,12 +2301,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         const status = data.data?.status;
         const transactionRef = data.data?.reference;
 
-        const payment = await storage.getPaymentByTransactionId(transactionRef);
-        if (!payment) return res.status(404).json({ message: 'Payment not found' });
+        const payments = await storage.getPaymentsByTransactionId(transactionRef);
+        if (!payments || payments.length === 0) return res.status(404).json({ message: 'Payment not found' });
 
         if (status === 'success' || status === 'completed') {
-          await storage.updatePaymentStatus(payment.id, 'completed');
-          await storage.updateOrderStatus(payment.orderId, 'accepted');
+          for (const payment of payments) {
+            await storage.updatePaymentStatus(payment.id, 'completed');
+            await storage.updateOrderStatus(payment.orderId, 'accepted');
+          }
         }
 
         res.json({ status, data });

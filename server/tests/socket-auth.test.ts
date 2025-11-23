@@ -90,4 +90,40 @@ describe('Socket.IO authentication', () => {
       clientSocket!.on('connect_error', (err: any) => reject(err));
     });
   });
+
+  it('does not emit duplicate authenticated events when client also emits authenticate', async () => {
+    const agent = request.agent(app as any);
+    const registerRes = await agent.post('/api/auth/register').send({ email: 'dupuser@example.com', password: 'password123', fullName: 'Dup User', role: 'buyer' });
+    expect(registerRes.status).toBe(201);
+    const loginRes = await agent.post('/api/auth/login').send({ email: 'dupuser@example.com', password: 'password123' });
+    expect(loginRes.status).toBe(200);
+    const setCookie = loginRes.headers['set-cookie'];
+    expect(setCookie).toBeDefined();
+    const cookieHeader = Array.isArray(setCookie) ? setCookie.map((c) => c.split(';')[0]).join('; ') : setCookie.split(';')[0];
+
+    clientSocket = ClientIO(serverUrl, { extraHeaders: { Cookie: cookieHeader }, reconnection: false }) as unknown as ClientSocket;
+    let authCount = 0;
+    const promise = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('timeout waiting for authenticated events')), 3000);
+      clientSocket!.on('authenticated', (data: any) => {
+        authCount += 1;
+      });
+      clientSocket!.on('connect', () => {
+        // emit authenticate explicitly after small delay
+        setTimeout(() => {
+          clientSocket!.emit('authenticate', loginRes.body.user?.id || '');
+        }, 200);
+        // wait shortly and resolve
+        setTimeout(() => {
+          clearTimeout(timer);
+          try {
+            expect(authCount).toBe(1);
+            resolve();
+          } catch (e) { reject(e); }
+        }, 800);
+      });
+      clientSocket!.on('connect_error', (err: any) => reject(err));
+    });
+    await promise;
+  });
 });

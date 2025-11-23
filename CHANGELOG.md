@@ -5,6 +5,78 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.8.2] - 2025-11-23
+### Added - Production Hardening & Multi-Order Payment Support
+- **Multi-Order Payment System**
+  - Support for checking out multiple orders simultaneously
+  - Individual Paystack payments created per order, sharing a common transactionId
+  - Prevents single payment creation for multi-order checkouts
+  - Maintains payment integrity across multiple orders
+
+- **Enhanced Mobile Number Validation**
+  - Server-side validation for Ghana mobile numbers in payout and recipient creation
+  - Client-side validation in farmer dashboard with user-friendly error messages
+  - Enforces proper Ghana number format (+233XXXXXXXXX or 0XXXXXXXXX)
+
+- **Paystack Recipient UX Improvements**
+  - Toast notifications for missing Paystack recipients during autoPay
+  - Warnings displayed when farmer lacks recipient but autoPay is enabled
+  - Guides farmers to create recipients before enabling autoPay
+
+- **Order Success Page Enhancements**
+  - Client-side fallback to lookup order IDs from Paystack reference if orders param missing
+  - Improved UX for Paystack redirects that don't preserve callback_url
+  - Fetches orders via new GET /api/payments/transaction/:reference endpoint
+
+- **Database Migration Plan**
+  - SQL migration script to copy bank_account to mobile_number for Ghana numbers
+  - Comprehensive migration README with precautions, testing, and rollback steps
+  - Handles legacy data transition safely
+
+- **Expanded Test Coverage**
+  - Tests for multi-payment autoPay flows with mocked Paystack API
+  - Socket authentication dedupe tests to prevent double logs
+  - Notifications tests for blocked order transitions (deliver/complete without payment)
+  - Mobile validation and recipient warning tests
+
+### Fixed
+- **Double Socket Authentication Logs**
+  - Added socket.data.isAuthenticated flag to prevent duplicate authenticate events
+  - Single authentication log per connection, eliminating noise in server logs
+
+- **Order Rejection Without Payment Notifications**
+  - Notifications sent to farmers/buyers when attempting deliver/complete without confirmed payment
+  - Prevents silent failures and improves order process transparency
+
+- **NaN Display in Order Details**
+  - Safe parsing of totalPrice and pricePerUnit with fallback to 0
+  - Prevents invalid price displays in order details page
+
+- **Socket Authentication Deduplication**
+  - Prevents multiple authentication events on single socket connection
+  - Cleaner server logs and reduced event processing overhead
+
+### Technical Implementation
+- **server/routes.ts**: Updated autoPay for multi-orders, added transaction lookup, mobile validations, notifications on blocked actions
+- **server/storage.ts**: Added getPaymentsByTransactionId method for payment queries
+- **server/socket.ts**: Added isAuthenticated flag for dedupe logic
+- **client/src/pages/cart.tsx**: Added toast for missingRecipients warnings
+- **client/src/pages/order-success.tsx**: Added fallback order lookup from reference
+- **client/src/pages/order-detail.tsx**: Safe price parsing to avoid NaN
+- **client/src/pages/farmer-dashboard.tsx**: Mobile validation for payouts and recipients
+- **server/tests/payments.test.ts**: New tests for multi-payments, notifications, validations
+- **server/tests/socket-auth.test.ts**: Test for single authenticated event
+- **drizzle/migrations/0006_migrate_bankaccount_to_mobile.sql**: Migration script
+- **drizzle/migrations/0006_migration_readme.md**: Migration documentation
+
+### Security & UX Improvements
+- Enhanced validation prevents invalid mobile numbers in payouts
+- Better error feedback for missing Paystack recipients
+- Improved order success reliability with fallback lookup
+- Notifications provide clear feedback for failed order actions
+
+---
+
 ## [0.8.1] - 2025-11-19
 ### Changed - Sprint 4: Email System Overhaul & Cleanup
 - **Email System Migration**
