@@ -38,7 +38,17 @@ describe('Payouts API', () => {
 
     const processRes = await request(app).post('/api/payouts/process').set('Cookie', adminCookie).send({ payoutId });
     expect(processRes.status).toBe(200);
-    expect(processRes.body.payout.status).toBe('completed');
+    expect(processRes.body.queued).toBe(true);
+
+    // wait for worker to process
+    let processed = false;
+    const start = Date.now();
+    while (Date.now() - start < 6000) {
+      const p = await storage.getPayout(payoutId);
+      if (p && p.status === 'completed') { processed = true; break; }
+      await new Promise(r => setTimeout(r, 500));
+    }
+    expect(processed).toBe(true);
   });
 
   it('returns an error when creating a recipient without Paystack configured', async () => {

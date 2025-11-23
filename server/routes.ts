@@ -7,6 +7,7 @@ import { insertUserSchema, insertListingSchema, insertOrderSchema, insertCartIte
 import { sendPasswordResetEmail, sendWelcomeEmail, sendPasswordChangedEmail, sendOrderConfirmationEmail, sendNewOrderNotificationToFarmer, sendVerificationStatusEmail, getSmtpStatus } from "./email";
 import { upload, getFileUrl, deleteUploadedFile, isValidFilename } from "./upload";
 import { sendNotificationToUser, broadcastNewListing } from "./socket";
+import { enqueuePayout } from './jobs/payoutQueue';
 import crypto from "crypto";
 
 // Middleware to require authentication
@@ -847,7 +848,11 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       const payoutAmount = Number((total * (1 - platformCommissionPercent / 100)).toFixed(2));
       console.log('maybeCreatePayoutForOrder', 'total', total, 'payoutAmount', payoutAmount);
       // Create a payout record for farmer; admin or automatic process will transfer later
-      await storage.createPayout({ farmerId: order.farmerId, amount: String(payoutAmount), status: 'pending', bankAccount: null } as any);
+      const payoutRecord = await storage.createPayout({ farmerId: order.farmerId, amount: String(payoutAmount), status: 'pending', bankAccount: null } as any);
+      // Enqueue processing if auto payouts enabled
+      if (process.env.PAYSTACK_AUTO_PAYOUTS === 'true') {
+        try { enqueuePayout(payoutRecord.id); } catch (err) { console.error('Failed to enqueue payout', err); }
+      }
     } catch (err) {
       console.error('Failed to auto-create payout for order', orderId, err);
     }
@@ -1829,69 +1834,36 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       }
     });
 
-    // Admin: process payout (MVP stub) - mark as completed
-    app.post('/api/payouts/process', requireRole('admin'), async (req, res) => {
+  // Admin: process payout (MVP stub) - enqueue job to process payout
+  app.post('/api/payouts/process', requireRole('admin'), async (req, res) => {
       try {
         const { payoutId } = req.body;
         if (!payoutId) return res.status(400).json({ message: 'payoutId required' });
         const payout = await storage.getPayout(payoutId);
         if (!payout) return res.status(404).json({ message: 'Payout not found' });
 
-        // In production - call payment provider (Paystack) to transfer funds
-        const paystackKey = process.env.PAYSTACK_SECRET_KEY;
-        const autoPay = process.env.PAYSTACK_AUTO_PAYOUTS === 'true';
-        let updated;
-        if (paystackKey && autoPay) {
-          const farmer = await storage.getUser(payout.farmerId);
-          if (!farmer) return res.status(404).json({ message: 'Farmer not found' });
-
-          // Attempt to process transfer
-          try {
-            // Ensure recipient code exists
-            let recipientCode = (farmer as any).paystackRecipientCode;
-            if (!recipientCode) {
-              // If farmer doesn't have recipient code, admin must create, but we will create a transient recipient if bankAccount exists
-              const { bankAccount } = payout as any;
-              if (!bankAccount) {
-                // Fallback to marking as completed without transfer
-                updated = await storage.updatePayout?.(payoutId, { status: 'completed', completedAt: new Date() } as any);
-                return res.json({ payout: updated, message: 'Completed without transfer (no recipient)' });
-              }
-              // Create recipient
-              const recipientRes = await fetch('https://api.paystack.co/transferrecipient', {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${paystackKey}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type: 'nuban', name: farmer.fullName, account_number: bankAccount, bank_code: (req.body.bankCode || null), currency: 'NGN' }),
-              });
-              if (recipientRes.ok) {
-                const recipientBody = await recipientRes.json();
-                recipientCode = recipientBody.data?.recipient_code;
-                // Save to user profile
-                await storage.updateUser(farmer.id, { paystackRecipientCode: recipientCode } as any);
-              }
-            }
-
-            const amountKobo = Math.round(Number(payout.amount) * 100);
-            const transferRes = await fetch('https://api.paystack.co/transfer', {
-              method: 'POST',
-              headers: { 'Authorization': `Bearer ${paystackKey}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ source: 'balance', amount: amountKobo, recipient: recipientCode, reason: req.body.reason || 'Farmer payout' }),
-            });
-            if (!transferRes.ok) throw new Error('Transfer failed');
-            const transferBody = await transferRes.json();
-            // Update payout with transfer id & status
-            updated = await storage.updatePayout?.(payoutId, { status: 'processing', completedAt: transferBody.data?.completed_at ? new Date(transferBody.data?.completed_at) : null } as any);
-          } catch (err) {
-            console.error('Paystack transfer error:', err);
-            updated = await storage.updatePayout?.(payoutId, { status: 'failed' } as any);
-          }
-        } else {
-          updated = await storage.updatePayout?.(payoutId, { status: 'completed', completedAt: new Date() } as any);
-        }
-        res.json({ payout: updated });
+      // Enqueue job to process payout (transfer or completion)
+      try {
+        enqueuePayout(payoutId);
+        res.json({ queued: true, payoutId });
+      } catch (err: any) {
+        console.error('Failed to enqueue payout:', err);
+        res.status(500).json({ message: 'Failed to queue payout' });
+      }
       } catch (err: any) {
         console.error('Payout process error:', err);
         res.status(500).json({ message: 'Failed to process payout' });
+      }
+    });
+
+    // Admin: list all payouts
+    app.get('/api/admin/payouts', requireRole('admin'), async (req, res) => {
+      try {
+        const payouts = await storage.getAllPayouts?.();
+        res.json(payouts);
+      } catch (err: any) {
+        console.error('Failed to fetch payouts', err);
+        res.status(500).json({ message: 'Failed to fetch payouts' });
       }
     });
 
