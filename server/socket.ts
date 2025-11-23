@@ -228,7 +228,10 @@ export async function sendNotificationToUser(
   notificationData: InsertNotification
 ) {
   const notification = await storage.createNotification(notificationData);
-  io.to(`user:${userId}`).emit("new_notification", notification);
+  // io may be undefined during tests or if socket server not initialized - guard
+  if (typeof io?.to === 'function') {
+    io.to(`user:${userId}`).emit("new_notification", notification);
+  }
   return notification;
 }
 
@@ -237,7 +240,9 @@ export async function broadcastNewListing(
   io: Server,
   listing: any
 ) {
-  io.emit("new_listing", listing);
+  if (typeof io?.emit === 'function') {
+    io.emit("new_listing", listing);
+  }
   
   // Create notifications for all buyers in the same region
   const buyers = await storage.getUsersByRole("buyer");

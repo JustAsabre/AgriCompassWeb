@@ -1784,4 +1784,43 @@ export async function registerRoutes(app: Express, httpServer: Server, io: Socke
         res.status(500).json({ message: 'Failed to fetch payment' });
       }
     });
+
+    // Admin: Verify Paystack payment by reference (calls Paystack verify endpoint)
+    app.post('/api/payments/paystack/verify', requireRole('admin'), async (req, res) => {
+      try {
+        const { reference } = req.body;
+        if (!reference) return res.status(400).json({ message: 'reference is required' });
+
+        const paystackKey = process.env.PAYSTACK_SECRET_KEY;
+        if (!paystackKey) return res.status(400).json({ message: 'Paystack not configured' });
+
+        const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${paystackKey}` },
+        });
+
+        if (!verifyRes.ok) {
+          const text = await verifyRes.text().catch(() => '');
+          console.error('Paystack verify failed', verifyRes.status, text);
+          return res.status(502).json({ message: 'Failed to verify with Paystack' });
+        }
+
+        const data = await verifyRes.json();
+        const status = data.data?.status;
+        const transactionRef = data.data?.reference;
+
+        const payment = await storage.getPaymentByTransactionId(transactionRef);
+        if (!payment) return res.status(404).json({ message: 'Payment not found' });
+
+        if (status === 'success' || status === 'completed') {
+          await storage.updatePaymentStatus(payment.id, 'completed');
+          await storage.updateOrderStatus(payment.orderId, 'accepted');
+        }
+
+        res.json({ status, data });
+      } catch (err: any) {
+        console.error('Paystack verify admin error:', err);
+        res.status(500).json({ message: 'Verification failed' });
+      }
+    });
 }
