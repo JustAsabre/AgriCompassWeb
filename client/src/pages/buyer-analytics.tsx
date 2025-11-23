@@ -3,6 +3,7 @@ import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ShoppingBag, CheckCircle, Clock, XCircle, DollarSign, TrendingDown } from "lucide-react";
+import { formatCurrency } from '@/lib/currency';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 interface BuyerAnalytics {
@@ -109,7 +110,7 @@ export default function BuyerAnalytics() {
                   <DollarSign className="h-4 w-4 text-blue-600" />
                 </div>
                 <p className="text-2xl font-bold text-blue-600">
-                  ${analytics?.totalSpending?.toLocaleString() || 0}
+                  {formatCurrency(analytics?.totalSpending || 0)}
                 </p>
               </div>
             </CardContent>
@@ -133,7 +134,7 @@ export default function BuyerAnalytics() {
                     <YAxis yAxisId="right" orientation="right" />
                     <Tooltip />
                     <Legend />
-                    <Line
+                      <Line
                       yAxisId="left"
                       type="monotone"
                       dataKey="orders"
@@ -145,7 +146,7 @@ export default function BuyerAnalytics() {
                       type="monotone"
                       dataKey="spending"
                       stroke="#ff7300"
-                      name="Spending ($)"
+                      name="Spending (GHS)"
                     />
                   </LineChart>
                 </ResponsiveContainer>
@@ -171,7 +172,7 @@ export default function BuyerAnalytics() {
                     <YAxis />
                     <Tooltip />
                     <Legend />
-                    <Bar dataKey="spending" fill="#ff7300" name="Spending ($)" />
+                    <Bar dataKey="spending" fill="#ff7300" name="Spending (GHS)" />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
@@ -205,7 +206,7 @@ export default function BuyerAnalytics() {
                         <td className="p-2">{purchase.name}</td>
                         <td className="text-right p-2">{purchase.quantity}</td>
                         <td className="text-right p-2 text-blue-600 font-semibold">
-                          ${purchase.spending.toLocaleString()}
+                          {formatCurrency(purchase.spending)}
                         </td>
                       </tr>
                     ))}

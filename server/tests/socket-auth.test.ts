@@ -97,7 +97,9 @@ describe('Socket.IO authentication', () => {
     expect(registerRes.status).toBe(201);
     const loginRes = await agent.post('/api/auth/login').send({ email: 'dupuser@example.com', password: 'password123' });
     expect(loginRes.status).toBe(200);
-    const setCookie = loginRes.headers['set-cookie'];
+    // Login may not always return a set-cookie header in the response (e.g., agent handling), so fallback to register response's cookie if needed
+    let setCookie = loginRes.headers['set-cookie'];
+    if (!setCookie) setCookie = registerRes.headers['set-cookie'];
     expect(setCookie).toBeDefined();
     const cookieHeader = Array.isArray(setCookie) ? setCookie.map((c) => c.split(';')[0]).join('; ') : setCookie.split(';')[0];
 

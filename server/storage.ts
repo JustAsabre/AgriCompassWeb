@@ -21,6 +21,8 @@ import {
   type InsertPayment,
   type Payout,
   type InsertPayout,
+  type Transaction,
+  type InsertTransaction,
   type ListingWithFarmer,
   type OrderWithDetails,
   type CartItemWithListing,
@@ -113,6 +115,13 @@ export interface IStorage {
   updatePayout(id: string, updates: Partial<Payout>): Promise<Payout | undefined>;
   getPayoutsByFarmer(farmerId: string): Promise<Payout[]>;
   getAllPayouts(): Promise<Payout[]>;
+
+  // Transaction operations
+  createTransaction(transaction: InsertTransaction): Promise<Transaction>;
+  getTransaction(id: string): Promise<Transaction | undefined>;
+  getTransactionByPaystackReference(reference: string): Promise<Transaction | undefined>;
+  updateTransactionStatus(id: string, status: string): Promise<Transaction | undefined>;
+  updateTransaction(id: string, updates: Partial<Transaction>): Promise<Transaction | undefined>;
 }
 
 export class MemStorage implements IStorage {
@@ -127,6 +136,7 @@ export class MemStorage implements IStorage {
   private reviews: Map<string, Review>;
   private payments: Map<string, Payment>;
   private payouts: Map<string, Payout>;
+  private transactions: Map<string, Transaction>;
 
   constructor() {
     this.users = new Map();
@@ -140,6 +150,7 @@ export class MemStorage implements IStorage {
     this.reviews = new Map();
     this.payments = new Map();
     this.payouts = new Map();
+    this.transactions = new Map();
 
     // Seed data for testing
     this.seedData();
@@ -546,6 +557,55 @@ export class MemStorage implements IStorage {
   async getAllPayouts(): Promise<Payout[]> {
     return Array.from(this.payouts.values());
   }
+
+  // Transaction operations
+  async createTransaction(insertTransaction: InsertTransaction): Promise<Transaction> {
+    const id = randomUUID();
+    const transaction: Transaction = {
+      ...insertTransaction,
+      id,
+      paystackReference: insertTransaction.paystackReference ?? null,
+      completedAt: null,
+      createdAt: new Date(),
+      status: insertTransaction.status ?? 'pending',
+    } as any;
+    this.transactions.set(id, transaction);
+    return transaction;
+  }
+
+  async getTransaction(id: string): Promise<Transaction | undefined> {
+    return this.transactions.get(id);
+  }
+
+  async getTransactionByPaystackReference(reference: string): Promise<Transaction | undefined> {
+    return Array.from(this.transactions.values()).find(t => t.paystackReference === reference);
+  }
+
+  async updateTransactionStatus(id: string, status: string): Promise<Transaction | undefined> {
+    const transaction = this.transactions.get(id);
+    if (!transaction) return undefined;
+    const updated = { 
+      ...transaction, 
+      status,
+      completedAt: status === 'completed' ? new Date() : transaction.completedAt
+    } as Transaction;
+    this.transactions.set(id, updated);
+    return updated;
+  }
+
+  async updateTransaction(id: string, updates: Partial<Transaction>): Promise<Transaction | undefined> {
+    const transaction = this.transactions.get(id);
+    if (!transaction) return undefined;
+    const updated: Transaction = { ...transaction, ...updates } as Transaction;
+    // Ensure completedAt is set when status becomes completed
+    if (updates.status === 'completed' && !updated.completedAt) {
+      updated.completedAt = new Date();
+    }
+    this.transactions.set(id, updated);
+    return updated;
+  }
+
+  // Removed updateTransactionReference in favor of the generic updateTransaction method
 
   // Cart operations
   async getCartItemsByBuyer(buyerId: string): Promise<CartItemWithListing[]> {

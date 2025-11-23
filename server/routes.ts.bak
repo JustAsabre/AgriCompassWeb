@@ -115,12 +115,15 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         return res.status(400).json({ message: "Email is required" });
       }
 
+      // If the session already has a logged in user that matches the requested email, return early
+      if (req.session.user && req.session.user.email === normalizedEmail) {
+        return res.json({ user: req.session.user });
+      }
+
       const user = await storage.getUserByEmail(normalizedEmail);
       if (!user) {
         return res.status(401).json({ message: "Invalid credentials" });
       }
-
-      console.log(`Login: user found:`, user ? { ...user, verified: user.verified } : 'null');
 
       // Check if lockout is active
       if (user.lockedUntil && new Date(user.lockedUntil) > new Date()) {
@@ -258,18 +261,23 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
 
-  app.get("/api/auth/me", async (req, res) => {
+  app.get("/api/auth/me", (req, res) => {
     if (req.session.user) {
-      try {
-        const freshUser = await storage.getUser(req.session.user.id);
-        if (!freshUser) return res.status(404).json({ message: 'User not found' });
+      // Re-fetch the user from storage to ensure we return the freshest data
+      // (e.g., verified status may have changed), and also update the session
+      // snapshot to reflect the latest user data.
+      storage.getUser(req.session.user.id).then((freshUser) => {
+        if (!freshUser) {
+          return res.status(404).json({ message: 'User not found' });
+        }
+        // Remove the password from the session copy before returning
         req.session.user = { ...(freshUser as any) };
         const { password, ...safeUser } = freshUser as any;
         res.json({ user: safeUser });
-      } catch (err) {
+      }).catch((err) => {
         console.error('Error fetching user for /api/auth/me', err);
         res.status(500).json({ message: 'Failed to fetch user' });
-      }
+      });
     } else {
       res.status(401).json({ message: "Not authenticated" });
     }
@@ -426,8 +434,8 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       const updated = await storage.updateListing(req.params.id, req.body);
       // After marking as completed, create a payout record for the farmer
       await maybeCreatePayoutForOrder(req.params.id);
-      
       res.json(updated);
+      // No user_updated socket logic here for listing updates
     } catch (error: any) {
       console.error("Update listing error:", error);
       res.status(400).json({ message: "Failed to update listing" });
@@ -683,7 +691,6 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
             message: `Only ${listing.quantityAvailable} ${listing.unit} of ${listing.productName} available` 
           });
         }
-      }
 
       // Create orders (one per cart item)
       const orders = [];
@@ -771,14 +778,15 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       // Clear cart
       await storage.clearCart(buyerId);
 
-      // If autoPay requested, initiate payment for the first order (one-click flow)
+      // If autoPay requested, initiate payment for all orders (combined payment flow)
       if (autoPay && orders.length > 0) {
-        const firstOrder = orders[0];
         const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
         if (paystackSecret) {
-          const expectedAmount = Number(firstOrder.totalPrice || 0);
-          const amountInKobo = Math.round(expectedAmount * 100);
+          // Calculate total amount across all orders
+          const totalAmount = orders.reduce((sum, order) => sum + Number(order.totalPrice || 0), 0);
+          const amountInKobo = Math.round(totalAmount * 100);
           const buyer = await storage.getUser(buyerId);
+
           // Collect farmers with missing recipients so frontend can warn buyers
           const farmerIds = Array.from(new Set(orders.map(o => o.farmerId)));
           const missingRecipients: string[] = [];
@@ -787,14 +795,29 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
             if (!f || !(f as any).paystackRecipientCode) missingRecipients.push(fid);
           }
 
-          const bodyPayload: any = { email: buyer?.email, amount: amountInKobo, metadata: { orderId: firstOrder.id } };
+          // Create transaction record for combined payment
+          const transaction = await storage.createTransaction({
+            buyerId,
+            totalAmount: String(totalAmount),
+            paystackReference: null, // Will be set after Paystack initialization
+            status: 'pending',
+          });
+
+          const bodyPayload: any = { 
+            email: buyer?.email, 
+            amount: amountInKobo, 
+            metadata: { 
+              transactionId: transaction.id,
+              orderIds: orders.map(o => o.id) // Include all order IDs
+            } 
+          };
           // Use the frontend provided returnUrl for client verification
           if (req.body.returnUrl) {
-            // Append order IDs to callback URL so that the client can determine which orders this payment maps to.
+            // Append order IDs and transaction ID to callback URL
             try {
               const parsed = new URL(req.body.returnUrl);
-              // Append a query param 'orders' with csv of order ids
               parsed.searchParams.set('orders', orders.map(o => o.id).join(','));
+              parsed.searchParams.set('transaction', transaction.id);
               bodyPayload.callback_url = parsed.toString();
             } catch (err) {
               // If the returnUrl is not a full URL, default to original value provided
@@ -812,30 +835,43 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           if (!initRes.ok) {
             const text = await initRes.text().catch(() => '');
             console.error('Paystack init failed', initRes.status, text);
+            // Clean up transaction if Paystack init fails
+            await storage.updateTransactionStatus(transaction.id, 'failed');
             // Return orders but indicate we could not initiate payment
             return res.json({ orders, autoPay: { queued: false, message: 'Failed to initialize payment provider' } });
           }
           const body = await initRes.json();
           const { authorization_url, reference } = body.data || {};
 
-          // Create a payment record for each order and link them to the same transaction reference
+          // Update transaction with Paystack reference and status with one call
+          await storage.updateTransaction(transaction.id, { status: 'pending', paystackReference: reference ?? null });
+
+          // Create a payment record for each order and link them to the transaction
           const payments = [] as any[];
           for (const o of orders) {
-            const p = await storage.createPayment({ orderId: o.id, payerId: buyerId, amount: String(o.totalPrice), paymentMethod: 'paystack', transactionId: reference, status: 'pending' } as any);
+            const p = await storage.createPayment({ 
+              orderId: o.id, 
+              payerId: buyerId, 
+              amount: String(o.totalPrice), 
+              paymentMethod: 'paystack', 
+              transactionId: reference,
+              paystackReference: reference, // Also store in paystackReference field
+              status: 'pending' 
+            } as any);
             payments.push(p);
           }
           // Notify buyer and farmer
           try {
-            await sendNotificationToUser(buyerId, { userId: buyerId, type: 'order_update', title: 'Payment initiated', message: `Payment initiated for ${orders.length} order(s).`, relatedId: firstOrder.id, relatedType: 'order' }, io);
+            await sendNotificationToUser(buyerId, { userId: buyerId, type: 'order_update', title: 'Payment initiated', message: `Payment initiated for ${orders.length} order(s) totaling ${totalAmount}.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
               // Notify all farmers involved
               const farmerIds = Array.from(new Set(orders.map(o => o.farmerId)));
               for (const fid of farmerIds) {
                 try {
-                  await sendNotificationToUser(fid, { userId: fid, type: 'order_update', title: 'Buyer payment initiated', message: `A buyer has initiated payment for orders.`, relatedId: firstOrder.id, relatedType: 'order' }, io);
+                  await sendNotificationToUser(fid, { userId: fid, type: 'order_update', title: 'Buyer payment initiated', message: `A buyer has initiated payment for orders totaling ${totalAmount}.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
                 } catch (err) { /* ignore individual notification errors */ }
               }
           } catch (err) { console.error('Failed to create payment notifications', err); }
-            return res.json({ orders, autoPay: { payments, authorization_url, reference, missingRecipients } });
+            return res.json({ orders, transaction, autoPay: { payments, authorization_url, reference, missingRecipients } });
         }
       }
 
@@ -900,7 +936,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         cancelled: "Your order has been cancelled",
       };
 
-      if (statusMessages[status]) {
+        if (statusMessages[status]) {
         const orderDetails = await storage.getOrderWithDetails(req.params.id);
           if (orderDetails) {
           await sendNotificationToUser(order.buyerId, {
@@ -1083,7 +1119,6 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
   // Submit verification request (farmer)
   app.post("/api/verifications/request", requireRole("farmer"), async (req: Request, res: Response) => {
-    console.log('Verification request submitted');
     try {
       const farmerId = req.session.user!.id;
       const { farmSize, farmLocation, experienceYears, additionalInfo, documentUrl } = req.body;
@@ -1132,46 +1167,13 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
   // Review verification (field officer)
   app.patch("/api/verifications/:id/review", requireRole("field_officer"), async (req: Request, res: Response) => {
-    console.log('Review endpoint called for id:', req.params.id, 'status:', req.body.status);
     try {
       const { id } = req.params;
       const { status, notes } = req.body;
-      console.log(`Reviewing verification ${id} with status ${status}`);
 
       const verification = await storage.updateVerificationStatus(id, status, notes);
       if (!verification) {
         return res.status(404).json({ message: "Verification not found" });
-      }
-
-      // If approved, update sessions and notify sockets to refresh user state
-      if (status === 'approved') {
-        const farmerId = verification.farmerId;
-        console.log(`Approving verification for farmer ${farmerId}, verification status updated`);
-        
-        // Check user after update
-        const updatedUser = await storage.getUser(farmerId);
-        console.log(`User after verification update:`, updatedUser ? { ...updatedUser, verified: updatedUser.verified } : 'null');
-        
-        // Emit socket event for this farmer's connected clients
-        try {
-          if (io) io.to(`user:${farmerId}`).emit('user_updated', { userId: farmerId, verified: true });
-        } catch (err) { console.error('Failed to emit user_updated socket event', err); }
-
-        // Update in-memory sessions (if supported) so active farmer sessions show verified:true
-        try {
-          if (sessionStore && typeof sessionStore.all === 'function') {
-            sessionStore.all((err: any, sessions: Record<string, any>) => {
-              if (err || !sessions) return;
-              for (const sid in sessions) {
-                const sess = (sessions as any)[sid];
-                if (sess && sess.user && sess.user.id === farmerId) {
-                  sess.user = { ...sess.user, verified: true };
-                  sessionStore.set(sid, sess, (setErr: any) => setErr ? console.error('Failed to update session', setErr) : null);
-                }
-              }
-            });
-          }
-        } catch (err) { console.error('Error updating farmer sessions after approval', err); }
       }
 
       // Notify farmer about verification decision
@@ -1201,6 +1203,40 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
               status,
               notes
             ).catch(err => console.error('Failed to send verification status email:', err));
+          }
+        }
+        // Also notify farmer's connected sockets to refresh their user/session state
+        try {
+          if (io) {
+            io.to(`user:${verification.farmerId}`).emit('user_updated', { userId: verification.farmerId, verified: status === 'approved' });
+          }
+        } catch (err) {
+          console.error('Failed to emit user_updated socket event', err);
+        }
+        // If the verification was approved, and we have an in-memory session store, update
+        // any active session(s) for the farmer so their `req.session.user.verified` value
+        // reflects the new verified status without them having to re-login.
+        if (status === 'approved' && sessionStore) {
+          try {
+            if (typeof sessionStore.all === 'function') {
+              sessionStore.all((err: any, sessions: Record<string, any>) => {
+                if (err || !sessions) return;
+                for (const sid in sessions) {
+                  const sess = (sessions as any)[sid];
+                  if (sess && sess.user && sess.user.id === farmer.id) {
+                    sess.user = { ...sess.user, verified: true };
+                    sessionStore.set(sid, sess, (setErr: any) => {
+                      if (setErr) console.error('Failed to update session for farmer', setErr);
+                    });
+                  }
+                }
+              });
+            } else {
+              // Some session stores (like Postgres) may not support listing all sessions. We have
+              // no reliable way to find session ids by user, so we skip updating in that case.
+            }
+          } catch (err) {
+            console.error('Error while updating farmer sessions after verification approval', err);
           }
         }
       }
@@ -1250,6 +1286,28 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         status,
         notes
       );
+
+      // Update any sessions for this farmer to reflect verified status if approved
+      if (status === 'approved' && sessionStore) {
+        try {
+          if (typeof sessionStore.all === 'function') {
+            sessionStore.all((err: any, sessions: Record<string, any>) => {
+              if (err || !sessions) return;
+              for (const sid in sessions) {
+                const sess = (sessions as any)[sid];
+                if (sess && sess.user && sess.user.id === farmerId) {
+                  sess.user = { ...sess.user, verified: true };
+                  sessionStore.set(sid, sess, (setErr: any) => {
+                    if (setErr) console.error('Failed to update session for farmer', setErr);
+                  });
+                }
+              }
+            });
+          }
+        } catch (err) {
+          console.error('Error while updating sessions after officer verify', err);
+        }
+      }
 
       res.json(updated);
     } catch (error: any) {
@@ -2021,12 +2079,29 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
         if (event === 'charge.success' || event === 'transaction.success') {
           const reference = data.reference;
-          const payments = await storage.getPaymentsByTransactionId(reference);
-          for (const payment of payments) {
-            if (payment && payment.status !== 'completed') {
-              await storage.updatePaymentStatus(payment.id, 'completed');
-              // Also update order to accepted
-              await storage.updateOrderStatus(payment.orderId, 'accepted');
+          // First try to find transaction by paystack_reference
+          const transaction = await storage.getTransactionByPaystackReference(reference);
+          if (transaction) {
+            // Update transaction status
+            await storage.updateTransactionStatus(transaction.id, 'completed');
+            // Update all payments in this transaction
+            const payments = await storage.getPaymentsByTransactionId(transaction.id);
+            for (const payment of payments) {
+              if (payment && payment.status !== 'completed') {
+                await storage.updatePaymentStatus(payment.id, 'completed');
+                // Also update order to accepted
+                await storage.updateOrderStatus(payment.orderId, 'accepted');
+              }
+            }
+          } else {
+            // Fallback: look for payments directly by reference (for backward compatibility)
+            const payments = await storage.getPaymentsByTransactionId(reference);
+            for (const payment of payments) {
+              if (payment && payment.status !== 'completed') {
+                await storage.updatePaymentStatus(payment.id, 'completed');
+                // Also update order to accepted
+                await storage.updateOrderStatus(payment.orderId, 'accepted');
+              }
             }
           }
         }
@@ -2035,12 +2110,27 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         try {
           if (event === 'charge.success' || event === 'transaction.success') {
             const reference = data.reference;
-            const payments = await storage.getPaymentsByTransactionId(reference);
-            for (const payment of payments) {
-              const order = await storage.getOrder(payment.orderId);
-              if (order) {
-                await sendNotificationToUser(payment.payerId, { userId: payment.payerId, type: 'order_update', title: 'Payment received', message: `Your payment for order ${order.id} has been confirmed.`, relatedId: order.id, relatedType: 'order' }, io);
-                await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Payment received', message: `A payment has been received for order ${order.id}.`, relatedId: order.id, relatedType: 'order' }, io);
+            // First try to find transaction by paystack_reference
+            const transaction = await storage.getTransactionByPaystackReference(reference);
+            if (transaction) {
+              // Notify for all payments in this transaction
+              const payments = await storage.getPaymentsByTransactionId(transaction.id);
+              for (const payment of payments) {
+                const order = await storage.getOrder(payment.orderId);
+                if (order) {
+                  await sendNotificationToUser(payment.payerId, { userId: payment.payerId, type: 'order_update', title: 'Payment received', message: `Your payment for order ${order.id} has been confirmed.`, relatedId: order.id, relatedType: 'order' }, io);
+                  await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Payment received', message: `A payment has been received for order ${order.id}.`, relatedId: order.id, relatedType: 'order' }, io);
+                }
+              }
+            } else {
+              // Fallback: look for payments directly by reference (for backward compatibility)
+              const payments = await storage.getPaymentsByTransactionId(reference);
+              for (const payment of payments) {
+                const order = await storage.getOrder(payment.orderId);
+                if (order) {
+                  await sendNotificationToUser(payment.payerId, { userId: payment.payerId, type: 'order_update', title: 'Payment received', message: `Your payment for order ${order.id} has been confirmed.`, relatedId: order.id, relatedType: 'order' }, io);
+                  await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Payment received', message: `A payment has been received for order ${order.id}.`, relatedId: order.id, relatedType: 'order' }, io);
+                }
               }
             }
           }
@@ -2123,6 +2213,26 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       }
     });
 
+    // Get transaction details
+    app.get('/api/transactions/:id', requireAuth, async (req, res) => {
+      try {
+        const transaction = await storage.getTransaction(req.params.id);
+        if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
+
+        const userId = req.session.user!.id;
+        const userRole = req.session.user!.role;
+        // Only allow if caller is the buyer or admin
+        if (transaction.buyerId !== userId && userRole !== 'admin') {
+          return res.status(403).json({ message: 'Forbidden' });
+        }
+
+        res.json({ transaction });
+      } catch (err: any) {
+        console.error('Get transaction error:', err);
+        res.status(500).json({ message: 'Failed to fetch transaction' });
+      }
+    });
+
     // Client endpoint to verify a Paystack transaction: buyer can call to verify their payment using reference
     app.post('/api/payments/paystack/verify-client', requireAuth, async (req, res) => {
       try {
@@ -2132,7 +2242,17 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         const paystackKey = process.env.PAYSTACK_SECRET_KEY;
         if (!paystackKey) return res.status(400).json({ message: 'Paystack not configured' });
 
-        const payments = await storage.getPaymentsByTransactionId(reference);
+        let payments = await storage.getPaymentsByTransactionId(reference);
+        if (!payments || payments.length === 0) {
+          // Try to find transaction by paystack reference and get its payments
+          const transaction = await storage.getTransactionByPaystackReference(reference);
+          if (transaction) {
+            const transactionPayments = await storage.getPaymentsByTransactionId(transaction.id);
+            if (transactionPayments && transactionPayments.length > 0) {
+              payments = transactionPayments;
+            }
+          }
+        }
         if (!payments || payments.length === 0) return res.status(404).json({ message: 'Payment not found' });
 
         // Ensure at least one of the payments belongs to this user or the user is admin
@@ -2343,7 +2463,17 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         const status = data.data?.status;
         const transactionRef = data.data?.reference;
 
-        const payments = await storage.getPaymentsByTransactionId(transactionRef);
+        let payments = await storage.getPaymentsByTransactionId(transactionRef);
+        if (!payments || payments.length === 0) {
+          // Try to find transaction by paystack reference and get its payments
+          const transaction = await storage.getTransactionByPaystackReference(transactionRef);
+          if (transaction) {
+            const transactionPayments = await storage.getPaymentsByTransactionId(transaction.id);
+            if (transactionPayments && transactionPayments.length > 0) {
+              payments = transactionPayments;
+            }
+          }
+        }
         if (!payments || payments.length === 0) return res.status(404).json({ message: 'Payment not found' });
 
         if (status === 'success' || status === 'completed') {

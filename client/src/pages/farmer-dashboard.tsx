@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Listing, OrderWithDetails } from "@shared/schema";
+import { formatCurrency } from '@/lib/currency';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEffect, useRef } from "react";
 import { useState } from "react";
@@ -291,7 +292,7 @@ export default function FarmerDashboard() {
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Total Revenue</p>
                   <p className="text-3xl font-bold text-foreground mt-2" data-testid="stat-revenue">
-                    ${totalRevenue.toFixed(2)}
+                    {formatCurrency(totalRevenue)}
                   </p>
                 </div>
                 <TrendingUp className="h-12 w-12 text-primary" />
@@ -349,7 +350,7 @@ export default function FarmerDashboard() {
                         <div className="flex items-center justify-between">
                           <span className="text-sm text-muted-foreground">Price</span>
                           <span className="font-semibold text-primary">
-                            ${listing.price}/{listing.unit}
+                            {formatCurrency(listing.price)}/{listing.unit}
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
@@ -464,7 +465,7 @@ export default function FarmerDashboard() {
                           <div className="text-right">
                             <p className="text-sm text-muted-foreground">Total</p>
                             <p className="text-2xl font-bold text-primary">
-                              ${(Number(order.totalPrice) || 0).toFixed(2)}
+                              {formatCurrency(order.totalPrice)}
                             </p>
                           </div>
                           {order.status === "pending" && (

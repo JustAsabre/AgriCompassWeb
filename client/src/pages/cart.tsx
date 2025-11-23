@@ -20,6 +20,7 @@ import { CartItemWithListing, PricingTier } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { formatCurrency } from '@/lib/currency';
 import { useState, useEffect } from "react";
 
 export default function Cart() {
@@ -278,10 +279,10 @@ export default function Cart() {
                           <div className="flex-1 min-w-0">
                             <h4 className="font-semibold truncate">{item.listing.productName}</h4>
                             <p className="text-sm text-muted-foreground">
-                              ${item.listing.price} / {item.listing.unit}
+                              {formatCurrency(item.listing.price)} / {item.listing.unit}
                               {applicableTier && (
                                 <span className="ml-2 text-primary font-medium">
-                                  → ${tieredPrice.toFixed(2)} / {item.listing.unit}
+                                  → {formatCurrency(tieredPrice)} / {item.listing.unit}
                                 </span>
                               )}
                             </p>
@@ -341,9 +342,9 @@ export default function Cart() {
                               <span className="text-xs text-muted-foreground">{item.listing.unit}</span>
                             </div>
                             {savings > 0 && (
-                              <Badge variant="secondary" className="mt-1 gap-1">
+                                <Badge variant="secondary" className="mt-1 gap-1">
                                 <TrendingDown className="h-3 w-3" />
-                                Save ${savings.toFixed(2)}
+                                Save {formatCurrency(savings)}
                               </Badge>
                             )}
                           </div>
@@ -351,11 +352,11 @@ export default function Cart() {
                             <div className="text-right">
                               {savings > 0 && (
                                 <p className="text-xs text-muted-foreground line-through">
-                                  ${(basePrice * item.quantity).toFixed(2)}
+                                  {formatCurrency((basePrice * item.quantity).toFixed(2))}
                                 </p>
                               )}
                               <p className="font-semibold text-primary">
-                                ${itemTotal.toFixed(2)}
+                                {formatCurrency(itemTotal)}
                               </p>
                             </div>
                             <Button
@@ -376,7 +377,7 @@ export default function Cart() {
                     <div className="flex justify-between items-center">
                       <span className="font-medium">Subtotal</span>
                       <span className="font-bold text-lg text-primary">
-                        ${group.total.toFixed(2)}
+                        {formatCurrency(group.total)}
                       </span>
                     </div>
                   </CardContent>
@@ -420,7 +421,7 @@ export default function Cart() {
                     <div className="flex justify-between font-bold text-lg">
                       <span>Total</span>
                       <span className="text-primary" data-testid="text-total">
-                        ${grandTotal.toFixed(2)}
+                        {formatCurrency(grandTotal)}
                       </span>
                     </div>
                   </div>

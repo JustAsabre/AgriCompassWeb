@@ -2,6 +2,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { TrendingDown } from "lucide-react";
 import { PricingTier } from "@shared/schema";
+import { formatCurrency } from '@/lib/currency';
 
 interface PricingTierDisplayProps {
   basePrice: number | string;
@@ -49,7 +50,7 @@ export function PricingTierDisplay({ basePrice, tiers, unit, selectedQuantity = 
           {/* Base price */}
           <div className="flex items-center justify-between p-2 rounded-lg bg-muted/50">
             <span className="text-sm">1 - {sortedTiers[0].minQuantity - 1} {unit || 'units'}</span>
-            <span className="font-medium">${basePriceNum.toFixed(2)}/{unit || 'unit'}</span>
+            <span className="font-medium">{formatCurrency(basePriceNum)}/{unit || 'unit'}</span>
           </div>
 
           {/* Tier prices */}
@@ -72,7 +73,7 @@ export function PricingTierDisplay({ basePrice, tiers, unit, selectedQuantity = 
                 </span>
                 <div className="flex items-center gap-2">
                   <span className={`font-medium ${isActive ? 'text-primary' : ''}`}>
-                    ${tier.price}/{unit || 'unit'}
+                    {formatCurrency(tier.price)}/{unit || 'unit'}
                   </span>
                   {isActive && (
                     <Badge variant="default" className="text-xs">
@@ -90,13 +91,11 @@ export function PricingTierDisplay({ basePrice, tiers, unit, selectedQuantity = 
             <p className="text-sm text-muted-foreground">
               Your quantity: <span className="font-medium text-foreground">{selectedQuantity} {unit || 'units'}</span>
             </p>
-            <p className="text-sm text-muted-foreground">
-              Your price: <span className="font-medium text-primary">${currentPrice}/{unit || 'unit'}</span>
+              <p className="text-sm text-muted-foreground">
+              Your price: <span className="font-medium text-primary">{formatCurrency(currentPrice)}/{unit || 'unit'}</span>
             </p>
-            <p className="text-sm text-muted-foreground">
-              Total: <span className="font-medium text-foreground">
-                ${(parseFloat(currentPrice) * selectedQuantity).toFixed(2)}
-              </span>
+              <p className="text-sm text-muted-foreground">
+              Total: <span className="font-medium text-foreground">{formatCurrency((parseFloat(currentPrice) * selectedQuantity).toFixed(2))}</span>
             </p>
           </div>
         )}

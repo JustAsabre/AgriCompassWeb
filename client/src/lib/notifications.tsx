@@ -17,7 +17,7 @@ interface NotificationContextType {
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const queryClient = useQueryClient();
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -62,6 +62,17 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       authSent = false;
     });
 
+    // Listen for user updates so we can refresh current user session data
+    newSocket.on("user_updated", async (_data: { userId: string; verified?: boolean }) => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises
+        (refreshUser as any)?.();
+        queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      } catch (err) {
+        console.error('Failed to handle user_updated socket event', err);
+      }
+    });
+
     // Listen for new notifications
     newSocket.on("new_notification", (notification: Notification) => {
       queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
@@ -75,6 +86,18 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         queryClient.invalidateQueries({ queryKey: ["/api/messages/conversations"] });
       } else if (notification.type === "verification_update") {
         queryClient.invalidateQueries({ queryKey: ["/api/farmer/verification"] });
+          // Refresh the current user so UI reflects changes to `user.verified` (e.g., profile banner, dashboard)
+          if (queryClient && typeof (queryClient as any).client?.refresh === 'undefined') {
+            // not all queryClient instances expose refresh; instead call AuthProvider refresh hook
+          }
+          // Best-effort: if useAuth().refreshUser exists, call it (it will update local user state)
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-floating-promises
+            (refreshUser as any)?.();
+          } catch (err) {
+            // If we can't call refreshUser here (e.g. useAuth not callable), invalidate '/api/auth/me' so components re-fetch
+            queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+          }
       } else if (notification.type === "new_listing") {
         queryClient.invalidateQueries({ queryKey: ["/api/listings"] });
       }

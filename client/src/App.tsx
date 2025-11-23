@@ -17,6 +17,8 @@ import ResetPassword from "@/pages/reset-password";
 import TermsOfService from "@/pages/terms-of-service";
 import PrivacyPolicy from "@/pages/privacy-policy";
 import CookiePolicy from "@/pages/cookie-policy";
+import About from "@/pages/about";
+import Contact from "@/pages/contact";
 import Marketplace from "@/pages/marketplace";
 import ProductDetail from "@/pages/product-detail";
 import FarmerDashboard from "@/pages/farmer-dashboard";
@@ -68,6 +70,8 @@ function Router() {
           <Route path="/terms-of-service" component={TermsOfService} />
           <Route path="/privacy-policy" component={PrivacyPolicy} />
           <Route path="/cookie-policy" component={CookiePolicy} />
+          <Route path="/about" component={About} />
+          <Route path="/contact" component={Contact} />
           <Route path="/marketplace" component={Marketplace} />
           <Route path="/marketplace/:id" component={ProductDetail} />
           

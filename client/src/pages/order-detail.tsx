@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { formatCurrency } from "@/lib/currency";
 import { useToast } from "@/hooks/use-toast";
 import { ReviewForm } from "@/components/review-form";
 import { ReviewDisplay } from "@/components/review-display";
@@ -121,10 +122,11 @@ export default function OrderDetail() {
     enabled: !!params?.id,
   });
 
-  const { data: payments } = useQuery<any[]>({
+  const { data: paymentsResponse } = useQuery<{ payments: any[] } | undefined>({
     queryKey: [`/api/payments/order/${params?.id}`],
     enabled: !!params?.id,
   });
+  const payments = paymentsResponse?.payments ?? [];
 
   // Check if review exists for this order
   const { data: existingReview } = useQuery<{
@@ -284,9 +286,9 @@ export default function OrderDetail() {
   const statusInfo = statusConfig[order.status];
   const StatusIcon = statusInfo.icon;
   const canCancel = order.status === "pending";
-  const hasCompletedPayment = (payments || []).some((p: any) => p.status === 'completed');
+  const hasCompletedPayment = (payments).some((p: any) => p.status === 'completed');
   const canMarkDelivered = user?.role === "farmer" && order.status === "accepted" && hasCompletedPayment;
-  const hasPendingPayment = (payments || []).some((p: any) => p.status === 'pending');
+  const hasPendingPayment = (payments).some((p: any) => p.status === 'pending');
   const canConfirmReceipt = user?.role === "buyer" && order.status === "delivered" && hasCompletedPayment;
 
   const handlePrintReceipt = () => {
@@ -310,7 +312,7 @@ export default function OrderDetail() {
             <div>
               <h1 className="text-3xl font-bold mb-1 print:text-2xl">Order Details</h1>
               <p className="text-muted-foreground print:text-sm print:text-gray-600">Order ID: {order.id}</p>
-          if (!match || !params?.id) { 
+            </div>
             <Badge className={`${statusInfo.bgColor} ${statusInfo.textColor} border-0 print:self-start`}>
               {statusInfo.label}
             </Badge>
@@ -433,10 +435,10 @@ export default function OrderDetail() {
                       Quantity: <span className="font-medium text-foreground">{order.quantity} {order.listing.unit}</span>
                     </p>
                     <p className="text-muted-foreground">
-                      Price per unit: <span className="font-medium text-foreground">${(() => { const v = parseFloat(order.listing.pricePerUnit as any); return isNaN(v) ? '0.00' : v.toFixed(2); })()}</span>
+                      Price per unit: <span className="font-medium text-foreground">{formatCurrency(order.listing.pricePerUnit)}</span>
                     </p>
                     <p className="font-semibold text-lg mt-2">
-                      Total: ${(() => { const v = parseFloat(order.totalPrice as any); return isNaN(v) ? '0.00' : v.toFixed(2); })()}
+                      Total: {formatCurrency(order.totalPrice)}
                     </p>
                   </div>
                 </div>

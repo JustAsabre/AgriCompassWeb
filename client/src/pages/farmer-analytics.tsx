@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, Package, TrendingUp, ShoppingBag, CheckCircle, Clock, DollarSign, Sparkles } from "lucide-react";
+import { formatCurrency } from '@/lib/currency';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart } from "recharts";
 
 interface FarmerAnalytics {
@@ -23,9 +24,9 @@ const CustomTooltip = ({ active, payload, label }: any) => {
     return (
       <div className="bg-background/95 backdrop-blur-sm border rounded-lg shadow-lg p-3">
         <p className="font-semibold mb-1">{label}</p>
-        {payload.map((entry: any, index: number) => (
+            {payload.map((entry: any, index: number) => (
           <p key={index} className="text-sm" style={{ color: entry.color }}>
-            {entry.name}: {entry.name.includes('Revenue') ? `$${entry.value.toFixed(2)}` : entry.value}
+            {entry.name}: {entry.name.includes('Revenue') ? formatCurrency(entry.value) : entry.value}
           </p>
         ))}
       </div>
@@ -96,7 +97,7 @@ export default function FarmerAnalytics() {
     },
     {
       title: "Total Revenue",
-      value: `$${(analytics?.totalRevenue || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      value: formatCurrency(analytics?.totalRevenue || 0),
       icon: DollarSign,
       color: "from-indigo-500 to-purple-500",
       bg: "from-indigo-50 to-purple-50 dark:from-indigo-950/50 dark:to-purple-950/50",

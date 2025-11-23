@@ -22,6 +22,7 @@ import {
   MessageCircle
 } from "lucide-react";
 import { ListingWithFarmer, PricingTier } from "@shared/schema";
+import { formatCurrency } from '@/lib/currency';
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -189,7 +190,7 @@ export default function ProductDetail() {
 
             <div className="flex items-baseline gap-2">
               <span className="text-4xl font-bold text-primary" data-testid="text-price">
-                ${listing.price}
+                {formatCurrency(listing.price)}
               </span>
               <span className="text-lg text-muted-foreground">/ {listing.unit}</span>
             </div>

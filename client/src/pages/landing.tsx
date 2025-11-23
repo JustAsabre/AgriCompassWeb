@@ -11,6 +11,7 @@ import {
   ShoppingBag,
   FileCheck
 } from "lucide-react";
+import { formatCurrency } from '@/lib/currency';
 
 export default function Landing() {
   const features = [
@@ -107,7 +108,7 @@ export default function Landing() {
                   <div className="text-sm text-muted-foreground">Active Buyers</div>
                 </div>
                 <div>
-                  <div className="text-2xl md:text-3xl font-bold text-primary">$2.5M</div>
+                  <div className="text-2xl md:text-3xl font-bold text-primary">{formatCurrency(2500000)}</div>
                   <div className="text-sm text-muted-foreground">Total Transactions</div>
                 </div>
               </div>
@@ -212,9 +213,9 @@ export default function Landing() {
             <div>
               <h3 className="font-semibold text-foreground mb-4">About</h3>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li><a href="#" className="hover:text-foreground transition-colors">About Us</a></li>
+                <li><Link href="/about"><a className="hover:text-foreground transition-colors">About Us</a></Link></li>
                 <li><a href="#" className="hover:text-foreground transition-colors">How It Works</a></li>
-                <li><a href="#" className="hover:text-foreground transition-colors">Contact</a></li>
+                <li><Link href="/contact"><a className="hover:text-foreground transition-colors">Contact</a></Link></li>
               </ul>
             </div>
             <div>
@@ -236,9 +237,9 @@ export default function Landing() {
             <div>
               <h3 className="font-semibold text-foreground mb-4">Legal</h3>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li><a href="#" className="hover:text-foreground transition-colors">Terms of Service</a></li>
-                <li><a href="#" className="hover:text-foreground transition-colors">Privacy Policy</a></li>
-                <li><a href="#" className="hover:text-foreground transition-colors">Data Use</a></li>
+                <li><Link href="/terms-of-service"><a className="hover:text-foreground transition-colors">Terms of Service</a></Link></li>
+                <li><Link href="/privacy-policy"><a className="hover:text-foreground transition-colors">Privacy Policy</a></Link></li>
+                <li><Link href="/cookie-policy"><a className="hover:text-foreground transition-colors">Cookie Policy</a></Link></li>
               </ul>
             </div>
           </div>

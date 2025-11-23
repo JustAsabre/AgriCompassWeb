@@ -82,11 +82,24 @@ export const payments = pgTable("payments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   orderId: varchar("order_id").notNull().references(() => orders.id),
   payerId: varchar("payer_id").notNull().references(() => users.id),
+  transactionId: varchar("transaction_id").references(() => transactions.id), // Link to transaction for combined payments
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   paymentMethod: text("payment_method"),
-  transactionId: text("transaction_id"),
+  paystackReference: text("paystack_reference"), // Individual payment reference
   status: text("status").default("pending"), // pending, completed, failed, refunded
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Transactions (for combined payments)
+export const transactions = pgTable("transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  buyerId: varchar("buyer_id").notNull().references(() => users.id),
+  totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).notNull(),
+  paymentMethod: text("payment_method"),
+  paystackReference: text("paystack_reference"),
+  status: text("status").default("pending"), // pending, completed, failed, refunded
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
 });
 
 export const payouts = pgTable("payouts", {
@@ -217,6 +230,12 @@ export const insertPaymentSchema = createInsertSchema(payments).omit({
   createdAt: true,
 });
 
+export const insertTransactionSchema = createInsertSchema(transactions).omit({
+  id: true,
+  createdAt: true,
+  completedAt: true,
+});
+
 export const insertPayoutSchema = createInsertSchema(payouts).omit({
   id: true,
   createdAt: true,
@@ -286,6 +305,9 @@ export type ReviewWithUsers = Review & {
 
 export type Payment = typeof payments.$inferSelect;
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
+
+export type Transaction = typeof transactions.$inferSelect;
+export type InsertTransaction = z.infer<typeof insertTransactionSchema>;
 
 export type Payout = typeof payouts.$inferSelect;
 export type InsertPayout = z.infer<typeof insertPayoutSchema>;

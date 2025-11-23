@@ -1,10 +1,10 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { Upload, X, Image as ImageIcon } from 'lucide-react';
 import { Button } from './button';
 import { cn } from '@/lib/utils';
 
 interface FileUploadProps {
-  value?: string[];
+  value?: string[] | string; // accept existing image URL(s) or a single image URL
   onChange: (files: File[]) => void;
   maxFiles?: number;
   maxSize?: number; // in MB
@@ -89,6 +89,26 @@ export function FileUpload({
     setIsDragging(false);
     handleFiles(e.dataTransfer.files);
   }, [handleFiles]);
+
+  // Reset previews if the external value is a string or an array of URLs (for remote image urls)
+  useEffect(() => {
+    // If provided a single string or array of strings, set preview images
+    if (typeof value === 'string' && value) {
+      setPreviews([value]);
+      setFiles([]);
+      return;
+    }
+    if (Array.isArray(value) && value.length > 0) {
+      setPreviews(value);
+      setFiles([]);
+      return;
+    }
+    // If value is empty, clear internal states
+    if ((!value || (Array.isArray(value) && value.length === 0))) {
+      setFiles([]);
+      setPreviews([]);
+    }
+  }, [value]);
 
   return (
     <div className={cn('space-y-4', className)}>

@@ -43,6 +43,10 @@ export default function CreateListing() {
   const [match, params] = useRoute("/farmer/edit-listing/:id");
   const isEditMode = !!match && !!params?.id;
   const { toast } = useToast();
+  useEffect(() => {
+    // Clear any previously autofilled image url or values on mount
+    form.setValue('imageUrl', '');
+  }, []);
   const [isUploading, setIsUploading] = useState(false);
   
   // Track if any pricing tier mutations are in progress
@@ -92,6 +96,14 @@ export default function CreateListing() {
       });
     }
   }, [isEditMode, existingListing, form]);
+
+  // Track imageUrl value from the form in a single variable to avoid calling watch repeatedly
+  const imageUrlValue = form.watch('imageUrl');
+  const normalizedImageValue: string | string[] | undefined = (() => {
+    if (!imageUrlValue) return undefined;
+    if (Array.isArray(imageUrlValue)) return imageUrlValue.filter(Boolean) as string[];
+    return String(imageUrlValue);
+  })();
 
   const createListingMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -242,7 +254,7 @@ export default function CreateListing() {
                     <FormItem>
                       <FormLabel>Product Name</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g., Fresh Tomatoes" {...field} data-testid="input-product-name" />
+                        <Input placeholder="e.g., Fresh Tomatoes" {...field} data-testid="input-product-name" autoComplete="off" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -286,6 +298,7 @@ export default function CreateListing() {
                           className="min-h-32"
                           {...field}
                           data-testid="input-description"
+                          autoComplete="off"
                         />
                       </FormControl>
                       <FormDescription>
@@ -310,6 +323,7 @@ export default function CreateListing() {
                             placeholder="0.00" 
                             {...field}
                             data-testid="input-price"
+                            autoComplete="off"
                           />
                         </FormControl>
                         <FormMessage />
@@ -356,6 +370,7 @@ export default function CreateListing() {
                             placeholder="100" 
                             {...field}
                             data-testid="input-quantity"
+                            autoComplete="off"
                           />
                         </FormControl>
                         <FormMessage />
@@ -375,6 +390,7 @@ export default function CreateListing() {
                             placeholder="10" 
                             {...field}
                             data-testid="input-moq"
+                            autoComplete="off"
                           />
                         </FormControl>
                         <FormMessage />
@@ -396,6 +412,7 @@ export default function CreateListing() {
                             {...field}
                             value={field.value ?? ""}
                             data-testid="input-harvest-date"
+                            autoComplete="off"
                           />
                         </FormControl>
                         <FormMessage />
@@ -414,6 +431,7 @@ export default function CreateListing() {
                             placeholder="e.g., North Region" 
                             {...field}
                             data-testid="input-location"
+                            autoComplete="off"
                           />
                         </FormControl>
                         <FormMessage />
@@ -426,6 +444,7 @@ export default function CreateListing() {
                 <div className="space-y-4">
                   <FormLabel>Product Images</FormLabel>
                   <FileUpload
+                    value={normalizedImageValue}
                     onChange={handleImageUpload}
                     accept="image/*"
                     maxFiles={1}
@@ -440,12 +459,12 @@ export default function CreateListing() {
                   )}
                   
                   {/* Image Preview */}
-                  {form.watch('imageUrl') && !isUploading && (
+                  {imageUrlValue && !isUploading && (
                     <div className="space-y-2">
                       <p className="text-sm font-medium">Uploaded Image:</p>
                       <div className="relative group aspect-video max-w-md rounded-lg overflow-hidden border">
                         <img 
-                          src={form.watch('imageUrl') ?? undefined} 
+                          src={Array.isArray(imageUrlValue) ? imageUrlValue[0] : imageUrlValue ?? undefined} 
                           alt="Product preview" 
                           className="w-full h-full object-cover" 
                         />
@@ -474,11 +493,12 @@ export default function CreateListing() {
                     <FormItem>
                       <FormLabel>Image URL (Alternative)</FormLabel>
                       <FormControl>
-                        <Input 
+                          <Input 
                           placeholder="https://example.com/image.jpg" 
                           {...field}
                           value={field.value || ''}
                           data-testid="input-image-url"
+                          autoComplete="off"
                         />
                       </FormControl>
                       <FormDescription>

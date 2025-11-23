@@ -20,6 +20,7 @@ import {
   Calendar
 } from "lucide-react";
 import { ListingWithFarmer } from "@shared/schema";
+import { formatCurrency } from '@/lib/currency';
 import {
   Sheet,
   SheetContent,
@@ -126,15 +127,15 @@ export default function Marketplace() {
             onValueChange={(value) => setPriceRange(value as [number, number])}
             className="mb-2"
           />
-          <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center justify-between text-sm">
             <div className="flex items-center gap-1">
               <DollarSign className="h-3 w-3" />
-              <span>{priceRange[0].toFixed(2)}</span>
+              <span>{formatCurrency(priceRange[0])}</span>
             </div>
             <span className="text-muted-foreground">to</span>
             <div className="flex items-center gap-1">
               <DollarSign className="h-3 w-3" />
-              <span>{priceRange[1].toFixed(2)}</span>
+              <span>{formatCurrency(priceRange[1])}</span>
             </div>
           </div>
         </div>
@@ -434,7 +435,7 @@ export default function Marketplace() {
                           </p>
                           <div className="flex items-baseline gap-2 pt-2">
                             <span className="text-2xl font-bold text-primary" data-testid={`text-price-${listing.id}`}>
-                              ${listing.price}
+                              {formatCurrency(listing.price)}
                             </span>
                             <span className="text-sm text-muted-foreground">/ {listing.unit}</span>
                           </div>

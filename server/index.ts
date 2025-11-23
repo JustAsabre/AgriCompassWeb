@@ -66,23 +66,32 @@ app.use(sessionMiddleware);
 // We use a dynamic import here to avoid static import resolution failing when `csurf` is not installed.
 // Note: install `csurf` for production deployments where CSRF protection is required.
 async function maybeEnableCsrf() {
+  let csrfEnabled = false;
   try {
     const csurfModule = await import('csurf');
     const csurfFn = (csurfModule as any).default || csurfModule;
     const csrfProtection = csurfFn({ cookie: false }); // store in session by default
     app.use(csrfProtection);
-    // expose csrf token via a lightweight endpoint for client to fetch (AJAX-friendly)
-    app.get('/api/csrf-token', (req, res) => {
-      try {
-        const token = (req as any).csrfToken?.();
-        res.json({ csrfToken: token });
-      } catch (err) {
-        res.status(500).json({ error: 'Failed to generate CSRF token' });
-      }
-    });
+    csrfEnabled = true;
   } catch (err) {
     console.warn('csurf not installed or failed to initialize - skipping CSRF middleware in this environment.');
   }
+
+  // Always register the endpoint to return JSON so the client and E2E tooling don't receive HTML
+  // when a Vite dev middleware falls back to index.html for missing API routes.
+  app.get('/api/csrf-token', (req, res) => {
+    try {
+      // If csurf is enabled, provide the token; otherwise, return null to indicate not available
+      if (csrfEnabled) {
+        const token = (req as any).csrfToken?.();
+        return res.json({ csrfToken: token || null });
+      }
+      return res.json({ csrfToken: null });
+    } catch (err) {
+      // In case something went wrong retrieving the token, return a null token rather than HTML
+      return res.json({ csrfToken: null });
+    }
+  });
 }
 
 declare module 'http' {

@@ -12,7 +12,12 @@
     "db:push": "drizzle-kit push",
     "test": "vitest",
     "test:ui": "vitest --ui",
-    "test:coverage": "vitest --coverage"
+    "test:coverage": "vitest --coverage",
+    "test:e2e": "npx playwright test",
+    "e2e:install": "npx playwright install"
+  },
+  "playwright": {
+    "testDir": "tests/e2e"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -61,7 +66,6 @@
     "drizzle-zod": "^0.7.0",
     "embla-carousel-react": "^8.6.0",
     "express": "^4.21.2",
-    "csurf": "^1.11.0",
     "express-mongo-sanitize": "^2.2.0",
     "express-rate-limit": "^8.2.1",
     "express-session": "^1.18.1",
@@ -72,12 +76,12 @@
     "juice": "^11.0.3",
     "lucide-react": "^0.453.0",
     "memorystore": "^1.6.7",
-    "pg": "^8.11.0",
     "multer": "^2.0.2",
     "next-themes": "^0.4.6",
     "nodemailer": "^7.0.10",
     "passport": "^0.7.0",
     "passport-local": "^1.0.0",
+    "pg": "^8.11.0",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",
@@ -99,12 +103,13 @@
     "zod-validation-error": "^3.4.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.43.0",
     "@replit/vite-plugin-cartographer": "^0.4.1",
     "@replit/vite-plugin-dev-banner": "^0.1.1",
     "@replit/vite-plugin-runtime-error-modal": "^0.0.3",
     "@tailwindcss/typography": "^0.5.15",
     "@tailwindcss/vite": "^4.1.3",
-        "bull": "^4.12.0",
+    "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
@@ -122,7 +127,7 @@
     "@vitejs/plugin-react": "^4.7.0",
     "@vitest/ui": "^4.0.9",
     "autoprefixer": "^10.4.20",
-    "drizzle-kit": "^0.31.4",
+    "bull": "^4.12.0",
     "esbuild": "^0.25.0",
     "jest": "^30.2.0",
     "jsdom": "^27.2.0",
@@ -132,7 +137,7 @@
     "ts-jest": "^29.4.5",
     "tsx": "^4.20.5",
     "typescript": "5.6.3",
-    "vite": "^5.4.20",
+    "vite": "^7.2.4",
     "vitest": "^4.0.9"
   },
   "optionalDependencies": {

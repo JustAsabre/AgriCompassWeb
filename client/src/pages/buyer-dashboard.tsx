@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { OrderWithDetails } from "@shared/schema";
+import { formatCurrency } from '@/lib/currency';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function BuyerDashboard() {
@@ -112,8 +113,8 @@ export default function BuyerDashboard() {
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Total Spent</p>
                   <p className="text-3xl font-bold text-foreground mt-2" data-testid="stat-spent">
-                    ${totalSpent.toFixed(2)}
-                  </p>
+                      {formatCurrency(totalSpent)}
+                    </p>
                 </div>
                 <TrendingUp className="h-12 w-12 text-primary" />
               </div>
@@ -170,7 +171,7 @@ export default function BuyerDashboard() {
                         <div className="text-right">
                           <p className="text-sm text-muted-foreground">Total</p>
                           <p className="text-2xl font-bold text-primary">
-                            ${(Number(order.totalPrice) || 0).toFixed(2)}
+                            {formatCurrency(order.totalPrice)}
                           </p>
                         </div>
                       </div>
@@ -214,7 +215,7 @@ export default function BuyerDashboard() {
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-2xl font-bold text-primary">${(Number(order.totalPrice) || 0).toFixed(2)}</p>
+                          <p className="text-2xl font-bold text-primary">{formatCurrency(order.totalPrice)}</p>
                         </div>
                       </div>
                     </CardContent>
@@ -250,7 +251,7 @@ export default function BuyerDashboard() {
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-2xl font-bold text-primary">${(Number(order.totalPrice) || 0).toFixed(2)}</p>
+                          <p className="text-2xl font-bold text-primary">{formatCurrency(order.totalPrice)}</p>
                         </div>
                       </div>
                     </CardContent>

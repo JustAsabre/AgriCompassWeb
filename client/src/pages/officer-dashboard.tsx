@@ -33,6 +33,12 @@ export default function OfficerDashboard() {
   const verifiedFarmers = farmers?.filter(f => f.verified) || [];
   const unverifiedFarmers = farmers?.filter(f => !f.verified) || [];
 
+  // Fetch actual verification requests submitted by farmers
+  const { data: verifications } = useQuery<any[]>({
+    queryKey: ['/api/verifications'],
+    enabled: !!user?.id && user?.role === 'field_officer',
+  });
+
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8 max-w-screen-2xl">
@@ -88,7 +94,7 @@ export default function OfficerDashboard() {
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Pending Verification</p>
                   <p className="text-3xl font-bold text-foreground mt-2" data-testid="stat-pending">
-                    {isLoading ? "-" : unverifiedFarmers.length}
+                    {isLoading ? "-" : (verifications?.filter(v => v.status === 'pending').length ?? 0)}
                   </p>
                 </div>
                 <Clock className="h-12 w-12 text-primary" />
@@ -125,20 +131,20 @@ export default function OfficerDashboard() {
                   </Card>
                 ))}
               </div>
-            ) : unverifiedFarmers.length > 0 ? (
+            ) : verifications && verifications.length > 0 ? (
               <div className="space-y-4">
-                {unverifiedFarmers.map((farmer) => (
-                  <Card key={farmer.id} className="hover-elevate" data-testid={`card-farmer-${farmer.id}`}>
+                {verifications.map((v) => (
+                  <Card key={v.id} className="hover-elevate" data-testid={`card-verification-${v.id}`}>
                     <CardContent className="p-6">
                       <div className="flex flex-col md:flex-row md:items-center gap-4">
                         <Avatar className="h-16 w-16">
                           <AvatarFallback className="text-xl">
-                            {farmer.fullName.charAt(0)}
+                            {v.farmer?.fullName?.charAt(0) ?? 'f'}
                           </AvatarFallback>
                         </Avatar>
                         <div className="flex-1 space-y-2">
                           <div className="flex items-center gap-2">
-                            <h3 className="font-semibold text-lg">{farmer.fullName}</h3>
+                            <h3 className="font-semibold text-lg">{v.farmer?.fullName}</h3>
                             <Badge variant="secondary" className="gap-1">
                               <Clock className="h-3 w-3" />
                               Pending
@@ -147,31 +153,83 @@ export default function OfficerDashboard() {
                           <div className="text-sm text-muted-foreground space-y-1">
                             <div className="flex items-center gap-2">
                               <Mail className="h-3 w-3" />
-                              <span>{farmer.email}</span>
+                              <span>{v.farmer?.email}</span>
                             </div>
-                            {farmer.phone && (
+                            {v.farmer?.phone && (
                               <div className="flex items-center gap-2">
                                 <Phone className="h-3 w-3" />
-                                <span>{farmer.phone}</span>
+                                <span>{v.farmer?.phone}</span>
                               </div>
                             )}
                             <div className="flex items-center gap-2">
                               <MapPin className="h-3 w-3" />
-                              <span>{farmer.region}</span>
+                              <span>{v.farmer?.region}</span>
                             </div>
-                            {farmer.farmSize && (
-                              <p>Farm Size: {farmer.farmSize}</p>
+                            {v.farmer?.farmSize && (
+                              <p>Farm Size: {v.farmer?.farmSize}</p>
                             )}
                           </div>
                         </div>
-                        <Button
-                          size="sm"
-                          variant="default"
-                          onClick={() => setLocation("/officer/verifications")}
-                          data-testid={`button-review-${farmer.id}`}
-                        >
-                          Review Application
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="default"
+                            onClick={async () => {
+                              try {
+                                const response = await fetch(`/api/verifications/${v.id}/review`, {
+                                  method: 'PATCH',
+                                  headers: {
+                                    'Content-Type': 'application/json',
+                                  },
+                                  body: JSON.stringify({ status: 'approved' }),
+                                  credentials: 'include',
+                                });
+                                if (response.ok) {
+                                  // Refresh the page or update state
+                                  window.location.reload();
+                                } else {
+                                  alert('Failed to approve verification');
+                                }
+                              } catch (error) {
+                                console.error('Error approving verification:', error);
+                                alert('Error approving verification');
+                              }
+                            }}
+                            data-testid={`button-approve-${v.id}`}
+                          >
+                            <CheckCircle className="h-4 w-4 mr-1" />
+                            Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={async () => {
+                              try {
+                                const response = await fetch(`/api/verifications/${v.id}/review`, {
+                                  method: 'PATCH',
+                                  headers: {
+                                    'Content-Type': 'application/json',
+                                  },
+                                  body: JSON.stringify({ status: 'rejected' }),
+                                  credentials: 'include',
+                                });
+                                if (response.ok) {
+                                  // Refresh the page or update state
+                                  window.location.reload();
+                                } else {
+                                  alert('Failed to reject verification');
+                                }
+                              } catch (error) {
+                                console.error('Error rejecting verification:', error);
+                                alert('Error rejecting verification');
+                              }
+                            }}
+                            data-testid={`button-reject-${v.id}`}
+                          >
+                            <XCircle className="h-4 w-4 mr-1" />
+                            Reject
+                          </Button>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>

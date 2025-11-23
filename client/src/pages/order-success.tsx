@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import { formatCurrency } from '@/lib/currency';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -211,7 +212,7 @@ export default function OrderSuccess() {
                         <p className="text-sm">
                           Quantity: <span className="font-medium">{order.quantity} {order.listing.unit}</span>
                         </p>
-                        <p className="font-semibold">${(parseFloat(order.totalPrice) || 0).toFixed(2)}</p>
+                        <p className="font-semibold">{formatCurrency(order.totalPrice)}</p>
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">
                         Order ID: {order.id}
@@ -236,7 +237,7 @@ export default function OrderSuccess() {
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Subtotal</span>
-                <span>${totalAmount.toFixed(2)}</span>
+                <span>{formatCurrency(totalAmount)}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Delivery Fee</span>
@@ -245,7 +246,7 @@ export default function OrderSuccess() {
               <Separator />
               <div className="flex justify-between font-semibold text-lg">
                 <span>Total</span>
-                <span className="text-primary">${totalAmount.toFixed(2)}</span>
+                <span className="text-primary">{formatCurrency(totalAmount)}</span>
               </div>
             </div>
           </CardContent>
