@@ -129,6 +129,15 @@ AgriCompassWeb is a comprehensive agricultural marketplace platform that facilit
    cp .env.example .env
    ```
 
+### Paystack (Payments)
+Add the following env variables to enable Paystack in production:
+
+- `PAYSTACK_SECRET_KEY` - Your Paystack secret (server-side)
+- `PAYSTACK_WEBHOOK_SECRET` - Optional webhook secret for validating webhook requests
+- `FRONTEND_URL` - The URL of the frontend (e.g., https://app.example.com) to be used as Paystack's callback url
+
+If `PAYSTACK_SECRET_KEY` is not set, the application will fallback to manual payment records for testing.
+
 4. **Run the development server**
    ```bash
    npm run dev

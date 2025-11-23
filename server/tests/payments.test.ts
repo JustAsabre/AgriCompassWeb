@@ -4,6 +4,7 @@ import session from 'express-session';
 import { createServer } from 'http';
 import { registerRoutes } from '../routes';
 import { describe, it, expect, beforeEach } from 'vitest';
+import { storage } from '../storage';
 
 describe('Payments API', () => {
   let app: Express;
@@ -49,5 +50,37 @@ describe('Payments API', () => {
     expect(initRes.status).toBe(200);
     expect(initRes.body.payment).toBeDefined();
     expect(initRes.body.payment.orderId).toBe(orderId);
+  }, 20000);
+
+  it('handles paystack webhook event and marks payment completed', async () => {
+    // Create farmer / listing / buyer / order like above
+    const farmerRes = await request(app).post('/api/auth/register').send({ email: 'wfarmer@test.com', password: 'password123', fullName: 'WFarmer', role: 'farmer' });
+    const farmerLogin = await request(app).post('/api/auth/login').send({ email: 'wfarmer@test.com', password: 'password123' });
+    const farmerCookie = farmerLogin.headers['set-cookie'];
+    const listingRes = await request(app).post('/api/listings').set('Cookie', farmerCookie).send({ productName: 'Webhook Product', category: 'Grains', description: 'T', price: '5.00', unit: 'kg', quantityAvailable: 50, minOrderQuantity: 1, location: 'Test' });
+    const listing = listingRes.body;
+
+    const buyerRes = await request(app).post('/api/auth/register').send({ email: 'wbuyer@test.com', password: 'password123', fullName: 'WBuyer', role: 'buyer' });
+    const buyerLogin = await request(app).post('/api/auth/login').send({ email: 'wbuyer@test.com', password: 'password123' });
+    const buyerCookie = buyerLogin.headers['set-cookie'];
+
+    await request(app).post('/api/cart').set('Cookie', buyerCookie).send({ listingId: listing.id, quantity: 1 });
+    const checkoutRes = await request(app).post('/api/orders/checkout').set('Cookie', buyerCookie).send({ deliveryAddress: '123', notes: '' });
+    const orders = checkoutRes.body.orders;
+    const orderId = orders[0].id;
+
+    // Create a payment record with a provider transaction reference
+    const createdPayment = await storage.createPayment({ orderId, payerId: orders[0].buyerId, amount: '5.00', paymentMethod: 'paystack', transactionId: 'ref-wh-123', status: 'pending' } as any);
+
+    // Simulate webhook payload
+    const payload = { event: 'charge.success', data: { reference: 'ref-wh-123' } };
+    const res = await request(app).post('/api/payments/paystack/webhook').send(payload);
+    expect(res.status).toBe(200);
+
+    const updatedPayment = await storage.getPayment(createdPayment.id);
+    expect(updatedPayment?.status).toBe('completed');
+
+    const order = await storage.getOrder(orderId);
+    expect(order?.status).toBe('accepted');
   }, 20000);
 });
