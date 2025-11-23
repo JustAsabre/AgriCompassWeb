@@ -35,7 +35,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { Listing, OrderWithDetails } from "@shared/schema";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useState } from "react";
 
 export default function FarmerDashboard() {
@@ -47,6 +47,7 @@ export default function FarmerDashboard() {
   const [bankAccount, setBankAccount] = useState('');
   const [recipientBankCode, setRecipientBankCode] = useState('');
   const [recipientAccountNumber, setRecipientAccountNumber] = useState('');
+  const recipientAccountRef = useRef<HTMLInputElement | null>(null);
 
   // Refresh user data on mount to ensure verified status is up to date
   useEffect(() => {
@@ -500,6 +501,17 @@ export default function FarmerDashboard() {
             )}
           </TabsContent>
         </Tabs>
+        { !user?.paystackRecipientCode && (
+          <div className="mb-4">
+            <Alert>
+              <AlertDescription className="flex items-center justify-between">
+                <span>You haven't set up a payout recipient yet. Add your bank details to receive payouts automatically.</span>
+                <Button size="sm" onClick={() => recipientAccountRef.current?.focus()}>Add Recipient</Button>
+              </AlertDescription>
+            </Alert>
+          </div>
+        )}
+
         <div className="mt-8 p-4 bg-muted rounded-md">
           <h3 className="font-semibold mb-2">Request Payout</h3>
           <div className="flex gap-2 items-center">
@@ -529,7 +541,7 @@ export default function FarmerDashboard() {
           <h3 className="font-semibold mb-2">Manage Payout Recipient</h3>
           <div className="flex gap-2 items-center">
             <input className="border rounded px-3 py-2 w-36" placeholder="Bank code" value={recipientBankCode} onChange={(e) => setRecipientBankCode(e.target.value)} />
-            <input className="border rounded px-3 py-2 w-48" placeholder="Account number" value={recipientAccountNumber} onChange={(e) => setRecipientAccountNumber(e.target.value)} />
+            <input ref={recipientAccountRef} className="border rounded px-3 py-2 w-48" placeholder="Account number" value={recipientAccountNumber} onChange={(e) => setRecipientAccountNumber(e.target.value)} />
             <Button onClick={() => createRecipientMutation.mutate({ accountNumber: recipientAccountNumber, bankCode: recipientBankCode })} size="sm" disabled={createRecipientMutation.isPending}>
               <DollarSign className="h-4 w-4 mr-2" /> Save Recipient
             </Button>

@@ -95,6 +95,7 @@ export const payouts = pgTable("payouts", {
   bankAccount: text("bank_account"),
   scheduledDate: timestamp("scheduled_date"),
   completedAt: timestamp("completed_at"),
+  adminNote: text("admin_note"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

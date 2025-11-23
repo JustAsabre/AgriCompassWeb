@@ -10,6 +10,7 @@ export default function AdminPayouts() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [reason, setReason] = useState('');
 
   const { data: payouts } = useQuery(['admin/payouts'], async () => {
     const res = await fetch('/api/admin/payouts', { credentials: 'include' });
@@ -18,8 +19,8 @@ export default function AdminPayouts() {
   }, { enabled: !!user && user.role === 'admin' });
 
   const processMutation = useMutation({
-    mutationFn: async (payoutId: string) => {
-      const res = await fetch('/api/payouts/process', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ payoutId }) });
+    mutationFn: async ({ payoutId, reason }: { payoutId: string; reason?: string }) => {
+      const res = await fetch('/api/payouts/process', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ payoutId, reason }) });
       if (!res.ok) throw new Error('Failed to queue payout');
       return res.json();
     },
@@ -51,8 +52,9 @@ export default function AdminPayouts() {
                   <div>Amount: {p.amount}</div>
                   <div>Status: {p.status}</div>
                 </div>
-                <div>
-                  <Button onClick={() => processMutation.mutate(p.id)} disabled={processMutation.isPending}>Process</Button>
+                <div className="flex items-center gap-2">
+                  <input className="border rounded px-2 py-1" placeholder="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)} />
+                  <Button onClick={() => processMutation.mutate({ payoutId: p.id, reason })} disabled={processMutation.isPending}>Process</Button>
                 </div>
               </div>
             </CardContent>

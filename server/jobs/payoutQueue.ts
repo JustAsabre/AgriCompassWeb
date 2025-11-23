@@ -26,9 +26,16 @@ async function processPayoutJobFromData(payoutId: string) {
   try {
     await storage.updatePayout(payoutId, { status: 'processing' } as any);
     const farmer = await storage.getUser(payout.farmerId);
-    if (!farmer) throw new Error('Farmer not found for payout');
+    if (!farmer) {
+      throw new Error('Farmer not found for payout');
+    }
     const recipient = (farmer as any).paystackRecipientCode;
-    if (!recipient) throw new Error('No paystack recipient for farmer');
+    if (!recipient) {
+      // Mark payout as needing a recipient so admin/farmer can act rather than failing
+      await storage.updatePayout(payoutId, { status: 'needs_recipient' } as any);
+      log(`Payout job: payout ${payoutId} requires a recipient`);
+      return;
+    }
     const amount = Math.round(Number(payout.amount) * 100);
     const res = await fetch('https://api.paystack.co/transfer', {
       method: 'POST',
@@ -50,9 +57,10 @@ async function processPayoutJobFromData(payoutId: string) {
       await storage.updatePayout(payoutId, { status: 'processing' } as any);
       log(`Payout job: transfer created for ${payoutId}, status=${body.data?.status}`);
     }
-  } catch (err) {
+    } catch (err) {
     console.error('Payout job exception', err);
-    await storage.updatePayout(payoutId, { status: 'failed' } as any);
+    // If Paystack transfer errors, mark failed for admin review
+    await storage.updatePayout(payoutId, { status: 'failed', adminNote: (err && (err as any).message) || String(err) } as any);
   }
 }
 

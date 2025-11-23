@@ -849,9 +849,28 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       console.log('maybeCreatePayoutForOrder', 'total', total, 'payoutAmount', payoutAmount);
       // Create a payout record for farmer; admin or automatic process will transfer later
       const payoutRecord = await storage.createPayout({ farmerId: order.farmerId, amount: String(payoutAmount), status: 'pending', bankAccount: null } as any);
-      // Enqueue processing if auto payouts enabled
-      if (process.env.PAYSTACK_AUTO_PAYOUTS === 'true') {
-        try { enqueuePayout(payoutRecord.id); } catch (err) { console.error('Failed to enqueue payout', err); }
+      // Auto payouts are enabled either via global setting OR if we detect a recipient for the farmer
+      const farmer = await storage.getUser(order.farmerId);
+      const recipient = (farmer as any)?.paystackRecipientCode;
+      const autoEnabled = process.env.PAYSTACK_AUTO_PAYOUTS === 'true' || Boolean(recipient);
+      if (autoEnabled) {
+        if (!recipient) {
+          // mark payout as waiting for a recipient
+          await storage.updatePayout(payoutRecord.id, { status: 'needs_recipient' } as any);
+          try {
+            await sendNotificationToUser(io, order.farmerId, {
+              userId: order.farmerId,
+              type: 'payout_update',
+              title: 'Payout Pending - Recipient Required',
+              message: `A new payout of ${payoutAmount} was created but requires a paystack recipient. Please add your bank details to receive payouts.`,
+              relatedId: payoutRecord.id,
+              relatedType: 'payout'
+            });
+          } catch (err) { console.error('Failed to notify farmer about recipient requirement', err); }
+          console.log(`Auto payout skipped: farmer ${order.farmerId} has no recipient. Marked payout ${payoutRecord.id} as needs_recipient.`);
+        } else {
+          try { enqueuePayout(payoutRecord.id); } catch (err) { console.error('Failed to enqueue payout', err); }
+        }
       }
     } catch (err) {
       console.error('Failed to auto-create payout for order', orderId, err);
@@ -1827,6 +1846,27 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
         // In a real implementation validate farmer balance and bank details
         const payout = await storage.createPayout({ farmerId, amount: String(amount), status: 'pending', bankAccount, scheduledDate: null } as any);
+        // If auto payouts enabled via env or recipient exists, enqueue if recipient exists
+        const farmer = await storage.getUser(farmerId);
+        const recipient = (farmer as any)?.paystackRecipientCode;
+        const autoEnabled = process.env.PAYSTACK_AUTO_PAYOUTS === 'true' || Boolean(recipient);
+        if (autoEnabled) {
+          if (!recipient) {
+            await storage.updatePayout(payout.id, { status: 'needs_recipient' } as any);
+            try {
+              await sendNotificationToUser(io, farmerId, {
+                userId: farmerId,
+                type: 'payout_update',
+                title: 'Payout Pending - Recipient Required',
+                message: `Your payout request for ${amount} is pending because no payment recipient has been set. Please add bank details to receive payouts.`,
+                relatedId: payout.id,
+                relatedType: 'payout'
+              });
+            } catch (err) { console.error('Failed to notify farmer about recipient requirement', err); }
+            return res.json({ payout: await storage.getPayout(payout.id), queued: false, message: 'Payout pending recipient' });
+          }
+          try { enqueuePayout(payout.id); } catch (err) { console.error('Failed to enqueue payout', err); }
+        }
         return res.json({ payout });
       } catch (err: any) {
         console.error('Payout request error:', err);
@@ -1837,13 +1877,22 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
   // Admin: process payout (MVP stub) - enqueue job to process payout
   app.post('/api/payouts/process', requireRole('admin'), async (req, res) => {
       try {
-        const { payoutId } = req.body;
+        const { payoutId, reason } = req.body;
         if (!payoutId) return res.status(400).json({ message: 'payoutId required' });
         const payout = await storage.getPayout(payoutId);
         if (!payout) return res.status(404).json({ message: 'Payout not found' });
 
       // Enqueue job to process payout (transfer or completion)
       try {
+        // store admin note if provided
+        if (reason) { await storage.updatePayout(payoutId, { adminNote: reason } as any); }
+        // If the farmer has no recipient, mark `needs_recipient` instead of enqueueing
+        const farmer = await storage.getUser(payout.farmerId);
+        const recipient = (farmer as any)?.paystackRecipientCode;
+        if (!recipient) {
+          await storage.updatePayout(payoutId, { status: 'needs_recipient' } as any);
+          return res.json({ queued: false, payoutId, message: 'Farmer has no paystack recipient. Marked as needs_recipient' });
+        }
         enqueuePayout(payoutId);
         res.json({ queued: true, payoutId });
       } catch (err: any) {

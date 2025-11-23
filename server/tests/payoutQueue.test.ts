@@ -30,6 +30,9 @@ describe('Payout queue processing', () => {
 
     // Create a payout for the farmer directly
     const payout = await storage.createPayout({ farmerId: (await storage.getUserByEmail('queue_farmer@test.com'))!.id, amount: '10.00', status: 'pending', bankAccount: "123" } as any);
+    // Update farmer to have a recipient so the admin process can enqueue
+    const farmer = await storage.getUserByEmail('queue_farmer@test.com');
+    if (farmer) await storage.updateUser(farmer.id, { paystackRecipientCode: 'RCP_test_123' } as any);
 
     // Admin enqueues the payout
     const res = await request(app).post('/api/payouts/process').set('Cookie', adminCookie).send({ payoutId: payout.id });
