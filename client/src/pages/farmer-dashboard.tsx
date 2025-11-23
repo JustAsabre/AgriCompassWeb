@@ -45,6 +45,8 @@ export default function FarmerDashboard() {
   const { toast } = useToast();
   const [payoutAmount, setPayoutAmount] = useState('');
   const [bankAccount, setBankAccount] = useState('');
+  const [recipientBankCode, setRecipientBankCode] = useState('');
+  const [recipientAccountNumber, setRecipientAccountNumber] = useState('');
 
   // Refresh user data on mount to ensure verified status is up to date
   useEffect(() => {
@@ -135,6 +137,28 @@ export default function FarmerDashboard() {
     },
     onSuccess: (data) => {
       toast({ title: 'Payout Requested', description: 'Your payout request has been submitted.' });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const createRecipientMutation = useMutation({
+    mutationFn: async ({ accountNumber, bankCode }: { accountNumber: string; bankCode: string }) => {
+      const response = await fetch('/api/payouts/recipient', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountNumber, bankCode }),
+      });
+      if (!response.ok) {
+        const body = await response.json();
+        throw new Error(body.message || 'Failed to create recipient');
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: 'Recipient Created', description: 'Paystack recipient created and saved.' });
     },
     onError: (error: Error) => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -498,6 +522,16 @@ export default function FarmerDashboard() {
             >
               <DollarSign className="h-4 w-4 mr-2" />
               Request
+            </Button>
+          </div>
+        </div>
+        <div className="mt-4 p-4 bg-muted rounded-md">
+          <h3 className="font-semibold mb-2">Manage Payout Recipient</h3>
+          <div className="flex gap-2 items-center">
+            <input className="border rounded px-3 py-2 w-36" placeholder="Bank code" value={recipientBankCode} onChange={(e) => setRecipientBankCode(e.target.value)} />
+            <input className="border rounded px-3 py-2 w-48" placeholder="Account number" value={recipientAccountNumber} onChange={(e) => setRecipientAccountNumber(e.target.value)} />
+            <Button onClick={() => createRecipientMutation.mutate({ accountNumber: recipientAccountNumber, bankCode: recipientBankCode })} size="sm" disabled={createRecipientMutation.isPending}>
+              <DollarSign className="h-4 w-4 mr-2" /> Save Recipient
             </Button>
           </div>
         </div>

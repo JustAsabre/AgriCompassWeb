@@ -1812,11 +1812,111 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         if (!payout) return res.status(404).json({ message: 'Payout not found' });
 
         // In production - call payment provider (Paystack) to transfer funds
-        const updated = await storage.updatePayout?.(payoutId, { status: 'completed', completedAt: new Date() } as any);
+        const paystackKey = process.env.PAYSTACK_SECRET_KEY;
+        const autoPay = process.env.PAYSTACK_AUTO_PAYOUTS === 'true';
+        let updated;
+        if (paystackKey && autoPay) {
+          const farmer = await storage.getUser(payout.farmerId);
+          if (!farmer) return res.status(404).json({ message: 'Farmer not found' });
+
+          // Attempt to process transfer
+          try {
+            // Ensure recipient code exists
+            let recipientCode = (farmer as any).paystackRecipientCode;
+            if (!recipientCode) {
+              // If farmer doesn't have recipient code, admin must create, but we will create a transient recipient if bankAccount exists
+              const { bankAccount } = payout as any;
+              if (!bankAccount) {
+                // Fallback to marking as completed without transfer
+                updated = await storage.updatePayout?.(payoutId, { status: 'completed', completedAt: new Date() } as any);
+                return res.json({ payout: updated, message: 'Completed without transfer (no recipient)' });
+              }
+              // Create recipient
+              const recipientRes = await fetch('https://api.paystack.co/transferrecipient', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${paystackKey}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'nuban', name: farmer.fullName, account_number: bankAccount, bank_code: (req.body.bankCode || null), currency: 'NGN' }),
+              });
+              if (recipientRes.ok) {
+                const recipientBody = await recipientRes.json();
+                recipientCode = recipientBody.data?.recipient_code;
+                // Save to user profile
+                await storage.updateUser(farmer.id, { paystackRecipientCode: recipientCode } as any);
+              }
+            }
+
+            const amountKobo = Math.round(Number(payout.amount) * 100);
+            const transferRes = await fetch('https://api.paystack.co/transfer', {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${paystackKey}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ source: 'balance', amount: amountKobo, recipient: recipientCode, reason: req.body.reason || 'Farmer payout' }),
+            });
+            if (!transferRes.ok) throw new Error('Transfer failed');
+            const transferBody = await transferRes.json();
+            // Update payout with transfer id & status
+            updated = await storage.updatePayout?.(payoutId, { status: 'processing', completedAt: transferBody.data?.completed_at ? new Date(transferBody.data?.completed_at) : null } as any);
+          } catch (err) {
+            console.error('Paystack transfer error:', err);
+            updated = await storage.updatePayout?.(payoutId, { status: 'failed' } as any);
+          }
+        } else {
+          updated = await storage.updatePayout?.(payoutId, { status: 'completed', completedAt: new Date() } as any);
+        }
         res.json({ payout: updated });
       } catch (err: any) {
         console.error('Payout process error:', err);
         res.status(500).json({ message: 'Failed to process payout' });
+      }
+    });
+
+    // Farmer: create or update Paystack transfer recipient in profile
+    app.post('/api/payouts/recipient', requireRole('farmer'), async (req, res) => {
+      try {
+        const farmerId = req.session.user!.id;
+        const { accountNumber, bankCode, name, currency } = req.body;
+        if (!accountNumber || !bankCode) return res.status(400).json({ message: 'accountNumber and bankCode are required' });
+        const paystackKey = process.env.PAYSTACK_SECRET_KEY;
+        if (!paystackKey) return res.status(400).json({ message: 'Paystack not configured' });
+
+        const farmer = await storage.getUser(farmerId);
+        if (!farmer) return res.status(404).json({ message: 'Farmer not found' });
+
+        // Create recipient
+        const recipientRes = await fetch('https://api.paystack.co/transferrecipient', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${paystackKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'nuban', name: name || farmer.fullName, account_number: accountNumber, bank_code: bankCode, currency: currency || 'NGN' }),
+        });
+
+        if (!recipientRes.ok) {
+          const text = await recipientRes.text().catch(() => '');
+          console.error('Paystack recipient creation failed', recipientRes.status, text);
+          return res.status(502).json({ message: 'Failed to create recipient at Paystack' });
+        }
+
+        const body = await recipientRes.json();
+        const recipientCode = body.data?.recipient_code;
+        if (!recipientCode) {
+          return res.status(502).json({ message: 'Paystack responded without recipient code' });
+        }
+
+        await storage.updateUser(farmerId, { paystackRecipientCode: recipientCode, bankAccount: accountNumber } as any);
+        res.json({ recipientCode });
+      } catch (err: any) {
+        console.error('Create recipient error:', err);
+        res.status(500).json({ message: 'Failed to create payout recipient' });
+      }
+    });
+
+    // Get farmer's saved recipient code
+    app.get('/api/payouts/recipient/me', requireRole('farmer'), async (req, res) => {
+      try {
+        const farmerId = req.session.user!.id;
+        const farmer = await storage.getUser(farmerId);
+        res.json({ paystackRecipientCode: (farmer as any)?.paystackRecipientCode, bankAccount: (farmer as any)?.bankAccount });
+      } catch (err: any) {
+        console.error('Get recipient error:', err);
+        res.status(500).json({ message: 'Failed to fetch recipient' });
       }
     });
 

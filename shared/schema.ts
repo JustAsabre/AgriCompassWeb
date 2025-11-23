@@ -12,6 +12,8 @@ export const users = pgTable("users", {
   role: text("role").notNull(), // "farmer" | "buyer" | "field_officer" | "admin"
   phone: text("phone"),
   region: text("region"),
+  bankAccount: text("bank_account"),
+  paystackRecipientCode: text("paystack_recipient_code"),
   // security fields for account lockouts
   failedLoginAttempts: integer("failed_login_attempts").default(0),
   lockedUntil: timestamp("locked_until"),

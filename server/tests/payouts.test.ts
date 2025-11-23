@@ -40,4 +40,12 @@ describe('Payouts API', () => {
     expect(processRes.status).toBe(200);
     expect(processRes.body.payout.status).toBe('completed');
   });
+
+  it('returns an error when creating a recipient without Paystack configured', async () => {
+    const farmerLogin = await request(app).post('/api/auth/login').send({ email: 'payout_farmer@test.com', password: 'password123' });
+    const farmerCookie = farmerLogin.headers['set-cookie'];
+
+    const res = await request(app).post('/api/payouts/recipient').set('Cookie', farmerCookie).send({ accountNumber: '12345678', bankCode: '058' });
+    expect(res.status).toBe(400);
+  });
 });

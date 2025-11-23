@@ -270,6 +270,8 @@ export class MemStorage implements IStorage {
       phone: insertUser.phone ?? null,
       businessName: insertUser.businessName ?? null,
       farmSize: insertUser.farmSize ?? null,
+      bankAccount: (insertUser as any).bankAccount ?? null,
+      paystackRecipientCode: (insertUser as any).paystackRecipientCode ?? null,
       resetToken: null,
       resetTokenExpiry: null,
       failedLoginAttempts: 0,
