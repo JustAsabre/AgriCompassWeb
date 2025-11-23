@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useLocation } from "wouter";
+import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,26 +50,18 @@ export default function ResetPasswordPage() {
     setError(null);
 
     try {
-      const response = await fetch("/api/auth/reset-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          token,
-          newPassword: data.password,
-        }),
-        credentials: "include",
+      const result = await apiRequest("POST", "/api/auth/reset-password", {
+        token,
+        newPassword: data.password,
       });
-
-      const result = await response.json();
-
-      if (response.ok) {
+      if (result) {
         setSuccess(true);
         // Redirect to login after 3 seconds
         setTimeout(() => {
           setLocation("/login");
         }, 3000);
       } else {
-        setError(result.message || "Failed to reset password. Please try again.");
+        setError("Failed to reset password. Please try again.");
       }
     } catch (err) {
       setError("An unexpected error occurred. Please try again.");

@@ -101,10 +101,35 @@ export async function registerRoutes(app: Express, httpServer: Server, io: Socke
         return res.status(401).json({ message: "Invalid credentials" });
       }
 
+      // Check if lockout is active
+      if (user.lockedUntil && new Date(user.lockedUntil) > new Date()) {
+        return res.status(403).json({ message: "Account locked due to multiple failed login attempts. Please try again later." });
+      }
+
       // Compare password
       const isValid = await comparePassword(password, user.password);
       if (!isValid) {
+        // Increment failed login attempts and enforce lockout after repeated failures
+        try {
+          const attempts = (user.failedLoginAttempts || 0) + 1;
+          const updates: any = { failedLoginAttempts: attempts };
+          const LOCKOUT_THRESHOLD = 5; // after 5 failed attempts
+          const LOCKOUT_MINUTES = 60; // lock for 60 minutes
+          if (attempts >= LOCKOUT_THRESHOLD) {
+            updates.lockedUntil = new Date(Date.now() + LOCKOUT_MINUTES * 60 * 1000);
+            updates.failedLoginAttempts = 0; // reset attempts after locking
+          }
+          await storage.updateUser(user.id, updates);
+        } catch (err) {
+          console.error('Failed to update login attempts:', err);
+        }
+
         return res.status(401).json({ message: "Invalid credentials" });
+      }
+
+      // Reset failed login attempts on success
+      if ((user.failedLoginAttempts || 0) > 0 || user.lockedUntil) {
+        await storage.updateUser(user.id, { failedLoginAttempts: 0, lockedUntil: null });
       }
 
       // Create session
@@ -220,41 +245,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io: Socke
     }
   });
 
-  // Password reset routes
-  app.post("/api/auth/forgot-password", async (req, res) => {
-    try {
-      const { email } = req.body;
-
-      const user = await storage.getUserByEmail(email);
-      if (!user) {
-        // Don't reveal if email exists for security
-        return res.json({ message: "If an account exists with this email, a password reset link has been sent." });
-      }
-
-      // Generate reset token
-      const resetToken = crypto.randomBytes(32).toString('hex');
-      const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour from now
-
-      // Save token to user
-      await storage.updateUser(user.id, {
-        resetToken,
-        resetTokenExpiry,
-      });
-
-      // Send email
-      const emailResult = await sendPasswordResetEmail(email, resetToken, user.fullName);
-      
-      if (!emailResult.success) {
-        console.error('Failed to send reset email:', emailResult.error);
-        return res.status(500).json({ message: "Failed to send reset email. Please try again." });
-      }
-
-      res.json({ message: "If an account exists with this email, a password reset link has been sent." });
-    } catch (error: any) {
-      console.error("Forgot password error:", error);
-      res.status(500).json({ message: "Failed to process request" });
-    }
-  });
+  // NOTE: `forgot-password` route defined above; duplicate removed to prevent route shadowing.
 
   app.post("/api/auth/reset-password", async (req, res) => {
     try {
@@ -1652,4 +1643,145 @@ export async function registerRoutes(app: Express, httpServer: Server, io: Socke
       res.status(500).json({ message: "Failed to delete review" });
     }
   });
+
+    // ==================== PAYMENTS ROUTES - MVP STUBS ====================
+
+    // Initiate a payment
+    app.post('/api/payments/initiate', requireRole('buyer'), async (req, res) => {
+      try {
+        const buyerId = req.session.user!.id;
+        const { orderId, paymentMethod } = req.body;
+        if (!orderId) return res.status(400).json({ message: 'orderId is required' });
+
+        const order = await storage.getOrder(orderId);
+        if (!order) return res.status(404).json({ message: 'Order not found' });
+        if (order.buyerId !== buyerId) return res.status(403).json({ message: 'Not your order' });
+
+        const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
+        if (paystackSecret) {
+          // server authoritative amount
+          const expectedAmount = Number(order.totalPrice || 0);
+          if (isNaN(expectedAmount) || expectedAmount <= 0) {
+            return res.status(400).json({ message: 'Invalid order amount' });
+          }
+
+          const amountInKobo = Math.round(expectedAmount * 100);
+          const buyer = await storage.getUser(buyerId);
+
+          const initRes = await fetch('https://api.paystack.co/transaction/initialize', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${paystackSecret}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ email: buyer?.email, amount: amountInKobo, metadata: { orderId } }),
+          });
+
+          if (!initRes.ok) {
+            const text = await initRes.text().catch(() => '');
+            console.error('Paystack init failed', initRes.status, text);
+            return res.status(502).json({ message: 'Payment provider error' });
+          }
+
+          const body = await initRes.json();
+          const { authorization_url, reference } = body.data || {};
+
+          const payment = await storage.createPayment({
+            orderId,
+            payerId: buyerId,
+            amount: String(expectedAmount),
+            paymentMethod: 'paystack',
+            transactionId: reference,
+            status: 'pending',
+          } as any);
+
+          return res.json({ payment, authorization_url, reference });
+        }
+
+        // fallback to manual
+        const payment = await storage.createPayment({ orderId, payerId: buyerId, amount: String(order.totalPrice), paymentMethod: paymentMethod || 'manual', transactionId: null, status: 'pending' } as any);
+        res.json({ payment });
+      } catch (err: any) {
+        console.error('Initiate payment error:', err);
+        res.status(500).json({ message: 'Failed to initiate payment' });
+      }
+    });
+
+    // Verify a payment (admin or provider webhook) - for MVP it's an admin-only endpoint for simulating verification
+    app.post('/api/payments/verify', requireRole('admin'), async (req, res) => {
+      try {
+        const { paymentId } = req.body;
+        if (!paymentId) return res.status(400).json({ message: 'paymentId required' });
+
+        const payment = await storage.getPayment(paymentId);
+        if (!payment) return res.status(404).json({ message: 'Payment not found' });
+
+        const updated = await storage.updatePaymentStatus(paymentId, 'completed');
+        if (updated) {
+          await storage.updateOrderStatus(updated.orderId, 'accepted');
+        }
+
+        res.json({ payment: updated });
+      } catch (err: any) {
+        console.error('Verify payment error:', err);
+        res.status(500).json({ message: 'Failed to verify payment' });
+      }
+    });
+
+    // Paystack webhook handler
+    app.post('/api/payments/paystack/webhook', async (req, res) => {
+      try {
+        const secret = process.env.PAYSTACK_WEBHOOK_SECRET;
+        const signature = req.headers['x-paystack-signature'] as string | undefined;
+
+        // If webhook secret provided, verify signature
+        if (secret) {
+          const computed = require('crypto').createHmac('sha512', secret).update(req.rawBody || '').digest('hex');
+          if (!signature || computed !== signature) {
+            console.warn('Invalid Paystack webhook signature');
+            return res.status(400).send('Invalid signature');
+          }
+        }
+
+        const body = req.body as any;
+        const event = body.event;
+        const data = body.data;
+
+        if (event === 'charge.success' || event === 'transaction.success') {
+          const reference = data.reference;
+          const payment = await storage.getPaymentByTransactionId(reference);
+          if (payment && payment.status !== 'completed') {
+            await storage.updatePaymentStatus(payment.id, 'completed');
+            // Also update order to accepted
+            await storage.updateOrderStatus(payment.orderId, 'accepted');
+          }
+        }
+
+        // return 200 to acknowledge receipt
+        res.json({ status: 'ok' });
+      } catch (err: any) {
+        console.error('Paystack webhook error:', err);
+        res.status(500).json({ message: 'Webhook handling failed' });
+      }
+    });
+
+    // Get payment status
+    app.get('/api/payments/:id', requireAuth, async (req, res) => {
+      try {
+        const payment = await storage.getPayment(req.params.id);
+        if (!payment) return res.status(404).json({ message: 'Payment not found' });
+
+        const order = await storage.getOrder(payment.orderId);
+        if (!order) return res.status(404).json({ message: 'Order not found' });
+        const userId = req.session.user!.id;
+        if (userId !== payment.payerId && userId !== order.farmerId && req.session.user!.role !== 'admin') {
+          return res.status(403).json({ message: 'Not authorized' });
+        }
+
+        res.json({ payment });
+      } catch (err: any) {
+        console.error('Get payment error:', err);
+        res.status(500).json({ message: 'Failed to fetch payment' });
+      }
+    });
 }

@@ -10,6 +10,7 @@ import { createServer } from "http";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { initializeSocket } from "./socket";
+import csurf from 'csurf';
 
 const app = express();
 const httpServer = createServer(app);
@@ -60,6 +61,25 @@ app.use('/api/auth/register', authLimiter);
 // Session configuration (centralized)
 app.use(sessionMiddleware);
 
+// CSRF protection - ensure it sits after session middleware
+// Note: Add `csurf` to package.json dependencies (npm i csurf) before production deployment
+try {
+  const csrfProtection = csurf({ cookie: false }); // store in session by default
+  app.use(csrfProtection);
+  // expose csrf token via a lightweight endpoint for client to fetch (AJAX-friendly)
+  app.get('/api/csrf-token', (req, res) => {
+    try {
+      const token = (req as any).csrfToken?.();
+      res.json({ csrfToken: token });
+    } catch (err) {
+      // If token can't be generated, respond with 500
+      res.status(500).json({ error: 'Failed to generate CSRF token' });
+    }
+  });
+} catch (err) {
+  console.warn('csurf middleware not installed or could not be initialized. Remember to install csurf for CSRF protection.');
+}
+
 declare module 'http' {
   interface IncomingMessage {
     rawBody: unknown
@@ -78,6 +98,21 @@ app.use('/uploads', express.static(path.join(process.cwd(), 'server', 'uploads')
 
 // Sanitize user input to prevent NoSQL injection
 app.use(mongoSanitize());
+
+// Enforce HTTPS in production
+if (process.env.NODE_ENV === 'production') {
+  app.use((req, res, next) => {
+    const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
+    if (proto && proto.split(',')[0] !== 'https') {
+      // Redirect to HTTPS
+      const host = req.headers.host;
+      if (host) {
+        return res.redirect(`https://${host}${req.url}`);
+      }
+    }
+    next();
+  });
+}
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -119,6 +154,16 @@ app.use((req, res, next) => {
 
 (async () => {
   await registerRoutes(app, httpServer, io);
+
+  // Specific handler for CSRF errors
+  app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
+    if (err && err.code === 'EBADCSRFTOKEN') {
+      const rid = (req as any).requestId || '-';
+      log(`CSRF error [${rid}]`);
+      return res.status(403).json({ message: 'Invalid CSRF token', requestId: rid });
+    }
+    _next(err);
+  });
 
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

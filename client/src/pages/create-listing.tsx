@@ -14,7 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { insertListingSchema, Listing } from "@shared/schema";
 import { z } from "zod";
 import { ChevronLeft, Loader2, X } from "lucide-react";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, getCsrfToken } from "@/lib/queryClient";
 import { PricingTierForm } from "@/components/pricing-tier-form";
 
 const categories = [
@@ -130,9 +130,14 @@ export default function CreateListing() {
       const formData = new FormData();
       files.forEach(file => formData.append('images', file));
 
+      const token = await getCsrfToken();
+      const headers: Record<string, string> = {};
+      if (token) headers['X-CSRF-Token'] = token;
+
       const response = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
+        headers,
         credentials: 'include',
       });
 

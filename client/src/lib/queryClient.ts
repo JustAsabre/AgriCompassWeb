@@ -18,12 +18,44 @@ export async function apiRequest(
     headers["Content-Type"] = "application/json";
   }
 
+  // Attach CSRF token for unsafe HTTP methods
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())) {
+    try {
+      const token = await getCsrfToken();
+      if (token) headers['X-CSRF-Token'] = token;
+    } catch (err) {
+      console.warn('Could not fetch CSRF token, request will proceed without X-CSRF-Token header.');
+    }
+  }
+
   const res = await fetch(url, {
     method,
     headers,
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include", // Important: Send session cookie
   });
+
+  // If we got a 403, try to refresh CSRF token once and retry
+  if (res.status === 403 && !url.endsWith('/api/csrf-token')) {
+    // Clear cached token and retry
+    csrfTokenCache = null;
+    const refreshed = await getCsrfToken();
+    if (refreshed) {
+      headers['X-CSRF-Token'] = refreshed;
+      const second = await fetch(url, {
+        method,
+        headers,
+        body: data ? JSON.stringify(data) : undefined,
+        credentials: 'include',
+      });
+      await throwIfResNotOk(second);
+      const contentType2 = second.headers.get('content-type');
+      if (contentType2 && contentType2.includes('application/json')) {
+        return await second.json();
+      }
+      return second;
+    }
+  }
 
   await throwIfResNotOk(res);
   
@@ -33,6 +65,22 @@ export async function apiRequest(
     return await res.json();
   }
   return res;
+}
+
+// Simple CSRF token caching and retrieval for client requests
+let csrfTokenCache: string | null = null;
+export async function getCsrfToken(): Promise<string | null> {
+  try {
+    if (csrfTokenCache) return csrfTokenCache;
+    const res = await fetch('/api/csrf-token', { credentials: 'include' });
+    if (!res.ok) return null;
+    const data = await res.json();
+    csrfTokenCache = data.csrfToken;
+    return csrfTokenCache;
+  } catch (err) {
+    console.error('Failed to fetch CSRF token', err);
+    return null;
+  }
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";

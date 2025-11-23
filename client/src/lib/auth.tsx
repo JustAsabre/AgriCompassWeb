@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { apiRequest } from "@/lib/queryClient";
 import { User } from "@shared/schema";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -60,10 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
-      await fetch("/api/auth/logout", {
-        method: "POST",
-        credentials: "include",
-      });
+      await apiRequest("POST", "/api/auth/logout", {});
     } catch (error) {
       console.error("Logout failed:", error);
     } finally {

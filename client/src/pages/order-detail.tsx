@@ -194,6 +194,28 @@ export default function OrderDetail() {
     },
   });
 
+  const initiatePaymentMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", "/api/payments/initiate", { orderId: order?.id, paymentMethod: 'paystack' });
+    },
+    onSuccess: (response: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders/", params?.id] });
+      // If using Paystack, the response may include an authorization_url; redirect the buyer to Paystack
+      const d: any = response;
+      if (d && typeof d === 'object') {
+        const authorization_url = d?.authorization_url || d?.payment?.authorization_url || d?.payment?.authorization_url;
+        if (authorization_url) {
+          window.location.href = authorization_url;
+          return;
+        }
+      }
+      toast({ title: 'Payment Initiated', description: 'Payment record created. Please complete payment with the instructions provided.' });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Payment Error', description: error.message || 'Failed to initiate payment', variant: 'destructive' });
+    }
+  });
+
   if (!match || !params?.id) {
     return null;
   }
@@ -556,6 +578,16 @@ export default function OrderDetail() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+          )}
+          {order.status === 'pending' && user?.role === 'buyer' && (
+            <Button
+              onClick={() => initiatePaymentMutation.mutate()}
+              size="lg"
+              className="flex-1"
+              disabled={initiatePaymentMutation.isPending}
+            >
+              {initiatePaymentMutation.isPending ? 'Initiating...' : 'Initiate Payment'}
+            </Button>
           )}
         </div>
 

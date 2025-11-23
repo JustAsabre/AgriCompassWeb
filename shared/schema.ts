@@ -12,6 +12,9 @@ export const users = pgTable("users", {
   role: text("role").notNull(), // "farmer" | "buyer" | "field_officer" | "admin"
   phone: text("phone"),
   region: text("region"),
+  // security fields for account lockouts
+  failedLoginAttempts: integer("failed_login_attempts").default(0),
+  lockedUntil: timestamp("locked_until"),
   verified: boolean("verified").default(false),
   businessName: text("business_name"), // for buyers
   farmSize: text("farm_size"), // for farmers
@@ -70,6 +73,29 @@ export const cartItems = pgTable("cart_items", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Payments
+export const payments = pgTable("payments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  orderId: varchar("order_id").notNull().references(() => orders.id),
+  payerId: varchar("payer_id").notNull().references(() => users.id),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  paymentMethod: text("payment_method"),
+  transactionId: text("transaction_id"),
+  status: text("status").default("pending"), // pending, completed, failed, refunded
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const payouts = pgTable("payouts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  farmerId: varchar("farmer_id").notNull().references(() => users.id),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  status: text("status").default("pending"), // pending, processing, completed, failed
+  bankAccount: text("bank_account"),
+  scheduledDate: timestamp("scheduled_date"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Field officer verification records
 export const verifications = pgTable("verifications", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -123,6 +149,9 @@ export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
   createdAt: true,
   verified: true,
+  // TODO: These are managed server-side
+  failedLoginAttempts: true,
+  lockedUntil: true,
 });
 
 export const insertListingSchema = createInsertSchema(listings).omit({
@@ -173,6 +202,17 @@ export const insertReviewSchema = createInsertSchema(reviews).omit({
 }).extend({
   rating: z.number().min(1).max(5),
   comment: z.string().optional(),
+});
+
+export const insertPaymentSchema = createInsertSchema(payments).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertPayoutSchema = createInsertSchema(payouts).omit({
+  id: true,
+  createdAt: true,
+  completedAt: true,
 });
 
 // TypeScript types
@@ -235,6 +275,12 @@ export type ReviewWithUsers = Review & {
   reviewee: User;
   order?: OrderWithDetails;
 };
+
+export type Payment = typeof payments.$inferSelect;
+export type InsertPayment = z.infer<typeof insertPaymentSchema>;
+
+export type Payout = typeof payouts.$inferSelect;
+export type InsertPayout = z.infer<typeof insertPayoutSchema>;
 
 export type UserWithRating = User & {
   averageRating?: number;

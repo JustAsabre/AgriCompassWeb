@@ -11,6 +11,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { FileUpload } from "@/components/ui/file-upload";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
+import { apiRequest, getCsrfToken } from "@/lib/queryClient";
 import { ShieldCheck, Upload, CheckCircle, AlertCircle, XCircle } from "lucide-react";
 import type { Verification } from "@shared/schema";
 
@@ -38,19 +39,7 @@ export default function VerificationRequest() {
 
   const verificationMutation = useMutation({
     mutationFn: async (data: VerificationFormData & { documentUrl?: string }) => {
-      const response = await fetch("/api/verifications/request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(data),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to submit verification request");
-      }
-
-      return response.json();
+      return apiRequest("POST", "/api/verifications/request", data);
     },
     onSuccess: () => {
       toast({
@@ -76,10 +65,15 @@ export default function VerificationRequest() {
       const formData = new FormData();
       files.forEach(file => formData.append('images', file));
 
+      const token = await getCsrfToken();
+      const headers: Record<string, string> = {};
+      if (token) headers['X-CSRF-Token'] = token;
+
       const response = await fetch('/api/upload', {
         method: 'POST',
         credentials: 'include',
         body: formData,
+        headers,
       });
 
       if (!response.ok) {

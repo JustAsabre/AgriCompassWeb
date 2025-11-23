@@ -80,7 +80,7 @@ REDIS_URL=<redis-connection-string>
 2. **Legal Pages** - Terms of Service, Privacy Policy, Cookie Policy
 3. **GitHub Actions CI/CD** - Automated testing and deployment
 4. **Test Coverage** - Achieve 30% coverage minimum
-5. **CSRF Protection** - Add csurf middleware
+5. **CSRF Protection** - Added `csurf` middleware and client integration (token endpoint + client header usage)
 6. **Email Verification** - Verify email addresses on registration
 
 ## 🛡️ Testing Security

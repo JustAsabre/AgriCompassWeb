@@ -9,6 +9,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Link } from "wouter";
 import { Mail, ArrowLeft, CheckCircle } from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
 
 const forgotPasswordSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -33,19 +34,11 @@ export default function ForgotPasswordPage() {
     setError(null);
 
     try {
-      const response = await fetch("/api/auth/forgot-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-        credentials: "include",
-      });
-
-      const result = await response.json();
-
-      if (response.ok) {
+      try {
+        await apiRequest("POST", "/api/auth/forgot-password", data);
         setSuccess(true);
-      } else {
-        setError(result.message || "Failed to send reset email. Please try again.");
+      } catch (err: any) {
+        setError(err.message || "Failed to send reset email. Please try again.");
       }
     } catch (err) {
       setError("An unexpected error occurred. Please try again.");

@@ -17,6 +17,10 @@ import {
   type InsertMessage,
   type Review,
   type InsertReview,
+  type Payment,
+  type InsertPayment,
+  type Payout,
+  type InsertPayout,
   type ListingWithFarmer,
   type OrderWithDetails,
   type CartItemWithListing,
@@ -97,6 +101,13 @@ export interface IStorage {
   updateReview(id: string, updates: Partial<Review>): Promise<Review | undefined>;
   deleteReview(id: string): Promise<boolean>;
   getAverageRating(userId: string): Promise<{ average: number; count: number }>;
+  // Payments & Payouts
+  createPayment(payment: InsertPayment): Promise<Payment>;
+  getPayment(id: string): Promise<Payment | undefined>;
+  updatePaymentStatus(id: string, status: string): Promise<Payment | undefined>;
+  getPaymentByTransactionId(transactionId: string): Promise<Payment | undefined>;
+  createPayout(payout: InsertPayout): Promise<Payout>;
+  getPayout(id: string): Promise<Payout | undefined>;
 }
 
 export class MemStorage implements IStorage {
@@ -109,6 +120,8 @@ export class MemStorage implements IStorage {
   private notifications: Map<string, Notification>;
   private messages: Map<string, Message>;
   private reviews: Map<string, Review>;
+  private payments: Map<string, Payment>;
+  private payouts: Map<string, Payout>;
 
   constructor() {
     this.users = new Map();
@@ -120,6 +133,8 @@ export class MemStorage implements IStorage {
     this.notifications = new Map();
     this.messages = new Map();
     this.reviews = new Map();
+    this.payments = new Map();
+    this.payouts = new Map();
 
     // Seed data for testing
     this.seedData();
@@ -256,6 +271,8 @@ export class MemStorage implements IStorage {
       farmSize: insertUser.farmSize ?? null,
       resetToken: null,
       resetTokenExpiry: null,
+      failedLoginAttempts: 0,
+      lockedUntil: null,
       verified: insertUser.role === "field_officer" ? true : false,
       createdAt: new Date()
     };
@@ -448,6 +465,52 @@ export class MemStorage implements IStorage {
     const updated = { ...order, status, updatedAt: new Date() };
     this.orders.set(id, updated);
     return updated;
+  }
+
+  // Payments & Payouts
+  async createPayment(insertPayment: InsertPayment): Promise<Payment> {
+    const id = randomUUID();
+    const payment: Payment = {
+      ...insertPayment,
+      id,
+      transactionId: insertPayment.transactionId ?? null,
+      paymentMethod: insertPayment.paymentMethod ?? null,
+      createdAt: new Date(),
+      status: insertPayment.status ?? 'pending',
+    } as any;
+    this.payments.set(id, payment);
+    return payment;
+  }
+
+  async getPayment(id: string): Promise<Payment | undefined> {
+    return this.payments.get(id);
+  }
+
+  async getPaymentByTransactionId(transactionId: string): Promise<Payment | undefined> {
+    return Array.from(this.payments.values()).find(p => p.transactionId === transactionId);
+  }
+
+  async updatePaymentStatus(id: string, status: string): Promise<Payment | undefined> {
+    const payment = this.payments.get(id);
+    if (!payment) return undefined;
+    const updated = { ...payment, status } as Payment;
+    this.payments.set(id, updated);
+    return updated;
+  }
+
+  async createPayout(insertPayout: InsertPayout): Promise<Payout> {
+    const id = randomUUID();
+    const payout: Payout = {
+      ...insertPayout,
+      id,
+      createdAt: new Date(),
+    } as any;
+    this.payouts.set(id, payout);
+    return payout;
+  }
+
+  async getPayout(id: string): Promise<Payout | undefined> {
+    return this.payouts.get(id);
   }
 
   // Cart operations
