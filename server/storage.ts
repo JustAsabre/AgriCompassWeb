@@ -108,6 +108,9 @@ export interface IStorage {
   getPaymentByTransactionId(transactionId: string): Promise<Payment | undefined>;
   createPayout(payout: InsertPayout): Promise<Payout>;
   getPayout(id: string): Promise<Payout | undefined>;
+  updatePayout(id: string, updates: Partial<Payout>): Promise<Payout | undefined>;
+  getPayoutsByFarmer(farmerId: string): Promise<Payout[]>;
+  getAllPayouts(): Promise<Payout[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -269,6 +272,8 @@ export class MemStorage implements IStorage {
       phone: insertUser.phone ?? null,
       businessName: insertUser.businessName ?? null,
       farmSize: insertUser.farmSize ?? null,
+      bankAccount: (insertUser as any).bankAccount ?? null,
+      paystackRecipientCode: (insertUser as any).paystackRecipientCode ?? null,
       resetToken: null,
       resetTokenExpiry: null,
       failedLoginAttempts: 0,
@@ -511,6 +516,22 @@ export class MemStorage implements IStorage {
 
   async getPayout(id: string): Promise<Payout | undefined> {
     return this.payouts.get(id);
+  }
+
+  async updatePayout(id: string, updates: Partial<Payout>): Promise<Payout | undefined> {
+    const payout = this.payouts.get(id);
+    if (!payout) return undefined;
+    const updated = { ...payout, ...updates } as Payout;
+    this.payouts.set(id, updated);
+    return updated;
+  }
+
+  async getPayoutsByFarmer(farmerId: string): Promise<Payout[]> {
+    return Array.from(this.payouts.values()).filter(p => p.farmerId === farmerId);
+  }
+
+  async getAllPayouts(): Promise<Payout[]> {
+    return Array.from(this.payouts.values());
   }
 
   // Cart operations

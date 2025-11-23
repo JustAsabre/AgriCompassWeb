@@ -223,21 +223,26 @@ export function initializeSocket(httpServer: HTTPServer) {
 
 // Helper function to send notification to a specific user
 export async function sendNotificationToUser(
-  io: Server,
+  io?: Server,
   userId: string,
   notificationData: InsertNotification
 ) {
   const notification = await storage.createNotification(notificationData);
-  io.to(`user:${userId}`).emit("new_notification", notification);
+  // io may be undefined during tests or if socket server not initialized - guard
+  if (typeof io?.to === 'function') {
+    io.to(`user:${userId}`).emit("new_notification", notification);
+  }
   return notification;
 }
 
 // Helper function to broadcast new listing to all users and create notifications
 export async function broadcastNewListing(
-  io: Server,
+  io?: Server,
   listing: any
 ) {
-  io.emit("new_listing", listing);
+  if (typeof io?.emit === 'function') {
+    io.emit("new_listing", listing);
+  }
   
   // Create notifications for all buyers in the same region
   const buyers = await storage.getUsersByRole("buyer");
@@ -266,9 +271,11 @@ export async function broadcastNewListing(
 
 // Helper function to notify about price change
 export function notifyPriceChange(
-  io: Server,
+  io?: Server,
   userId: string,
   listing: any
 ) {
-  io.to(`user:${userId}`).emit("price_change", listing);
+  if (typeof io?.to === 'function') {
+    io.to(`user:${userId}`).emit("price_change", listing);
+  }
 }
