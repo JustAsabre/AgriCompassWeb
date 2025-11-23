@@ -109,6 +109,7 @@ export interface IStorage {
   createPayout(payout: InsertPayout): Promise<Payout>;
   getPayout(id: string): Promise<Payout | undefined>;
   updatePayout(id: string, updates: Partial<Payout>): Promise<Payout | undefined>;
+  getPayoutsByFarmer(farmerId: string): Promise<Payout[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -522,6 +523,10 @@ export class MemStorage implements IStorage {
     const updated = { ...payout, ...updates } as Payout;
     this.payouts.set(id, updated);
     return updated;
+  }
+
+  async getPayoutsByFarmer(farmerId: string): Promise<Payout[]> {
+    return Array.from(this.payouts.values()).filter(p => p.farmerId === farmerId);
   }
 
   // Cart operations

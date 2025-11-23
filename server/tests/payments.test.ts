@@ -83,4 +83,38 @@ describe('Payments API', () => {
     const order = await storage.getOrder(orderId);
     expect(order?.status).toBe('accepted');
   }, 20000);
+
+  it('creates a payout after order completion', async () => {
+    // Setup farmer and listing
+    const farmerRes = await request(app).post('/api/auth/register').send({ email: 'ppfarmer@test.com', password: 'password123', fullName: 'PPFarmer', role: 'farmer' });
+    const farmerLogin = await request(app).post('/api/auth/login').send({ email: 'ppfarmer@test.com', password: 'password123' });
+    const farmerCookie = farmerLogin.headers['set-cookie'];
+    const listingRes = await request(app).post('/api/listings').set('Cookie', farmerCookie).send({ productName: 'Payout Product', category: 'Grains', description: 'T', price: '8.00', unit: 'kg', quantityAvailable: 50, minOrderQuantity: 1, location: 'Test' });
+    const listing = listingRes.body;
+
+    // Create buyer & checkout
+    const buyerRes = await request(app).post('/api/auth/register').send({ email: 'ppbuyer@test.com', password: 'password123', fullName: 'PPBuyer', role: 'buyer' });
+    const buyerLogin = await request(app).post('/api/auth/login').send({ email: 'ppbuyer@test.com', password: 'password123' });
+    const buyerCookie = buyerLogin.headers['set-cookie'];
+    await request(app).post('/api/cart').set('Cookie', buyerCookie).send({ listingId: listing.id, quantity: 2 });
+    const checkoutRes = await request(app).post('/api/orders/checkout').set('Cookie', buyerCookie).send({ deliveryAddress: 'Address', notes: '' });
+    const orders = checkoutRes.body.orders;
+    const orderId = orders[0].id;
+
+    // Simulate farmer accepting the order
+    await request(app).patch(`/api/orders/${orderId}/status`).set('Cookie', farmerCookie).send({ status: 'accepted' });
+    // Mark as delivered
+    await request(app).patch(`/api/orders/${orderId}/status`).set('Cookie', farmerCookie).send({ status: 'delivered' });
+    // Buyer confirms receipt
+    await request(app).patch(`/api/orders/${orderId}/complete`).set('Cookie', buyerCookie).send({});
+
+    // Payout should now exist for farmer
+    const finalOrder = await storage.getOrder(orderId);
+    expect(finalOrder?.status).toBe('completed');
+    const payouts = await storage.getPayoutsByFarmer(orders[0].farmerId);
+    expect(payouts.length).toBeGreaterThanOrEqual(1);
+    const payout = payouts.find(p => p.amount);
+    expect(payout).toBeDefined();
+    expect(Number(payout!.amount)).toBeGreaterThan(0);
+  });
 });

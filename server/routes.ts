@@ -394,6 +394,8 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       }
 
       const updated = await storage.updateListing(req.params.id, req.body);
+      // After marking as completed, create a payout record for the farmer
+      await maybeCreatePayoutForOrder(req.params.id);
       res.json(updated);
     } catch (error: any) {
       console.error("Update listing error:", error);
@@ -820,12 +822,36 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         });
       }
 
+      // Create payout now that order is completed
+      await maybeCreatePayoutForOrder(req.params.id);
+
       res.json(updated);
     } catch (error: any) {
       console.error("Complete order error:", error);
       res.status(400).json({ message: "Failed to complete order" });
     }
   });
+
+  // Create payout automatically after order completion
+  // This is a simple flow: a platform commission is applied, then a payout record is created.
+  // For full production, replace with a job queue and reconciliation system.
+  async function maybeCreatePayoutForOrder(orderId: string) {
+    try {
+      const order = await storage.getOrder(orderId);
+      if (!order) return;
+      if (order.status !== 'completed') return; // only for completed orders
+
+      const platformCommissionPercent = Number(process.env.PLATFORM_COMMISSION_PERCENT || '5');
+      console.log('maybeCreatePayoutForOrder', orderId, 'commission%', platformCommissionPercent);
+      const total = Number(order.totalPrice || 0);
+      const payoutAmount = Number((total * (1 - platformCommissionPercent / 100)).toFixed(2));
+      console.log('maybeCreatePayoutForOrder', 'total', total, 'payoutAmount', payoutAmount);
+      // Create a payout record for farmer; admin or automatic process will transfer later
+      await storage.createPayout({ farmerId: order.farmerId, amount: String(payoutAmount), status: 'pending', bankAccount: null } as any);
+    } catch (err) {
+      console.error('Failed to auto-create payout for order', orderId, err);
+    }
+  }
 
   // ====================
   // VERIFICATION ROUTES
