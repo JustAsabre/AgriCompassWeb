@@ -8,9 +8,10 @@ import path from "path";
 import { Server } from "socket.io";
 import { createServer } from "http";
 import { registerRoutes } from "./routes";
+import { startProcessing as startPayoutProcessing } from './jobs/payoutQueue';
 import { setupVite, serveStatic, log } from "./vite";
 import { initializeSocket } from "./socket";
-import csurf from 'csurf';
+// csurf is optional in case the dependency is not installed in some dev/test setups
 
 const app = express();
 const httpServer = createServer(app);
@@ -62,22 +63,26 @@ app.use('/api/auth/register', authLimiter);
 app.use(sessionMiddleware);
 
 // CSRF protection - ensure it sits after session middleware
-// Note: Add `csurf` to package.json dependencies (npm i csurf) before production deployment
-try {
-  const csrfProtection = csurf({ cookie: false }); // store in session by default
-  app.use(csrfProtection);
-  // expose csrf token via a lightweight endpoint for client to fetch (AJAX-friendly)
-  app.get('/api/csrf-token', (req, res) => {
-    try {
-      const token = (req as any).csrfToken?.();
-      res.json({ csrfToken: token });
-    } catch (err) {
-      // If token can't be generated, respond with 500
-      res.status(500).json({ error: 'Failed to generate CSRF token' });
-    }
-  });
-} catch (err) {
-  console.warn('csurf middleware not installed or could not be initialized. Remember to install csurf for CSRF protection.');
+// We use a dynamic import here to avoid static import resolution failing when `csurf` is not installed.
+// Note: install `csurf` for production deployments where CSRF protection is required.
+async function maybeEnableCsrf() {
+  try {
+    const csurfModule = await import('csurf');
+    const csurfFn = (csurfModule as any).default || csurfModule;
+    const csrfProtection = csurfFn({ cookie: false }); // store in session by default
+    app.use(csrfProtection);
+    // expose csrf token via a lightweight endpoint for client to fetch (AJAX-friendly)
+    app.get('/api/csrf-token', (req, res) => {
+      try {
+        const token = (req as any).csrfToken?.();
+        res.json({ csrfToken: token });
+      } catch (err) {
+        res.status(500).json({ error: 'Failed to generate CSRF token' });
+      }
+    });
+  } catch (err) {
+    console.warn('csurf not installed or failed to initialize - skipping CSRF middleware in this environment.');
+  }
 }
 
 declare module 'http' {
@@ -153,7 +158,11 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  await maybeEnableCsrf();
   await registerRoutes(app, httpServer, io);
+
+  // Start any job workers needed (in-memory fallback worker)
+  try { startPayoutProcessing(); } catch (err) { console.error('Failed to start payout worker', err); }
 
   // Specific handler for CSRF errors
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
