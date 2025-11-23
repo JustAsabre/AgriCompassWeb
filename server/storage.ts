@@ -108,6 +108,7 @@ export interface IStorage {
   getPaymentByTransactionId(transactionId: string): Promise<Payment | undefined>;
   createPayout(payout: InsertPayout): Promise<Payout>;
   getPayout(id: string): Promise<Payout | undefined>;
+  updatePayout(id: string, updates: Partial<Payout>): Promise<Payout | undefined>;
 }
 
 export class MemStorage implements IStorage {
@@ -511,6 +512,14 @@ export class MemStorage implements IStorage {
 
   async getPayout(id: string): Promise<Payout | undefined> {
     return this.payouts.get(id);
+  }
+
+  async updatePayout(id: string, updates: Partial<Payout>): Promise<Payout | undefined> {
+    const payout = this.payouts.get(id);
+    if (!payout) return undefined;
+    const updated = { ...payout, ...updates } as Payout;
+    this.payouts.set(id, updated);
+    return updated;
   }
 
   // Cart operations

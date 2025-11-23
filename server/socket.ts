@@ -223,7 +223,7 @@ export function initializeSocket(httpServer: HTTPServer) {
 
 // Helper function to send notification to a specific user
 export async function sendNotificationToUser(
-  io: Server,
+  io?: Server,
   userId: string,
   notificationData: InsertNotification
 ) {
@@ -237,7 +237,7 @@ export async function sendNotificationToUser(
 
 // Helper function to broadcast new listing to all users and create notifications
 export async function broadcastNewListing(
-  io: Server,
+  io?: Server,
   listing: any
 ) {
   if (typeof io?.emit === 'function') {
@@ -271,9 +271,11 @@ export async function broadcastNewListing(
 
 // Helper function to notify about price change
 export function notifyPriceChange(
-  io: Server,
+  io?: Server,
   userId: string,
   listing: any
 ) {
-  io.to(`user:${userId}`).emit("price_change", listing);
+  if (typeof io?.to === 'function') {
+    io.to(`user:${userId}`).emit("price_change", listing);
+  }
 }

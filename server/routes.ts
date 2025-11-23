@@ -30,7 +30,7 @@ function requireRole(...roles: string[]) {
   };
 }
 
-export async function registerRoutes(app: Express, httpServer: Server, io: SocketServer): Promise<void> {
+export async function registerRoutes(app: Express, httpServer: Server, io?: SocketServer): Promise<void> {
   // Health endpoint for SMTP diagnostics. Note: updating routes requires restarting the server to take effect.
   app.get('/health/smtp', (req, res) => {
     try {
@@ -1782,6 +1782,41 @@ export async function registerRoutes(app: Express, httpServer: Server, io: Socke
       } catch (err: any) {
         console.error('Get payment error:', err);
         res.status(500).json({ message: 'Failed to fetch payment' });
+      }
+    });
+
+    // ==================== PAYOUTS (MVP) ====================
+
+    // Farmer requests a payout
+    app.post('/api/payouts/request', requireRole('farmer'), async (req, res) => {
+      try {
+        const farmerId = req.session.user!.id;
+        const { amount, bankAccount } = req.body;
+        if (!amount) return res.status(400).json({ message: 'Amount required' });
+
+        // In a real implementation validate farmer balance and bank details
+        const payout = await storage.createPayout({ farmerId, amount: String(amount), status: 'pending', bankAccount, scheduledDate: null } as any);
+        return res.json({ payout });
+      } catch (err: any) {
+        console.error('Payout request error:', err);
+        res.status(500).json({ message: 'Failed to create payout request' });
+      }
+    });
+
+    // Admin: process payout (MVP stub) - mark as completed
+    app.post('/api/payouts/process', requireRole('admin'), async (req, res) => {
+      try {
+        const { payoutId } = req.body;
+        if (!payoutId) return res.status(400).json({ message: 'payoutId required' });
+        const payout = await storage.getPayout(payoutId);
+        if (!payout) return res.status(404).json({ message: 'Payout not found' });
+
+        // In production - call payment provider (Paystack) to transfer funds
+        const updated = await storage.updatePayout?.(payoutId, { status: 'completed', completedAt: new Date() } as any);
+        res.json({ payout: updated });
+      } catch (err: any) {
+        console.error('Payout process error:', err);
+        res.status(500).json({ message: 'Failed to process payout' });
       }
     });
 

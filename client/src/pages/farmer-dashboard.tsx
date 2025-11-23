@@ -36,12 +36,15 @@ import { useAuth } from "@/lib/auth";
 import { Listing, OrderWithDetails } from "@shared/schema";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEffect } from "react";
+import { useState } from "react";
 
 export default function FarmerDashboard() {
   const { user, refreshUser } = useAuth();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [payoutAmount, setPayoutAmount] = useState('');
+  const [bankAccount, setBankAccount] = useState('');
 
   // Refresh user data on mount to ensure verified status is up to date
   useEffect(() => {
@@ -113,6 +116,28 @@ export default function FarmerDashboard() {
         description: error.message,
         variant: "destructive",
       });
+    },
+  });
+
+  const requestPayoutMutation = useMutation({
+    mutationFn: async ({ amount, bankAccount }: { amount: string; bankAccount?: string }) => {
+      const response = await fetch('/api/payouts/request', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount, bankAccount }),
+      });
+      if (!response.ok) {
+        const body = await response.json();
+        throw new Error(body.message || 'Failed to request payout');
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: 'Payout Requested', description: 'Your payout request has been submitted.' });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
     },
   });
 
@@ -451,6 +476,31 @@ export default function FarmerDashboard() {
             )}
           </TabsContent>
         </Tabs>
+        <div className="mt-8 p-4 bg-muted rounded-md">
+          <h3 className="font-semibold mb-2">Request Payout</h3>
+          <div className="flex gap-2 items-center">
+            <input
+              className="border rounded px-3 py-2 w-40"
+              placeholder="Amount"
+              value={payoutAmount}
+              onChange={(e) => setPayoutAmount(e.target.value)}
+            />
+            <input
+              className="border rounded px-3 py-2 w-48"
+              placeholder="Bank account"
+              value={bankAccount}
+              onChange={(e) => setBankAccount(e.target.value)}
+            />
+            <Button
+              onClick={() => requestPayoutMutation.mutate({ amount: payoutAmount, bankAccount })}
+              disabled={requestPayoutMutation.isPending}
+              size="sm"
+            >
+              <DollarSign className="h-4 w-4 mr-2" />
+              Request
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );
