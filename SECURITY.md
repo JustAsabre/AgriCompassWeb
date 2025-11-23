@@ -51,6 +51,7 @@
 13. ⚠️ Add SQL injection protection (parameterized queries with Drizzle)
 14. ⚠️ Implement API key rotation
 15. ⚠️ Add request logging and audit trails
+16. ⚠️ Configure Paystack webhook secret and validate HMAC signatures
 
 ### Environment Variables to Set:
 ```bash
