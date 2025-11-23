@@ -138,6 +138,22 @@ Add the following env variables to enable Paystack in production:
 
 If `PAYSTACK_SECRET_KEY` is not set, the application will fallback to manual payment records for testing.
 
+Payouts & Recipients (Farmer payouts):
+
+- `PAYSTACK_AUTO_PAYOUTS` - If true and `PAYSTACK_SECRET_KEY` is set, the server will automatically attempt to transfer funds to farmers after admin processing
+- `PLATFORM_COMMISSION_PERCENT` - Percentage retained by the platform from sales before creating payout records (default 5%)
+
+API endpoints related to payouts and recipients:
+
+- `POST /api/payouts/request` (farmer) — request a payout (amount + bankAccount)
+- `POST /api/payouts/process` (admin) — process a payout and optionally transfer funds via Paystack transfer API
+- `POST /api/payouts/recipient` (farmer) — create Paystack transfer recipient (bank code + account)
+- `GET /api/payouts/recipient/me` (farmer) — fetch your saved recipient code & bank account
+
+Notes:
+- The server validates amounts server-side, schedules payouts, and uses `PAYSTACK_WEBHOOK_SECRET` to validate incoming webhook events.
+- For production, create and save Paystack transfer recipients for farmers to enable automatic transfers.
+
 4. **Run the development server**
    ```bash
    npm run dev
