@@ -85,6 +85,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **E2E testing**: Playwright test suite now uses seeded test accounts where possible to reduce rate limiting issues in CI.
+- **Test Mode Rate Limits**: Increased login rate-limit allowance in test mode to prevent E2E and CI rate-limits from causing failures during parallel test runs (`authLimiter max` increased in `server/index.ts` when `NODE_ENV === 'test'`).
+- **Notifications**: Notification handler now awaits `refreshUser` when available to reduce UI race conditions on user_updated events.
+- **CI Workflows**: E2E tests split into two parts in `.github/workflows/ci.yml` to reduce flakiness; ENABLE_TEST_ENDPOINTS set on E2E jobs.
 
 
 ## [0.8.1] - 2025-11-19
