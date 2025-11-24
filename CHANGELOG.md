@@ -77,6 +77,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.3] - 2025-11-24
+### Added
+- **Test-only API helper**: Added `/__test/get-reset-token` and updated e2e tests to use seeded accounts and test endpoints. These endpoints are gated behind `ENABLE_TEST_ENDPOINTS=true` and should not be enabled in production.
+  - Enables UI-driven password reset E2E tests without requiring email delivery.
+  - Added E2E test: `tests/e2e/password-reset.spec.ts` to verify the full forgot-password and reset-password flow using the UI.
+
+### Changed
+- **E2E testing**: Playwright test suite now uses seeded test accounts where possible to reduce rate limiting issues in CI.
+
+
 ## [0.8.1] - 2025-11-19
 ### Changed - Sprint 4: Email System Overhaul & Cleanup
 - **Email System Migration**

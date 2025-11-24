@@ -498,6 +498,25 @@ Before deploying to production:
 ---
 
 ## Need Help?
+## E2E Test Helpers
+
+To improve E2E test reliability and avoid email delivery dependencies during local or CI runs, the server exposes a set of test-only endpoints gated by an environment variable. These endpoints are ONLY available when `ENABLE_TEST_ENDPOINTS=true`.
+
+Available endpoints (test-only, do NOT enable in production):
+- `POST /__test/seed-account` - Create or return deterministic seeded accounts for each role (role param required: 'farmer'|'buyer'|'field_officer'). Returns JSON: { email, password, user }.
+- `POST /__test/get-reset-token` - Return the currently stored password reset token for a given email (useful for UI tests needing token without email delivery).
+- `POST /__test/mark-verified` - Mark a given userId as verified and emit socket updates for UI testing.
+
+How to run E2E tests locally with test helpers enabled:
+
+```powershell
+$env:ENABLE_TEST_ENDPOINTS='true'; npx playwright test --workers=1
+```
+
+Notes:
+- Set `--workers=1` to avoid testing rate limits from your local or CI environment.
+- These endpoints are for testing only and should never be enabled in production environments. When running CI (GitHub Actions), the workflows are already configured to set `ENABLE_TEST_ENDPOINTS: 'true'` for e2e jobs.
+
 
 - **Resend Docs**: https://resend.com/docs
 - **Email not sending?** Check terminal logs and Resend dashboard

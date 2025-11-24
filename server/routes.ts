@@ -1212,6 +1212,106 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
 
+  // Test-only helper: mark a user as verified and emit socket update
+  // Enabled only in test environment to avoid accidental use in production
+  // Test helper: gated by explicit env var `ENABLE_TEST_ENDPOINTS=true`.
+  // This endpoint must be explicitly enabled in CI or local test runs.
+  if (process.env.ENABLE_TEST_ENDPOINTS === 'true') {
+    app.post('/__test/mark-verified', async (req: Request, res: Response) => {
+      try {
+        const { userId } = req.body || {};
+        if (!userId) return res.status(400).json({ message: 'userId is required' });
+
+        const user = await storage.getUser(userId);
+        if (!user) return res.status(404).json({ message: 'User not found' });
+
+        // Mark verified in storage
+        await storage.updateUser(userId, { verified: true });
+
+        // Emit socket event to connected clients for this user
+        try {
+          if (io) io.to(`user:${userId}`).emit('user_updated', { userId, verified: true });
+        } catch (emitErr) {
+          console.error('Failed to emit user_updated in test helper', emitErr);
+        }
+
+        // Update in-memory sessions (if supported) so active sessions reflect verified:true
+        try {
+          if (sessionStore && typeof sessionStore.all === 'function') {
+            sessionStore.all((err: any, sessions: Record<string, any>) => {
+              if (err || !sessions) return;
+              for (const sid in sessions) {
+                const sess = (sessions as any)[sid];
+                if (sess && sess.user && sess.user.id === userId) {
+                  sess.user = { ...sess.user, verified: true };
+                  sessionStore.set(sid, sess, (setErr: any) => setErr ? console.error('Failed to update session in test helper', setErr) : null);
+                }
+              }
+            });
+          }
+        } catch (sessErr) { console.error('Error updating sessions in test helper', sessErr); }
+
+        const fresh = await storage.getUser(userId);
+        const { password, ...safe } = fresh as any;
+        res.json({ ok: true, user: safe });
+      } catch (err: any) {
+        console.error('Test mark-verified error:', err);
+        res.status(500).json({ message: 'Failed to mark user verified' });
+      }
+    });
+
+    // Test-only helper: seed or return a stable test account for E2E runs
+    app.post('/__test/seed-account', async (req: Request, res: Response) => {
+      try {
+        const { role } = req.body || {};
+        if (!role) return res.status(400).json({ message: 'role is required' });
+
+        // Use deterministic test email per role so tests can reuse the account
+        const testEmail = `${role}@e2e.test`;
+
+        let user = await storage.getUserByEmail(testEmail);
+        const plainPassword = 'password';
+        const hashed = await hashPassword(plainPassword);
+
+        if (!user) {
+          user = await storage.createUser({
+            email: testEmail,
+            password: hashed,
+            fullName: `E2E ${role}`,
+            role,
+          } as any);
+        } else {
+          // Ensure password is set to known password for tests and unlock account
+          await storage.updateUser(user.id, { password: hashed, failedLoginAttempts: 0, lockedUntil: null });
+        }
+
+        const fresh = await storage.getUser(user.id);
+        const { password, ...safe } = fresh as any;
+        // Return credentials for login via UI
+        res.json({ ok: true, email: testEmail, password: plainPassword, user: safe });
+      } catch (err: any) {
+        console.error('Test seed-account error:', err);
+        res.status(500).json({ message: 'Failed to seed account' });
+      }
+    });
+
+    // Test-only helper: retrieve reset token for a specific email (for E2E tests)
+    app.post('/__test/get-reset-token', async (req: Request, res: Response) => {
+      try {
+        const { email } = req.body || {};
+        if (!email) return res.status(400).json({ message: 'email is required' });
+
+        const user = await storage.getUserByEmail(email);
+        if (!user) return res.status(404).json({ message: 'User not found' });
+
+        return res.json({ ok: true, email: user.email, resetToken: user.resetToken });
+      } catch (err: any) {
+        console.error('Test get-reset-token error:', err);
+        return res.status(500).json({ message: 'Failed to get reset token' });
+      }
+    });
+  }
+
   // Field Officer routes
   app.get("/api/officer/farmers", requireRole("field_officer"), async (req, res) => {
     try {
