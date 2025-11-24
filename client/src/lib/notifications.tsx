@@ -43,6 +43,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     const newSocket = io({
       path: "/socket.io",
       transports: ["websocket", "polling"],
+      withCredentials: true,
     });
 
     let authSent = false;
@@ -65,16 +66,25 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     // Listen for user updates so we can refresh current user session data
     newSocket.on("user_updated", async (_data: { userId: string; verified?: boolean }) => {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-floating-promises
-        (refreshUser as any)?.();
-        queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+        // Await refreshUser so UI updates before subsequent operations.
+        if (typeof refreshUser === 'function') {
+          try {
+            await refreshUser();
+          } catch (err) {
+            console.warn('refreshUser failed on user_updated socket event', err);
+            // fall back to query invalidation
+            queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+          }
+        } else {
+          queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+        }
       } catch (err) {
         console.error('Failed to handle user_updated socket event', err);
       }
     });
 
     // Listen for new notifications
-    newSocket.on("new_notification", (notification: Notification) => {
+    newSocket.on("new_notification", async (notification: Notification) => {
       queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
       queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
       
@@ -92,10 +102,13 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
           }
           // Best-effort: if useAuth().refreshUser exists, call it (it will update local user state)
           try {
-            // eslint-disable-next-line @typescript-eslint/no-floating-promises
-            (refreshUser as any)?.();
+            if (typeof refreshUser === 'function') {
+              await refreshUser();
+            } else {
+              queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+            }
           } catch (err) {
-            // If we can't call refreshUser here (e.g. useAuth not callable), invalidate '/api/auth/me' so components re-fetch
+            console.warn('refreshUser failed on verification_update notification', err);
             queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
           }
       } else if (notification.type === "new_listing") {

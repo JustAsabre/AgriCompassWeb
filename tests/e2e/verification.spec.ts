@@ -6,16 +6,18 @@ import { registerAndLogin, loginViaUI } from './helpers/auth';
 test('field officer sees pending verification after farmer submits request', async ({ page }) => {
   const { email: farmerEmail } = await registerAndLogin(page, 'farmer');
 
-  // Submit verification via UI
-    // Submit verification programmatically via API to avoid UI form timing issues
-    const cookies = await page.context().cookies();
-    const sessionCookie = cookies.find(c => c.name === 'connect.sid');
-    const tokenResp = await page.request.get('/api/csrf-token');
-    const csrf = tokenResp.ok() ? (await tokenResp.json()).csrfToken : undefined;
-    const headers: any = { 'Cookie': `connect.sid=${sessionCookie?.value}` };
-    if (csrf) headers['X-CSRF-Token'] = csrf;
-    const submit = await page.request.post('/api/verifications/request', { data: { farmSize: '2 acres', farmLocation: 'Accra', experienceYears: 3, additionalInfo: 'E2E test' }, headers });
-    expect(submit.ok()).toBeTruthy();
+  // Submit verification via the page context so cookies (session) are included
+  const submitResult = await page.evaluate(async () => {
+    const payload = { farmSize: '2 acres', farmLocation: 'Accra', experienceYears: 3, additionalInfo: 'E2E test' };
+    const res = await fetch('/api/verifications/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const text = await res.text().catch(() => '');
+    return { ok: res.ok, status: res.status, body: text };
+  });
+  expect(submitResult.ok).toBeTruthy();
 
   // Register the officer via API, then login via UI so page has session cookie
   const { email: officerEmail } = await registerAndLogin(page, 'field_officer');
@@ -31,7 +33,8 @@ test('field officer sees pending verification after farmer submits request', asy
 });
 
 test('field officer approving verification updates farmer verified status', async ({ page }) => {
-  const { email: farmerEmail } = await registerAndLogin(page, 'farmer');
+  const uniqueEmail = `farmer+${Date.now()}@test.com`;
+  const { email: farmerEmail } = await registerAndLogin(page, 'farmer', uniqueEmail);
 
   // Farmer submits verification
   const cookies = await page.context().cookies();
@@ -40,8 +43,18 @@ test('field officer approving verification updates farmer verified status', asyn
   const csrf = tokenResp.ok() ? (await tokenResp.json()).csrfToken : undefined;
   const headers: any = { 'Cookie': `connect.sid=${sessionCookie?.value}` };
   if (csrf) headers['X-CSRF-Token'] = csrf;
-  const submit = await page.request.post('/api/verifications/request', { data: { farmSize: '2 acres', farmLocation: 'Accra', experienceYears: 3, additionalInfo: 'E2E test for approval' }, headers });
-  expect(submit.ok()).toBeTruthy();
+  const submitResult2 = await page.evaluate(async () => {
+    const payload = { farmSize: '2 acres', farmLocation: 'Accra', experienceYears: 3, additionalInfo: 'E2E test for approval' };
+    const res = await fetch('/api/verifications/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const text = await res.text().catch(() => '');
+    return { ok: res.ok, status: res.status, body: text };
+  });
+  if (!submitResult2.ok) console.error('Verification submit failed', submitResult2);
+  expect(submitResult2.ok).toBeTruthy();
 
   // Register and login as officer to approve
   await registerAndLogin(page, 'field_officer');

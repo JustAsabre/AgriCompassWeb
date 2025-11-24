@@ -50,7 +50,7 @@ const limiter = rateLimit({
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 login attempts per windowMs
+  max: process.env.NODE_ENV === 'test' ? 1000 : 5, // Allow more requests in test mode
   message: "Too many login attempts, please try again later.",
   skipSuccessfulRequests: true,
 });
