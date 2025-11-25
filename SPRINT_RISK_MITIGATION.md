@@ -106,45 +106,62 @@ Following a comprehensive deep dive analysis of completed sprints, 11 critical i
 
 ## 🚀 Immediate Mitigation Plan
 
-### **Sprint 7: Security Hardening** (Week 1-2, Dec 2025)
-**Goal**: Address all critical security vulnerabilities  
+### **Sprint 7: Security Hardening + FREE Staging** (Dec 1-14, 2025)
+**Goal**: Address all critical security vulnerabilities + Set up FREE staging environment  
 **Priority**: CRITICAL - Block production deployment  
 
-#### **Week 1: Session & Webhook Security**
+#### **Week 1: Session & Webhook Security + FREE Hosting Setup**
 **Deliverables:**
 - ✅ Automated session isolation tests
 - ✅ Webhook secret validation and health checks
 - ✅ HMAC verification testing framework
 - ✅ Session isolation monitoring
+- ✅ **FREE Vercel + Fly.io accounts and basic deployment**
+- ✅ **Paystack webhook configuration and testing**
+- ✅ **FREE Neon database connection**
 
 **Technical Tasks:**
 1. Create `server/tests/session-isolation.test.ts`
 2. Add webhook secret validation in `server/index.ts`
 3. Implement HMAC test utilities
 4. Add session isolation verification to CI/CD
+5. **Sign up for FREE Vercel account and connect GitHub repo**
+6. **Sign up for FREE Fly.io account and connect GitHub repo**
+7. **Configure Paystack webhook endpoint for FREE domain**
+8. **Test basic FREE deployments**
 
 **Success Criteria:**
 - Session isolation tests pass with concurrent users
 - Webhook secret validation prevents startup without proper config
 - HMAC verification tested with mock payloads
+- **FREE staging URLs accessible (yourapp.vercel.app, yourapp.fly.dev)**
+- **Paystack webhooks successfully receiving test events**
 
-#### **Week 2: Admin Operation Safety**
+#### **Week 2: Admin Operation Safety + FREE Integration Testing**
 **Deliverables:**
 - ✅ Transaction-wrapped bulk operations
 - ✅ Optimistic locking for user status changes
 - ✅ Operation queuing system
 - ✅ Concurrent operation testing
+- ✅ **Full FREE staging environment with all features**
+- ✅ **FREE Upstash Redis configuration**
+- ✅ **FREE Gmail SMTP email setup**
 
 **Technical Tasks:**
 1. Wrap bulk operations in database transactions (`server/routes.ts`)
 2. Add version fields for optimistic locking
 3. Implement operation queue with Redis/memory fallback
 4. Create concurrent operation stress tests
+5. **Deploy full application to FREE Vercel + Fly.io staging**
+6. **Set up FREE Upstash Redis for session storage**
+7. **Configure FREE Gmail SMTP for email notifications**
 
 **Success Criteria:**
 - Bulk operations maintain data consistency under load
 - No race conditions in user status updates
 - Queue prevents conflicting operations
+- **All features functional in FREE staging environment**
+- **External integrations (Paystack, Email, Redis) working in staging**
 
 ### **Sprint 8: Real-Time Reliability** (Week 3-4, Dec 2025)
 **Goal**: Ensure messaging and notification stability  
@@ -312,11 +329,11 @@ Following a comprehensive deep dive analysis of completed sprints, 11 critical i
 
 | Sprint | Duration | Focus | Risk Reduction | Status |
 |--------|----------|-------|----------------|--------|
-| **Sprint 7** | Dec 1-14, 2025 | Security Hardening | Critical Vulnerabilities | Planned |
-| **Sprint 8** | Dec 15-28, 2025 | Real-Time Reliability | User Experience | Planned |
-| **Sprint 9** | Jan 1-14, 2026 | Integration Monitoring | Business Continuity | Planned |
+| **Sprint 7** | Dec 1-14, 2025 | Security Hardening + FREE Staging | Critical Vulnerabilities + FREE Hosting Setup | Planned |
+| **Sprint 8** | Dec 15-28, 2025 | Real-Time Reliability + FREE Integration | User Experience + Full FREE Staging | Planned |
+| **Sprint 9** | Jan 1-14, 2026 | Integration Monitoring + FREE Domain/SSL | Business Continuity + FREE Professional Setup | Planned |
 | **Sprint 10** | Jan 15-28, 2026 | Performance & Database | Scalability | Planned |
-| **Sprint 11** | Feb 1-14, 2026 | API Standardization | Developer Experience | Planned |
+| **Sprint 11** | Feb 1-14, 2026 | API Standardization + FREE Go-Live | Developer Experience + FREE Production Launch | Planned |
 
 ---
 

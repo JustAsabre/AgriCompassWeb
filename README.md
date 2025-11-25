@@ -35,6 +35,7 @@
 - 🏗️ **[ARCHITECTURE.md](ARCHITECTURE.md)** - Technical architecture, database schema, API specs
 - 📝 **[CHANGELOG.md](CHANGELOG.md)** - Version history and release notes
 - ⚠️ **[SPRINT_RISK_MITIGATION.md](SPRINT_RISK_MITIGATION.md)** - Critical issues analysis & mitigation plan
+- 🚀 **[HOSTING_STRATEGY_FREE.md](HOSTING_STRATEGY_FREE.md)** - $0 budget hosting & manual setup guides
 - 🤝 **[CONTRIBUTING.md](CONTRIBUTING.md)** - Code standards and contribution workflow
 
 ### **Quick Facts**
