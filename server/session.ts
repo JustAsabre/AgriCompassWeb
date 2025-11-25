@@ -23,6 +23,24 @@ if (process.env.PG_CONNECTION_STRING) {
   }
 }
 
+// If a Redis connection is provided, prefer Redis as session store
+if (!sessionStore && process.env.REDIS_URL) {
+  try {
+    const require = createRequire(import.meta.url);
+    const connectRedis = require('connect-redis');
+    const redis = require('redis');
+    const RedisStore = connectRedis(session as any);
+    const client = redis.createClient({ url: process.env.REDIS_URL });
+    client.on('error', (err: any) => console.error('Redis client error', err));
+    // Connect in the background; don't block startup
+    client.connect().catch((e: any) => console.error('Failed connecting redis client for session store', e));
+    sessionStore = new RedisStore({ client, prefix: process.env.REDIS_SESSION_PREFIX || 'sess:' });
+    console.log('Session store: using Redis');
+  } catch (err) {
+    console.warn('Redis session store not available, falling back to other session stores', err);
+  }
+}
+
 // Fallback to in-memory store
 if (!sessionStore) {
   const SessionStore = MemoryStore(session as any);

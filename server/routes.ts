@@ -2,6 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import type { Server as SocketServer } from "socket.io";
 import { storage } from "./storage";
+import { getRevenueAggregated, getActiveSellers, getAdminTotals } from './adminAnalytics';
 import { sessionStore } from "./session";
 import { hashPassword, comparePassword, sanitizeUser, SessionUser } from "./auth";
 import { insertUserSchema, insertListingSchema, insertOrderSchema, insertCartItemSchema, insertPricingTierSchema, insertReviewSchema } from "@shared/schema";
@@ -1767,6 +1768,74 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
 
+    // ==================== ADMIN ROUTES ====================
+    // Get system-wide admin statistics
+    app.get('/api/admin/stats', requireRole('admin'), async (req: Request, res: Response) => {
+      try {
+        const roles = ['farmer', 'buyer', 'field_officer', 'admin'];
+        const usersByRole: Record<string, number> = {};
+        for (const r of roles) {
+          const users = await storage.getUsersByRole(r);
+          usersByRole[r] = users.length;
+        }
+
+        const totalUsers = Object.values(usersByRole).reduce((acc, v) => acc + v, 0);
+
+        // Try to use optimized DB-level totals; fallback to storage computed totals
+        try {
+          const totals = await getAdminTotals();
+          // Merge result with usersByRole computed above
+          res.json({
+            totalUsers,
+            usersByRole,
+            totalListings: totals.totalListings,
+              registeredFarmers: (await storage.getUsersByRole('farmer')).length,
+              verifiedFarmers: (await storage.getUsersByRole('farmer')).filter(f => f.verified).length,
+            pendingVerifications: (await storage.getAllVerifications()).filter(v => v.status === 'pending').length,
+            totalReviews: totals.totalReviews,
+            totalOrders: totals.totalOrders,
+            totalRevenueFromCompleted: totals.totalRevenueFromCompleted,
+            totalPayments: (await storage.getAllPayments()).length,
+            totalPayouts: totals.totalPayouts,
+          });
+        } catch (err) {
+          // If DB not available, fallback to previous storage-based totals
+          const listings = await storage.getAllListings();
+          const totalListings = listings.length;
+          const farmers = await storage.getUsersByRole('farmer');
+          const registeredFarmers = farmers.length;
+          const verifiedFarmers = farmers.filter(f => f.verified).length;
+          const allVerifs = await storage.getAllVerifications();
+          const pendingVerifications = allVerifs.filter(v => v.status === 'pending').length;
+          const reviews = await storage.getAllReviews();
+          const totalReviews = reviews.length;
+          const allOrders = await storage.getAllOrders();
+          const totalOrders = allOrders.length;
+          const totalRevenueFromCompleted = allOrders.filter(o => o.status === 'completed').reduce((acc, o) => acc + (Number(o.totalPrice || 0) || 0), 0);
+          const payouts = await storage.getAllPayouts();
+          const totalPayouts = payouts.length;
+          const payments = await storage.getAllPayments();
+          const totalPayments = payments.length;
+          res.json({
+            totalUsers,
+            usersByRole,
+            totalListings,
+            registeredFarmers,
+            verifiedFarmers,
+            pendingVerifications,
+            totalReviews,
+            totalOrders,
+            totalRevenueFromCompleted,
+            totalPayments,
+            totalPayouts,
+          });
+        }
+      } catch (err: any) {
+        console.error('Admin stats error:', err);
+        res.status(500).json({ message: 'Failed to fetch admin stats' });
+      }
+    });
+
   // ==================== PRICING TIERS ROUTES ====================
 
   // Get pricing tiers for a listing
@@ -1778,6 +1847,31 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     } catch (error: any) {
       console.error("Get pricing tiers error:", error);
       res.status(500).json({ message: "Failed to fetch pricing tiers" });
+    }
+  });
+
+  // Admin - revenue metrics
+  app.get('/api/admin/revenue', requireRole('admin'), async (req: Request, res: Response) => {
+    try {
+      const months = Number(req.query.months || 6);
+      const data = await getRevenueAggregated(months);
+      res.json(data);
+    } catch (err: any) {
+      console.error('Admin revenue error:', err);
+      res.status(500).json({ message: 'Failed to compute revenue' });
+    }
+  });
+
+  // Admin - get active sellers (by completed orders)
+  app.get('/api/admin/active-sellers', requireRole('admin'), async (req: Request, res: Response) => {
+    try {
+      const topN = Number(req.query.top || 10);
+      const offset = Number(req.query.offset || 0);
+      const sellers = await getActiveSellers(topN, offset);
+      res.json({ top: topN, sellers });
+    } catch (err: any) {
+      console.error('Admin active-sellers error:', err);
+      res.status(500).json({ message: 'Failed to compute active sellers' });
     }
   });
 
@@ -2100,62 +2194,6 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       }
     });
 
-    // Paystack webhook handler
-    app.post('/api/payments/paystack/webhook', async (req, res) => {
-      try {
-        const secret = process.env.PAYSTACK_WEBHOOK_SECRET;
-        const signature = req.headers['x-paystack-signature'] as string | undefined;
-
-        // If webhook secret provided, verify signature
-        if (secret) {
-          const computed = require('crypto').createHmac('sha512', secret).update(req.rawBody || '').digest('hex');
-          if (!signature || computed !== signature) {
-            console.warn('Invalid Paystack webhook signature');
-            return res.status(400).send('Invalid signature');
-          }
-        }
-
-        const body = req.body as any;
-        const event = body.event;
-        const data = body.data;
-
-        if (event === 'charge.success' || event === 'transaction.success') {
-          const reference = data.reference;
-          const payments = await storage.getPaymentsByTransactionId(reference);
-          for (const payment of payments) {
-            if (payment && payment.status !== 'completed') {
-              await storage.updatePaymentStatus(payment.id, 'completed');
-              // Also update order to accepted
-              await storage.updateOrderStatus(payment.orderId, 'accepted');
-            }
-          }
-        }
-
-        // Send notifications when payment is completed
-        try {
-          if (event === 'charge.success' || event === 'transaction.success') {
-            const reference = data.reference;
-            const payments = await storage.getPaymentsByTransactionId(reference);
-            for (const payment of payments) {
-              const order = await storage.getOrder(payment.orderId);
-              if (order) {
-                await sendNotificationToUser(payment.payerId, { userId: payment.payerId, type: 'order_update', title: 'Payment received', message: `Your payment for order ${order.id} has been confirmed.`, relatedId: order.id, relatedType: 'order' }, io);
-                await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Payment received', message: `A payment has been received for order ${order.id}.`, relatedId: order.id, relatedType: 'order' }, io);
-              }
-            }
-          }
-        } catch (err) {
-          console.error('Failed to create post-webhook notifications', err);
-        }
-
-        // return 200 to acknowledge receipt
-        res.json({ status: 'ok' });
-      } catch (err: any) {
-        console.error('Paystack webhook error:', err);
-        res.status(500).json({ message: 'Webhook handling failed' });
-      }
-    });
-
     // Get payment status
     app.get('/api/payments/:id', requireAuth, async (req, res) => {
       try {
@@ -2278,6 +2316,97 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         res.status(500).json({ message: 'Verification failed' });
       }
     });
+
+      // Paystack webhook handler - used by Paystack to notify server of payment events
+      app.post('/api/payments/paystack/webhook', async (req, res) => {
+        try {
+          const secret = process.env.PAYSTACK_WEBHOOK_SECRET || process.env.PAYSTACK_SECRET_KEY;
+          const signature = (req.headers['x-paystack-signature'] as string) || '';
+
+          // Verify signature if secret is provided
+          if (secret) {
+            try {
+              const raw = (req as any).rawBody as Buffer | string | undefined;
+              const payloadBuf = Buffer.isBuffer(raw) ? raw as Buffer : Buffer.from(JSON.stringify(req.body || {}));
+              const computed = crypto.createHmac('sha512', secret).update(payloadBuf).digest('hex');
+              if (!signature || computed !== signature) {
+                console.warn('Invalid Paystack webhook signature');
+                // Respond 401 to indicate signature mismatch
+                return res.status(401).json({ message: 'Invalid signature' });
+              }
+            } catch (vErr) {
+              console.warn('Failed while verifying webhook signature', vErr);
+              return res.status(400).json({ message: 'Invalid webhook' });
+            }
+          }
+
+          const event = req.body;
+          const eventType = String(event?.event || '').toLowerCase();
+          const reference = event?.data?.reference || event?.data?.id || event?.data?.trx || null;
+          if (!reference) {
+            // Nothing to do, just acknowledge
+            return res.json({ ok: true, message: 'no reference' });
+          }
+
+          // Find payments linked to this reference (many payments can share the same Paystack reference)
+          const payments = await storage.getPaymentsByTransactionId(reference);
+
+          if (!payments || payments.length === 0) {
+            // Another option: find by paystackReference field
+            const maybePayment = await storage.getPaymentByTransactionId?.(reference as any);
+            if (!maybePayment) {
+              // Just acknowledge - we want to avoid unprocessed webhooks disrupting the provider
+              return res.json({ ok: true, message: 'no linked payments' });
+            }
+          }
+
+          // Event types: charge.success, transaction.success -> payment completed
+          if (eventType.includes('charge.success') || eventType.includes('transaction.success') || eventType.includes('payment.success')) {
+            for (const p of payments) {
+              try {
+                const existing = await storage.getPayment(p.id);
+                if (!existing) continue;
+                if (existing.status === 'completed') continue; // idempotency
+
+                await storage.updatePaymentStatus(p.id, 'completed');
+                // update order status to accepted so farmer can move forward
+                await storage.updateOrderStatus(existing.orderId, 'accepted');
+
+                // Create buyer/farmer notifications
+                try {
+                  await sendNotificationToUser(existing.payerId, { userId: existing.payerId, type: 'order_update', title: 'Payment received', message: `Your payment for order ${existing.orderId} has been confirmed.`, relatedId: existing.orderId, relatedType: 'order' }, io);
+                  const order = await storage.getOrder(existing.orderId);
+                  if (order) {
+                    await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Payment received', message: `A payment for order ${existing.orderId} has been confirmed.`, relatedId: existing.orderId, relatedType: 'order' }, io);
+                  }
+                } catch (nerr) { console.error('Failed to create post-webhook notifications', nerr); }
+              } catch (err) { console.error('Failed to update payment on webhook', err); }
+            }
+            return res.json({ ok: true });
+          }
+
+          if (eventType.includes('charge.failed') || eventType.includes('transaction.failed') || eventType.includes('payment.failed')) {
+            for (const p of payments) {
+              try {
+                const existing = await storage.getPayment(p.id);
+                if (!existing) continue;
+                await storage.updatePaymentStatus(p.id, 'failed');
+                // Notify users about failure (no change to order automatic state)
+                try {
+                  await sendNotificationToUser(existing.payerId, { userId: existing.payerId, type: 'order_update', title: 'Payment failed', message: `Your payment for order ${existing.orderId} failed. Please retry or contact support.`, relatedId: existing.orderId, relatedType: 'order' }, io);
+                } catch (nerr) { console.error('Failed to create post-webhook failure notification', nerr); }
+              } catch (err) { console.error('Failed to mark payment failed on webhook', err); }
+            }
+            return res.json({ ok: true });
+          }
+
+          // Default ack
+          res.json({ ok: true });
+        } catch (err: any) {
+          console.error('Paystack webhook error:', err);
+          res.status(500).json({ message: 'Webhook handling failed' });
+        }
+      });
 
     // ==================== PAYOUTS (MVP) ====================
 

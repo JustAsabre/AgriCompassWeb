@@ -517,11 +517,61 @@ Notes:
 - Set `--workers=1` to avoid testing rate limits from your local or CI environment.
 - These endpoints are for testing only and should never be enabled in production environments. When running CI (GitHub Actions), the workflows are already configured to set `ENABLE_TEST_ENDPOINTS: 'true'` for e2e jobs.
 
+### Paystack Webhook Local Testing
+
+1. Ensure you set `PAYSTACK_WEBHOOK_SECRET` when using webhook verification locally:
+```powershell
+$env:PAYSTACK_WEBHOOK_SECRET='test-paystack-secret'
+```
+2. Start the server and use the helper script to simulate a webhook:
+```powershell
+node ./scripts/simulate-paystack-webhook.mjs --url http://localhost:5000/api/payments/paystack/webhook --reference ref-test-001 --event charge.success
+```
+3. Verify `Payment` records change status to `completed` and orders update accordingly with server logs and via the API.
+
+
 
 - **Resend Docs**: https://resend.com/docs
 - **Email not sending?** Check terminal logs and Resend dashboard
 - **SMTP issues?** Verify Gmail app password setup
 - **Code errors?** Check `server/email.ts` and `server/routes.ts`
+
+---
+## Admin Endpoints Testing
+
+These admin-only endpoints provide reporting, revenue metrics, and active seller listings. They are intended for admin dashboards and monitoring.
+
+Prerequisite: create an admin account if you don't have one locally.
+
+Example curl-based workflow (Windows PowerShell):
+
+```powershell
+# Create admin user
+curl -X POST http://localhost:5000/api/auth/register -H "Content-Type: application/json" -d '{"email":"admin@test.com","password":"password123","fullName":"Admin","role":"admin"}'
+
+# Login and capture cookie to cookiejar.txt
+curl -c cookiejar.txt -X POST http://localhost:5000/api/auth/login -H "Content-Type: application/json" -d '{"email":"admin@test.com","password":"password123"}'
+
+# Admin stats
+curl -b cookiejar.txt http://localhost:5000/api/admin/stats
+
+# Revenue and monthly breakdown
+curl -b cookiejar.txt http://localhost:5000/api/admin/revenue
+
+# Top active sellers (top 10)
+curl -b cookiejar.txt "http://localhost:5000/api/admin/active-sellers?top=10"
+```
+
+Basic load test to simulate concurrency (PowerShell loop):
+
+```powershell
+# Example: Launch 50 background requests
+for ($i = 0; $i -lt 50; $i++) { Invoke-WebRequest -UseBasicParsing -Uri http://localhost:5000/api/admin/revenue -WebSession (Get-Content cookiejar.txt -Raw) & }
+```
+
+Notes:
+- These endpoints are `admin`-only; ensure your testing session is an admin.
+- The in-memory `MemStorage` is used locally; production storage may require pagination or more complex aggregation queries.
 
 ---
 

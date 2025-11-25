@@ -89,6 +89,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Notifications**: Notification handler now awaits `refreshUser` when available to reduce UI race conditions on user_updated events.
 - **CI Workflows**: E2E tests split into two parts in `.github/workflows/ci.yml` to reduce flakiness; ENABLE_TEST_ENDPOINTS set on E2E jobs.
 
+## [0.8.4] - 2025-11-24
+### Added - Admin Reporting & Analytics Improvements
+- Added storage methods to return full collections for reporting:
+  - `getAllOrders()` added to `IStorage` and implemented in `MemStorage`
+  - `getAllVerifications()` added to `IStorage` and implemented in `MemStorage`
+- Added admin endpoints:
+  - `GET /api/admin/stats` (updated to include total orders and total revenue)
+  - `GET /api/admin/revenue` (returns total revenue and revenue by month for the last 6 months)
+  - `GET /api/admin/active-sellers` (returns top active sellers by completed orders and revenue)
+  - All admin endpoints require `admin` role
+- Added unit tests for admin endpoints and storage collection methods:
+  - `server/tests/admin.stats.test.ts`
+  - `server/tests/admin.revenue.test.ts` (includes a concurrency/load test)
+  - `server/tests/storage.collections.test.ts`
+
+  - Database support:
+    - Admin endpoints now use DB-level aggregation (via `server/db.ts`) when `DATABASE_URL` is configured.
+    - Endpoints fall back to in-memory aggregations (via `MemStorage`) when no DB is configured.
+
+### Changed
+- Optimized admin calculations to use `getAllOrders()` and `getAllVerifications()` to avoid iterative per-account DB calls and improve performance.
+
+### Testing
+### Security & Payment
+- Added `POST /api/payments/paystack/webhook` to handle Paystack webhook events and mark payments `completed` or `failed` safely with HMAC verification.
+- Optional Redis session support (`REDIS_URL`) added and documented; default behavior remains in-memory session store for local dev.
+- Update: Added performance/concurrency tests to validate admin revenue endpoints under concurrent load.
+
+
 
 ## [0.8.1] - 2025-11-19
 ### Changed - Sprint 4: Email System Overhaul & Cleanup
