@@ -70,6 +70,13 @@ export function Header() {
               </span>
             </Link>
           )}
+          {user?.role === "admin" && (
+            <Link href="/admin/dashboard">
+              <span className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer" data-testid="link-admin-dashboard">
+                Admin Dashboard
+              </span>
+            </Link>
+          )}
         </nav>
 
         <div className="flex items-center gap-2 md:gap-4">

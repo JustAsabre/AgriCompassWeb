@@ -108,8 +108,8 @@ export default function Landing() {
                   <div className="text-sm text-muted-foreground">Active Buyers</div>
                 </div>
                 <div>
-                  <div className="text-2xl md:text-3xl font-bold text-primary">{formatCurrency(2500000)}</div>
-                  <div className="text-sm text-muted-foreground">Total Transactions</div>
+                  <div className="text-2xl md:text-3xl font-bold text-primary">2,500+</div>
+                  <div className="text-sm text-muted-foreground">Orders Completed</div>
                 </div>
               </div>
             </div>

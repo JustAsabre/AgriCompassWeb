@@ -23,6 +23,8 @@ import {
   type InsertPayout,
   type Transaction,
   type InsertTransaction,
+  type ModerationStat,
+  type InsertModerationStat,
   type ListingWithFarmer,
   type OrderWithDetails,
   type CartItemWithListing,
@@ -52,6 +54,7 @@ export interface IStorage {
   createListing(listing: InsertListing): Promise<Listing>;
   updateListing(id: string, updates: Partial<Listing>): Promise<Listing | undefined>;
   deleteListing(id: string): Promise<boolean>;
+  getListingsByModerationStatus(status: string): Promise<Listing[]>;
 
   // Order operations
   getOrder(id: string): Promise<Order | undefined>;
@@ -99,6 +102,9 @@ export interface IStorage {
   markMessageRead(id: string): Promise<Message | undefined>;
   markConversationRead(userId: string, otherUserId: string): Promise<boolean>;
   getUnreadMessageCount(userId: string): Promise<number>;
+  getMessage(id: string): Promise<Message | undefined>;
+  updateMessage(id: string, updates: Partial<Message>): Promise<Message | undefined>;
+  getMessagesByModerationStatus(status: string): Promise<Message[]>;
 
   // Review operations
   getReviewsByReviewee(revieweeId: string): Promise<ReviewWithUsers[]>;
@@ -123,12 +129,12 @@ export interface IStorage {
   // Return all payments in the system
   getAllPayments(): Promise<Payment[]>;
 
-  // Transaction operations
-  createTransaction(transaction: InsertTransaction): Promise<Transaction>;
-  getTransaction(id: string): Promise<Transaction | undefined>;
-  getTransactionByPaystackReference(reference: string): Promise<Transaction | undefined>;
-  updateTransactionStatus(id: string, status: string): Promise<Transaction | undefined>;
-  updateTransaction(id: string, updates: Partial<Transaction>): Promise<Transaction | undefined>;
+  // Moderation stats operations
+  createModerationStat(stat: InsertModerationStat): Promise<ModerationStat>;
+  getModerationStatsByDateRange(startDate: Date, endDate: Date): Promise<ModerationStat[]>;
+  getModerationStatsByContentType(contentType: string): Promise<ModerationStat[]>;
+  updateUserRole(userId: string, role: string): Promise<void>;
+  getAllUsers(): Promise<User[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -144,6 +150,7 @@ export class MemStorage implements IStorage {
   private payments: Map<string, Payment>;
   private payouts: Map<string, Payout>;
   private transactions: Map<string, Transaction>;
+  private moderationStats: Map<string, ModerationStat>;
 
   constructor() {
     this.users = new Map();
@@ -158,6 +165,7 @@ export class MemStorage implements IStorage {
     this.payments = new Map();
     this.payouts = new Map();
     this.transactions = new Map();
+    this.moderationStats = new Map();
 
     // Seed data for testing
     this.seedData();
@@ -401,7 +409,13 @@ export class MemStorage implements IStorage {
       id,
       harvestDate: insertListing.harvestDate ?? null,
       imageUrl: insertListing.imageUrl ?? null,
+      subcategory: insertListing.subcategory ?? null,
       status: "active",
+      moderated: false,
+      moderationStatus: "pending",
+      moderationReason: null,
+      moderatedAt: null,
+      moderatedBy: null,
       createdAt: new Date()
     };
     this.listings.set(id, listing);
@@ -418,6 +432,12 @@ export class MemStorage implements IStorage {
 
   async deleteListing(id: string): Promise<boolean> {
     return this.listings.delete(id);
+  }
+
+  async getListingsByModerationStatus(status: string): Promise<Listing[]> {
+    return Array.from(this.listings.values()).filter(
+      (listing) => listing.moderationStatus === status
+    );
   }
 
   // Order operations
@@ -871,6 +891,11 @@ export class MemStorage implements IStorage {
       id,
       listingId: insertMessage.listingId ?? null,
       read: false,
+      moderated: false,
+      moderationStatus: "pending",
+      moderationReason: null,
+      moderatedAt: null,
+      moderatedBy: null,
       createdAt: new Date(),
     };
     this.messages.set(id, message);
@@ -904,6 +929,24 @@ export class MemStorage implements IStorage {
     return Array.from(this.messages.values())
       .filter((m) => m.receiverId === userId && !m.read)
       .length;
+  }
+
+  async getMessage(id: string): Promise<Message | undefined> {
+    return this.messages.get(id);
+  }
+
+  async updateMessage(id: string, updates: Partial<Message>): Promise<Message | undefined> {
+    const message = this.messages.get(id);
+    if (!message) return undefined;
+    const updated = { ...message, ...updates };
+    this.messages.set(id, updated);
+    return updated;
+  }
+
+  async getMessagesByModerationStatus(status: string): Promise<Message[]> {
+    return Array.from(this.messages.values()).filter(
+      (message) => message.moderationStatus === status
+    );
   }
 
   // Pricing Tier Operations
@@ -1026,6 +1069,59 @@ export class MemStorage implements IStorage {
       average: Math.round(average * 10) / 10, // Round to 1 decimal
       count: reviews.length,
     };
+  }
+
+  // Moderation stats operations
+  async createModerationStat(insertStat: InsertModerationStat): Promise<ModerationStat> {
+    const id = randomUUID();
+    const stat: ModerationStat = {
+      ...insertStat,
+      id,
+      totalPending: insertStat.totalPending ?? null,
+      totalApproved: insertStat.totalApproved ?? null,
+      totalRejected: insertStat.totalRejected ?? null,
+      averageModerationTime: insertStat.averageModerationTime ?? null,
+      createdAt: new Date(),
+    };
+    this.moderationStats.set(id, stat);
+    return stat;
+  }
+
+  async getModerationStatsByDateRange(startDate: Date, endDate: Date): Promise<ModerationStat[]> {
+    return Array.from(this.moderationStats.values())
+      .filter(stat => stat.date >= startDate && stat.date <= endDate)
+      .sort((a, b) => b.date.getTime() - a.date.getTime());
+  }
+
+  async getModerationStatsByContentType(contentType: string): Promise<ModerationStat[]> {
+    return Array.from(this.moderationStats.values())
+      .filter(stat => stat.contentType === contentType)
+      .sort((a, b) => b.date.getTime() - a.date.getTime());
+  }
+
+  async updateUserRole(userId: string, role: string): Promise<void> {
+    const user = this.users.get(userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+    user.role = role;
+  }
+
+  // Cleanup method for testing
+  async cleanup(): Promise<void> {
+    this.users.clear();
+    this.listings.clear();
+    this.orders.clear();
+    this.cartItems.clear();
+    this.verifications.clear();
+    this.pricingTiers.clear();
+    this.notifications.clear();
+    this.messages.clear();
+    this.reviews.clear();
+    this.payments.clear();
+    this.payouts.clear();
+    this.transactions.clear();
+    this.moderationStats.clear();
   }
 }
 

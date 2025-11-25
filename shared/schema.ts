@@ -33,7 +33,8 @@ export const listings = pgTable("listings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   farmerId: varchar("farmer_id").notNull().references(() => users.id),
   productName: text("product_name").notNull(),
-  category: text("category").notNull(),
+  category: text("category").notNull(), // Content category for better organization
+  subcategory: text("subcategory"), // Optional subcategory
   description: text("description").notNull(),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
   unit: text("unit").notNull(), // kg, tons, boxes, etc
@@ -43,6 +44,12 @@ export const listings = pgTable("listings", {
   location: text("location").notNull(),
   imageUrl: text("image_url"),
   status: text("status").default("active"), // active, sold_out, inactive
+  // Content moderation fields
+  moderated: boolean("moderated").default(false), // Whether admin has reviewed this listing
+  moderationStatus: text("moderation_status").default("pending"), // pending, approved, rejected
+  moderationReason: text("moderation_reason"), // Reason for rejection if applicable
+  moderatedAt: timestamp("moderated_at"),
+  moderatedBy: varchar("moderated_by").references(() => users.id), // Admin who moderated
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -151,6 +158,12 @@ export const messages = pgTable("messages", {
   listingId: varchar("listing_id").references(() => listings.id), // Optional: context for the conversation
   content: text("content").notNull(),
   read: boolean("read").default(false),
+  // Content moderation fields
+  moderated: boolean("moderated").default(false), // Whether admin has reviewed this message
+  moderationStatus: text("moderation_status").default("approved"), // approved, rejected, flagged
+  moderationReason: text("moderation_reason"), // Reason for moderation action
+  moderatedAt: timestamp("moderated_at"),
+  moderatedBy: varchar("moderated_by").references(() => users.id), // Admin who moderated
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -163,6 +176,18 @@ export const reviews = pgTable("reviews", {
   rating: integer("rating").notNull(), // 1-5 stars
   comment: text("comment"),
   approved: boolean("approved").default(true), // Admin moderation
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Moderation analytics and statistics
+export const moderationStats = pgTable("moderation_stats", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  date: timestamp("date").notNull(), // Date for the stats
+  contentType: text("content_type").notNull(), // 'listing', 'message', 'review'
+  totalPending: integer("total_pending").default(0),
+  totalApproved: integer("total_approved").default(0),
+  totalRejected: integer("total_rejected").default(0),
+  averageModerationTime: integer("average_moderation_time"), // in minutes
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -180,6 +205,11 @@ export const insertListingSchema = createInsertSchema(listings).omit({
   id: true,
   createdAt: true,
   status: true,
+  moderated: true,
+  moderationStatus: true,
+  moderationReason: true,
+  moderatedAt: true,
+  moderatedBy: true,
 });
 
 export const insertOrderSchema = createInsertSchema(orders).omit({
@@ -187,11 +217,6 @@ export const insertOrderSchema = createInsertSchema(orders).omit({
   createdAt: true,
   updatedAt: true,
   status: true,
-});
-
-export const insertCartItemSchema = createInsertSchema(cartItems).omit({
-  id: true,
-  createdAt: true,
 });
 
 export const insertVerificationSchema = createInsertSchema(verifications).omit({
@@ -215,6 +240,11 @@ export const insertMessageSchema = createInsertSchema(messages).omit({
   id: true,
   createdAt: true,
   read: true,
+  moderated: true,
+  moderationStatus: true,
+  moderationReason: true,
+  moderatedAt: true,
+  moderatedBy: true,
 });
 
 export const insertReviewSchema = createInsertSchema(reviews).omit({
@@ -224,6 +254,11 @@ export const insertReviewSchema = createInsertSchema(reviews).omit({
 }).extend({
   rating: z.number().min(1).max(5),
   comment: z.string().optional(),
+});
+
+export const insertModerationStatSchema = createInsertSchema(moderationStats).omit({
+  id: true,
+  createdAt: true,
 });
 
 export const insertPaymentSchema = createInsertSchema(payments).omit({
@@ -241,6 +276,12 @@ export const insertPayoutSchema = createInsertSchema(payouts).omit({
   id: true,
   createdAt: true,
   completedAt: true,
+  status: true,
+});
+
+export const insertCartItemSchema = createInsertSchema(cartItems).omit({
+  id: true,
+  createdAt: true,
 });
 
 // TypeScript types
@@ -270,6 +311,9 @@ export type InsertMessage = z.infer<typeof insertMessageSchema>;
 
 export type Review = typeof reviews.$inferSelect;
 export type InsertReview = z.infer<typeof insertReviewSchema>;
+
+export type ModerationStat = typeof moderationStats.$inferSelect;
+export type InsertModerationStat = z.infer<typeof insertModerationStatSchema>;
 
 // Extended types for frontend
 export type ListingWithFarmer = Listing & {

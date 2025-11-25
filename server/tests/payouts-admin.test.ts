@@ -3,7 +3,7 @@ import express, { type Express } from 'express';
 import session from 'express-session';
 import { createServer } from 'http';
 import { registerRoutes } from '../routes';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { storage } from '../storage';
 import sessionMiddleware from '../session';
 import { hashPassword } from '../auth';
@@ -14,18 +14,7 @@ describe('Payouts and Admin API', () => {
 
   beforeEach(async () => {
     // Reset storage to avoid conflicts between tests
-    storage.users.clear();
-    storage.listings.clear();
-    storage.orders.clear();
-    storage.cartItems.clear();
-    storage.payments.clear();
-    storage.transactions.clear();
-    storage.notifications.clear();
-    storage.verifications.clear();
-    storage.reviews.clear();
-    storage.payouts.clear();
-    storage.pricingTiers.clear();
-    storage.messages.clear();
+    storage.cleanup();
 
     app = express();
     app.use(express.json());
