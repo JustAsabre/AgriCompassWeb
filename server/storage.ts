@@ -41,6 +41,7 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, updates: Partial<User>): Promise<User | undefined>;
   getUsersByRole(role: string): Promise<User[]>;
+  getAllUsers(): Promise<User[]>;
 
   // Listing operations
   getAllListings(): Promise<Listing[]>;
@@ -57,6 +58,8 @@ export interface IStorage {
   getOrderWithDetails(id: string): Promise<OrderWithDetails | undefined>;
   getOrdersByBuyer(buyerId: string): Promise<OrderWithDetails[]>;
   getOrdersByFarmer(farmerId: string): Promise<OrderWithDetails[]>;
+  // Return all orders in the system
+  getAllOrders(): Promise<Order[]>;
   createOrder(order: InsertOrder): Promise<Order>;
   updateOrderStatus(id: string, status: string): Promise<Order | undefined>;
 
@@ -73,6 +76,8 @@ export interface IStorage {
   getVerificationByFarmer(farmerId: string): Promise<Verification | undefined>;
   createVerification(verification: InsertVerification): Promise<Verification>;
   updateVerificationStatus(id: string, status: string, notes?: string): Promise<Verification | undefined>;
+  // Return all verifications
+  getAllVerifications(): Promise<Verification[]>;
 
   // Pricing tier operations
   getPricingTiersByListing(listingId: string): Promise<PricingTier[]>;
@@ -115,6 +120,8 @@ export interface IStorage {
   updatePayout(id: string, updates: Partial<Payout>): Promise<Payout | undefined>;
   getPayoutsByFarmer(farmerId: string): Promise<Payout[]>;
   getAllPayouts(): Promise<Payout[]>;
+  // Return all payments in the system
+  getAllPayments(): Promise<Payment[]>;
 
   // Transaction operations
   createTransaction(transaction: InsertTransaction): Promise<Transaction>;
@@ -295,6 +302,7 @@ export class MemStorage implements IStorage {
       failedLoginAttempts: 0,
       lockedUntil: null,
       verified: insertUser.role === "field_officer" ? true : false,
+      isActive: true, // New users are active by default
       createdAt: new Date()
     };
     this.users.set(id, user);
@@ -312,6 +320,10 @@ export class MemStorage implements IStorage {
   async getUsersByRole(role: string): Promise<User[]> {
     // Return users with passwords - routes must sanitize before sending
     return Array.from(this.users.values()).filter((user) => user.role === role);
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return Array.from(this.users.values());
   }
 
   // Listing operations
@@ -465,6 +477,10 @@ export class MemStorage implements IStorage {
     return result;
   }
 
+  async getAllOrders(): Promise<Order[]> {
+    return Array.from(this.orders.values());
+  }
+
   async createOrder(insertOrder: InsertOrder): Promise<Order> {
     const id = randomUUID();
     const order: Order = { 
@@ -556,6 +572,10 @@ export class MemStorage implements IStorage {
 
   async getAllPayouts(): Promise<Payout[]> {
     return Array.from(this.payouts.values());
+  }
+
+  async getAllPayments(): Promise<Payment[]> {
+    return Array.from(this.payments.values());
   }
 
   // Transaction operations
@@ -715,6 +735,9 @@ export class MemStorage implements IStorage {
     }
 
     return updated;
+  }
+  async getAllVerifications(): Promise<Verification[]> {
+    return Array.from(this.verifications.values());
   }
   // Notification operations
   async getNotificationsByUser(userId: string): Promise<Notification[]> {

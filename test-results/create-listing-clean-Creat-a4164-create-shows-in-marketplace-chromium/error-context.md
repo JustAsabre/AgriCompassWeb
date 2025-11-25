@@ -1,0 +1,101 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e5]:
+        - link "Agricompass" [ref=e6] [cursor=pointer]:
+          - /url: /
+          - generic [ref=e7]:
+            - img [ref=e8]
+            - generic [ref=e12]: Agricompass
+        - navigation [ref=e13]:
+          - link "Marketplace" [ref=e14] [cursor=pointer]:
+            - /url: /marketplace
+          - link "My Dashboard" [ref=e15] [cursor=pointer]:
+            - /url: /farmer/dashboard
+        - generic [ref=e16]:
+          - button [ref=e17] [cursor=pointer]:
+            - img
+          - button [ref=e18] [cursor=pointer]:
+            - img
+          - button "Toggle theme" [ref=e19] [cursor=pointer]:
+            - img
+            - generic [ref=e20]: Toggle theme
+          - button [ref=e21] [cursor=pointer]:
+            - img
+    - generic [ref=e24]:
+      - button "Back to Dashboard" [ref=e25] [cursor=pointer]:
+        - img
+        - text: Back to Dashboard
+      - generic [ref=e26]:
+        - generic [ref=e27]:
+          - generic [ref=e28]: Create New Listing
+          - generic [ref=e29]: List your agricultural products for buyers
+        - generic [ref=e31]:
+          - generic [ref=e32]:
+            - text: Product Name
+            - textbox "Product Name" [ref=e33]:
+              - /placeholder: e.g., Fresh Tomatoes
+              - text: E2E Listing Test Item
+          - generic [ref=e34]:
+            - text: Category
+            - combobox "Category" [ref=e35] [cursor=pointer]:
+              - generic: Vegetables
+              - img [ref=e36]
+            - combobox [ref=e38]
+          - generic [ref=e39]:
+            - text: Description
+            - textbox "Description" [ref=e40]:
+              - /placeholder: Describe your product, quality, growing methods, etc.
+              - text: E2E test listing created by Playwright
+            - paragraph [ref=e41]: Provide detailed information about your product
+          - generic [ref=e42]:
+            - generic [ref=e43]:
+              - text: Price
+              - spinbutton "Price" [ref=e44]: "5.00"
+            - generic [ref=e45]:
+              - text: Unit
+              - combobox "Unit" [ref=e46] [cursor=pointer]:
+                - generic: kg
+                - img [ref=e47]
+              - combobox [ref=e49]
+          - generic [ref=e50]:
+            - generic [ref=e51]:
+              - text: Quantity Available
+              - spinbutton "Quantity Available" [ref=e52]: "100"
+            - generic [ref=e53]:
+              - text: Minimum Order Quantity
+              - spinbutton "Minimum Order Quantity" [ref=e54]: "10"
+          - generic [ref=e55]:
+            - generic [ref=e56]:
+              - text: Harvest Date (Optional)
+              - textbox "Harvest Date (Optional)" [ref=e57]:
+                - /placeholder: e.g., January 2024
+            - generic [ref=e58]:
+              - text: Location
+              - textbox "Location" [active] [ref=e59]:
+                - /placeholder: e.g., North Region
+                - text: North Region
+          - generic [ref=e60]:
+            - text: Product Images
+            - generic [ref=e63]:
+              - img [ref=e64]
+              - generic [ref=e67]:
+                - paragraph [ref=e68]: Drag & drop files or click to browse
+                - paragraph [ref=e69]: Max 1 files, up to 5MB each
+              - button "Choose Files" [ref=e70] [cursor=pointer]:
+                - img
+                - text: Choose Files
+          - generic [ref=e71]:
+            - text: Image URL (Alternative)
+            - textbox "Image URL (Alternative)" [ref=e72]:
+              - /placeholder: https://example.com/image.jpg
+            - paragraph [ref=e73]: Upload an image above, or provide a URL to an image
+          - generic [ref=e74]:
+            - button "Cancel" [ref=e75] [cursor=pointer]
+            - button "Create Listing" [ref=e76] [cursor=pointer]
+  - region "Notifications (F8)":
+    - list
+```

@@ -34,6 +34,12 @@ All email-related features have been implemented, tested, and verified to work f
   - Verification status (approved/rejected)
 - Emails work for any recipient, not just the developer
 
+### 5. Admin Reporting & Performance Improvements
+- Added `getAllOrders()` and `getAllVerifications()` to the storage layer to enable efficient analytics and reporting without requiring per-user round-trips.
+- Added admin endpoints `GET /api/admin/stats`, `GET /api/admin/revenue`, and `GET /api/admin/active-sellers`, all gated by `admin` role authorization.
+- Tests: Added new unit tests and load tests to validate admin routes and verify under concurrent requests.
+- DB-level Analytics: Implemented DB-level aggregation (via SQL with pg Pool) for revenue and top-sellers endpoints when `DATABASE_URL` is configured; endpoints fall back to in-memory computations when DB is not configured.
+
 ---
 
 ## Unwanted Files Removed

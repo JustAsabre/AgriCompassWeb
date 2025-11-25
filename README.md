@@ -37,7 +37,7 @@
 - 🤝 **[CONTRIBUTING.md](CONTRIBUTING.md)** - Code standards and contribution workflow
 
 ### **Quick Facts**
-- **Current Status:** 65% MVP Complete
+- **Current Status:** 75% MVP Complete (Sprint 5 Complete)
 - **Timeline:** 24 weeks to production launch
 - **Team Size:** 4 developers
 - **Tech Stack:** React + TypeScript + Express + PostgreSQL
@@ -53,7 +53,7 @@ AgriCompassWeb is a comprehensive agricultural marketplace platform that facilit
 - **👨‍🌾 Farmers**: Create product listings, manage inventory, handle orders
 - **🏢 Buyers**: Browse marketplace, add to cart, place bulk orders
 - **🔍 Field Officers**: Verify farmer credentials and listings
-- **👑 Admin**: Manage platform operations (future feature)
+- **👑 Admin**: Manage platform operations, user accounts, and system monitoring
 
 ## ✨ Features
 
@@ -74,6 +74,12 @@ AgriCompassWeb is a comprehensive agricultural marketplace platform that facilit
 - ✅ Verify farmer credentials
 - ✅ Review product listings
 - ✅ Generate verification reports
+
+### For Admins
+- ✅ User account management (activate/deactivate)
+- ✅ Bulk user operations
+- ✅ Platform analytics and monitoring
+- ✅ Content moderation tools
 
 ## 🛠 Tech Stack
 
@@ -318,6 +324,15 @@ AgriCompassWeb/
 ### Field Officer
 - `GET /api/officer/farmers` - Get all farmers
 - `POST /api/officer/verify/:farmerId` - Verify farmer
+
+### Admin
+- `GET /api/admin/users` - Get all users with pagination/filtering (Admin)
+- `GET /api/admin/users/:id` - Get user details (Admin)
+- `PATCH /api/admin/users/:id/status` - Update user status (Admin)
+- `POST /api/admin/users/bulk` - Bulk user operations (Admin)
+- `GET /api/admin/stats` - Get platform statistics (Admin)
+- `GET /api/admin/revenue` - Get revenue analytics (Admin)
+- `GET /api/admin/active-sellers` - Get top active sellers (Admin)
 
 For detailed API request/response schemas, see [server/routes.ts](server/routes.ts).
 

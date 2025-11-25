@@ -1,4 +1,4 @@
-import type { Express, Request, Response, NextFunction } from "express";
+﻿import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import type { Server as SocketServer } from "socket.io";
 import { storage } from "./storage";
@@ -10,6 +10,7 @@ import { sendPasswordResetEmail, sendWelcomeEmail, sendPasswordChangedEmail, sen
 import { upload, getFileUrl, deleteUploadedFile, isValidFilename } from "./upload";
 import { sendNotificationToUser, broadcastNewListing } from "./socket";
 import { enqueuePayout } from './jobs/payoutQueue';
+import { pool } from "./db";
 import crypto from "crypto";
 
 // Helper: Validate Ghana mobile number E.164 format (e.g., +233XXXXXXXXX)
@@ -2581,11 +2582,269 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
             await storage.updateOrderStatus(payment.orderId, 'accepted');
           }
         }
-
-        res.json({ status, data });
       } catch (err: any) {
-        console.error('Paystack verify admin error:', err);
-        res.status(500).json({ message: 'Verification failed' });
+        console.error('Payment verification error:', err);
+        res.status(500).json({ message: 'Failed to verify payment' });
       }
     });
+
+// ================= ADMIN USER MANAGEMENT =================
+
+// Get all users with pagination and filtering
+app.get("/api/admin/users", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const { page = "1", limit = "20", role, status, search } = req.query as { page?: string; limit?: string; role?: string; status?: string; search?: string };
+    const offset = (Number(page) - 1) * Number(limit);
+
+    let users;
+    if (pool) {
+      // Use database query with filtering
+      let query = `SELECT id, full_name, email, role, created_at, last_login, is_active FROM users WHERE 1=1`;
+      const params: any[] = [];
+      let paramIndex = 1;
+
+      if (role) {
+        query += ` AND role = $${paramIndex}`;
+        params.push(role);
+        paramIndex++;
+      }
+
+      if (status) {
+        query += ` AND is_active = $${paramIndex}`;
+        params.push(status === "active");
+        paramIndex++;
+      }
+
+      if (search) {
+        query += ` AND (full_name ILIKE $${paramIndex} OR email ILIKE $${paramIndex})`;
+        params.push(`%${search}%`);
+        paramIndex++;
+      }
+
+      query += ` ORDER BY created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+      params.push(Number(limit), offset);
+
+      const result = await pool.query(query, params);
+      users = result.rows.map((row: any) => ({
+        id: row.id,
+        fullName: row.full_name,
+        email: row.email,
+        role: row.role,
+        createdAt: row.created_at,
+        lastLogin: row.last_login,
+        isActive: row.is_active,
+      }));
+    } else {
+      // Fallback to in-memory storage
+      let allUsers = await storage.getAllUsers();
+
+      if (role) {
+        allUsers = allUsers.filter(u => u.role === role);
+      }
+
+      if (status) {
+        allUsers = allUsers.filter(u => u.isActive === (status === "active"));
+      }
+
+      if (search) {
+        const searchLower = search.toLowerCase();
+        allUsers = allUsers.filter(u =>
+          u.fullName.toLowerCase().includes(searchLower) ||
+          u.email.toLowerCase().includes(searchLower)
+        );
+      }
+
+      users = allUsers
+        .sort((a, b) => (new Date(b.createdAt || 0).getTime()) - (new Date(a.createdAt || 0).getTime()))
+        .slice(offset, offset + Number(limit));
+    }
+
+    res.json({
+      users,
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total: users.length,
+      }
+    });
+  } catch (err: any) {
+    console.error("Admin get users error:", err);
+    res.status(500).json({ message: "Failed to fetch users" });
+  }
+});
+
+// Get user details by ID
+app.get("/api/admin/users/:id", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const user = await storage.getUser(id);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Get additional user stats
+    const userStats = {
+      totalOrders: 0,
+      totalRevenue: 0,
+      totalListings: 0,
+      averageRating: 0,
+    };
+
+    if (pool) {
+      // Get order stats
+      if (user.role === "farmer") {
+        const orderStats = await pool.query(
+          `SELECT COUNT(*) as total_orders, COALESCE(SUM(total_price::numeric), 0) as total_revenue FROM orders WHERE farmer_id = $1 AND status = 'completed'`,
+          [id]
+        );
+        userStats.totalOrders = Number(orderStats.rows[0].total_orders);
+        userStats.totalRevenue = Number(orderStats.rows[0].total_revenue);
+
+        const listingStats = await pool.query(
+          `SELECT COUNT(*) as total_listings FROM listings WHERE farmer_id = $1 AND status = 'active'`,
+          [id]
+        );
+        userStats.totalListings = Number(listingStats.rows[0].total_listings);
+      } else if (user.role === "buyer") {
+        const orderStats = await pool.query(
+          `SELECT COUNT(*) as total_orders, COALESCE(SUM(total_price::numeric), 0) as total_revenue FROM orders WHERE buyer_id = $1 AND status = 'completed'`,
+          [id]
+        );
+        userStats.totalOrders = Number(orderStats.rows[0].total_orders);
+        userStats.totalRevenue = Number(orderStats.rows[0].total_revenue);
+      }
+
+      // Get average rating
+      const ratingStats = await pool.query(
+        `SELECT AVG(rating) as avg_rating FROM reviews WHERE reviewee_id = $1`,
+        [id]
+      );
+      userStats.averageRating = Number(ratingStats.rows[0].avg_rating) || 0;
+    }
+
+    res.json({
+      user,
+      stats: userStats,
+    });
+  } catch (err: any) {
+    console.error("Admin get user details error:", err);
+    res.status(500).json({ message: "Failed to fetch user details" });
+  }
+});
+
+// Update user status (activate/deactivate)
+app.patch("/api/admin/users/:id/status", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { isActive, reason } = req.body;
+
+    if (typeof isActive !== "boolean") {
+      return res.status(400).json({ message: "isActive must be a boolean" });
+    }
+
+    const user = await storage.getUser(id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Prevent admin from deactivating themselves
+    if (id === req.session.user!.id && !isActive) {
+      return res.status(400).json({ message: "Cannot deactivate your own account" });
+    }
+
+    await storage.updateUser(id, { isActive });
+
+    // Create notification for the user
+    const statusMessage = isActive ? "activated" : "deactivated";
+    await sendNotificationToUser(id, {
+      userId: id,
+      type: "account_update",
+      title: `Account ${statusMessage}`,
+      message: `Your account has been ${statusMessage}${reason ? `: ${reason}` : "."}`,
+      relatedId: id,
+      relatedType: "user",
+    }, io);
+
+    res.json({
+      user: await storage.getUser(id),
+      message: `User ${statusMessage} successfully`
+    });
+  } catch (err: any) {
+    console.error("Admin update user status error:", err);
+    res.status(500).json({ message: "Failed to update user status" });
+  }
+});
+
+// Bulk user operations
+app.post("/api/admin/users/bulk", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const { operation, userIds, reason } = req.body;
+
+    if (!operation || !userIds || !Array.isArray(userIds)) {
+      return res.status(400).json({ message: "operation and userIds array are required" });
+    }
+
+    const results = [];
+    const errors = [];
+
+    for (const userId of userIds) {
+      try {
+        const user = await storage.getUser(userId);
+        if (!user) {
+          errors.push({ userId, error: "User not found" });
+          continue;
+        }
+
+        // Prevent admin from affecting themselves in bulk operations
+        if (userId === req.session.user!.id) {
+          errors.push({ userId, error: "Cannot modify your own account in bulk operations" });
+          continue;
+        }
+
+        switch (operation) {
+          case "activate":
+            await storage.updateUser(userId, { isActive: true });
+            await sendNotificationToUser(userId, {
+              userId,
+              type: "account_update",
+              title: "Account Activated",
+              message: `Your account has been activated${reason ? `: ${reason}` : "."}`,
+              relatedId: userId,
+              relatedType: "user",
+            }, io);
+            results.push({ userId, operation: "activated" });
+            break;
+
+          case "deactivate":
+            await storage.updateUser(userId, { isActive: false });
+            await sendNotificationToUser(userId, {
+              userId,
+              type: "account_update",
+              title: "Account Deactivated",
+              message: `Your account has been deactivated${reason ? `: ${reason}` : "."}`,
+              relatedId: userId,
+              relatedType: "user",
+            }, io);
+            results.push({ userId, operation: "deactivated" });
+            break;
+
+          default:
+            errors.push({ userId, error: "Invalid operation" });
+        }
+      } catch (err: any) {
+        errors.push({ userId, error: err.message || "Operation failed" });
+      }
+    }
+
+    res.json({
+      results,
+      errors,
+      message: `Bulk operation completed: ${results.length} successful, ${errors.length} failed`
+    });
+  } catch (err: any) {
+    console.error("Admin bulk user operation error:", err);
+    res.status(500).json({ message: "Bulk operation failed" });
+  }
+});
 }

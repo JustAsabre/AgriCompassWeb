@@ -20,6 +20,7 @@ export const users = pgTable("users", {
   failedLoginAttempts: integer("failed_login_attempts").default(0),
   lockedUntil: timestamp("locked_until"),
   verified: boolean("verified").default(false),
+  isActive: boolean("is_active").default(true), // Account active status for admin management
   businessName: text("business_name"), // for buyers
   farmSize: text("farm_size"), // for farmers
   resetToken: text("reset_token"),

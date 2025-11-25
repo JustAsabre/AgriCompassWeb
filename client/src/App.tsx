@@ -7,6 +7,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { NotificationProvider } from "@/lib/notifications";
 import { Header } from "@/components/header";
+import { Footer } from "@/components/footer";
 
 // Pages
 import Landing from "@/pages/landing";
@@ -36,6 +37,7 @@ import OfficerAnalytics from "@/pages/officer-analytics";
 import OrderSuccess from "@/pages/order-success";
 import OrderDetail from "@/pages/order-detail";
 import AdminReviews from "@/pages/admin-reviews";
+import AdminDashboard from "@/pages/admin-dashboard";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component, allowedRoles }: { component: any; allowedRoles?: string[] }) {
@@ -135,10 +137,15 @@ function Router() {
             {() => <ProtectedRoute component={Messages} />}
           </Route>
           
+          {/* Admin Dashboard */}
+          <Route path="/admin/dashboard">
+            {() => <ProtectedRoute component={AdminDashboard} allowedRoles={["admin"]} />}
+          </Route>
           {/* 404 */}
           <Route component={NotFound} />
         </Switch>
       </div>
+      <Footer />
     </div>
   );
 }

@@ -89,6 +89,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Notifications**: Notification handler now awaits `refreshUser` when available to reduce UI race conditions on user_updated events.
 - **CI Workflows**: E2E tests split into two parts in `.github/workflows/ci.yml` to reduce flakiness; ENABLE_TEST_ENDPOINTS set on E2E jobs.
 
+## [0.8.5] - 2025-11-25
+### Added - Sprint 5: Admin Dashboard & Production Readiness
+- **Admin User Management System**
+  - Complete admin dashboard UI components for user management
+  - User listing with pagination, filtering, and search functionality
+  - User status controls (activate/deactivate accounts)
+  - Bulk user operations (activate/deactivate multiple users)
+  - User detail views with comprehensive statistics
+  - Role-based access control for admin-only features
+  - API endpoints: GET /api/admin/users, GET /api/admin/users/:id, PATCH /api/admin/users/:id/status, POST /api/admin/users/bulk
+
+- **Enhanced Legal Compliance**
+  - Comprehensive legal pages (Terms of Service, Privacy Policy, Cookie Policy, About, Contact)
+  - Footer component with links to all legal pages
+  - Verified all legal content meets regulatory requirements
+  - Integrated footer across entire application
+
+- **Database Schema Enhancements**
+  - Added `isActive` field to users table for account status management
+  - Updated User type and storage interfaces
+  - Database migration support for user activation/deactivation
+
+- **Payment & Security Infrastructure**
+  - Paystack webhook endpoint with HMAC SHA512 verification
+  - Optional Redis session store with fallback to in-memory/PostgreSQL
+  - E2E test coverage for payment flows and webhook handling
+  - Comprehensive security risk documentation
+  - Free-tier hosting plans and deployment strategies
+
+- **Testing & Quality Assurance**
+  - Expanded E2E test suite with payment and webhook testing
+  - Playwright integration for automated browser testing
+  - TypeScript compilation verification
+  - Server startup validation and error checking
+
+### Technical Implementation
+- **Backend**: Admin user management APIs with database/in-memory fallbacks, enhanced storage layer, pool-based database queries
+- **Frontend**: Admin dashboard components, footer integration, legal page verification
+- **Database**: User schema updates with isActive field, proper type inference
+- **Security**: HMAC webhook verification, session store fallbacks, input validation
+- **Testing**: E2E payment flows, webhook handling, server stability verification
+
+### Fixed
+- TypeScript compilation errors in admin routes
+- Missing database pool import in routes.ts
+- User type issues with query parameters and date handling
+- Leftover temporary files causing compilation issues
+- Schema type mismatches for user activation fields
+
+### Security & Compliance
+- Admin-only access to user management features
+- Secure user data handling with proper sanitization
+- Legal page compliance verification
+- Payment security with webhook verification
+- Session isolation and data protection
+
+### Documentation
+- Updated testing guide with webhook testing instructions
+- Security documentation with risk mitigations
+- Hosting plans for production deployment
+- Comprehensive changelog updates
+
+---
+
 ## [0.8.4] - 2025-11-24
 ### Added - Admin Reporting & Analytics Improvements
 - Added storage methods to return full collections for reporting:

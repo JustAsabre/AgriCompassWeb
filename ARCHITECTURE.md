@@ -998,6 +998,7 @@ CLOUDINARY_URL=<url>
 - Connection pooling (pg-pool)
 - Query result caching (Redis)
 - Pagination for large datasets
+ - Admin analytics endpoints (e.g., /api/admin/revenue & /api/admin/active-sellers) use DB-level aggregation with SQL for efficient reporting when `DATABASE_URL` is configured; they fallback to MemStorage when no DB is present for local/dev runs.
 
 ### Frontend Optimization
 - Code splitting (Vite automatic)

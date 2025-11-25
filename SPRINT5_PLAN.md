@@ -78,6 +78,7 @@ Complete production hardening, add advanced payment features, and prepare for la
   - Total users, orders, revenue metrics
   - Growth charts and trends
   - Regional distribution data
+  - ✅ Implement DB-level aggregation and pagination for statistics endpoints to support scalable dashboard performance (use Drizzle/Postgres when configured)
 
 - [ ] **Content Moderation**
   - Review reported listings
