@@ -1,5 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRoute, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,8 @@ import { formatCurrency } from "@/lib/currency";
 import { useToast } from "@/hooks/use-toast";
 import { ReviewForm } from "@/components/review-form";
 import { ReviewDisplay } from "@/components/review-display";
+import { EscrowStatus } from "@/components/escrow-status";
+import { Escrow } from "@shared/schema";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,6 +34,17 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 
 interface OrderDetail {
   id: string;
@@ -127,6 +140,11 @@ export default function OrderDetail() {
     enabled: !!params?.id,
   });
   const payments = paymentsResponse?.payments ?? [];
+
+  const { data: escrow } = useQuery<Escrow>({
+    queryKey: [`/api/escrow/order/${params?.id}`],
+    enabled: !!params?.id,
+  });
 
   // Check if review exists for this order
   const { data: existingReview } = useQuery<{
@@ -224,6 +242,34 @@ export default function OrderDetail() {
     onError: (error: Error) => {
       toast({ title: 'Payment Error', description: error.message || 'Failed to initiate payment', variant: 'destructive' });
     }
+  });
+
+  // Dispute reporting
+  const [disputeReason, setDisputeReason] = useState("");
+  const [isDisputeDialogOpen, setIsDisputeDialogOpen] = useState(false);
+
+  const reportDisputeMutation = useMutation({
+    mutationFn: async (reason: string) => {
+      if (!escrow?.id) throw new Error("No escrow found");
+      return apiRequest("POST", `/api/escrow/${escrow.id}/dispute`, { reason });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/escrow/order/${params?.id}`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/escrow"] });
+      setIsDisputeDialogOpen(false);
+      setDisputeReason("");
+      toast({
+        title: "Dispute Reported",
+        description: "Your dispute has been submitted and will be reviewed by our team.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to report dispute",
+        variant: "destructive",
+      });
+    },
   });
 
   // Auto-verify after Paystack redirect if reference query param is present
@@ -407,6 +453,17 @@ export default function OrderDetail() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Escrow Status */}
+        {escrow && (
+          <div className="mb-6">
+            <EscrowStatus
+              escrow={escrow}
+              onReportDispute={() => setIsDisputeDialogOpen(true)}
+              showActions={escrow.status === "upfront_held" && user?.role === "buyer"}
+            />
+          </div>
+        )}
 
         <div className="grid md:grid-cols-2 gap-6 mb-6 print:gap-4 print:mb-4">
           {/* Product Details */}
@@ -637,6 +694,47 @@ export default function OrderDetail() {
           <p className="mt-1">For support, contact us at support@agricompass.com</p>
         </div>
       </div>
+
+      {/* Dispute Dialog */}
+      <Dialog open={isDisputeDialogOpen} onOpenChange={setIsDisputeDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Report Dispute</DialogTitle>
+            <DialogDescription>
+              Please describe the issue with this order. Our team will review your dispute and resolve it within 24-48 hours.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="dispute-reason">Dispute Reason</Label>
+              <Textarea
+                id="dispute-reason"
+                placeholder="Describe the issue with your order..."
+                value={disputeReason}
+                onChange={(e) => setDisputeReason(e.target.value)}
+                rows={4}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsDisputeDialogOpen(false);
+                setDisputeReason("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => reportDisputeMutation.mutate(disputeReason)}
+              disabled={!disputeReason.trim() || reportDisputeMutation.isPending}
+            >
+              {reportDisputeMutation.isPending ? "Submitting..." : "Submit Dispute"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

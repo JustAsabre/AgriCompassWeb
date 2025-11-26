@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from '@/hooks/use-toast';
-import { Search, Filter, Calendar, BarChart3, CheckSquare, XSquare } from 'lucide-react';
+import { Search, Filter, Calendar, BarChart3, CheckSquare, XSquare, Shield, AlertTriangle } from 'lucide-react';
 
 interface AdminStats {
   totalUsers: number;
@@ -52,6 +52,23 @@ interface ModerationAnalytics {
   period: string;
 }
 
+interface Escrow {
+  id: string;
+  orderId: string;
+  buyerId: string;
+  farmerId: string;
+  totalAmount: number;
+  upfrontAmount: number;
+  remainingAmount: number;
+  status: 'pending' | 'upfront_held' | 'remaining_released' | 'completed' | 'disputed';
+  disputeReason?: string;
+  disputeResolution?: 'buyer' | 'farmer' | 'split';
+  createdAt: string;
+  updatedAt: string;
+  disputedAt?: string;
+  disputeResolvedAt?: string;
+}
+
 function AdminDashboardContent() {
   const [activeTab, setActiveTab] = useState('overview');
   const [moderationAction, setModerationAction] = useState<{ type: 'approve' | 'reject', id: string, contentType: 'listing' | 'message' } | null>(null);
@@ -66,6 +83,10 @@ function AdminDashboardContent() {
   const [selectedItems, setSelectedItems] = useState<{ id: string; type: 'listing' | 'message' }[]>([]);
   const [bulkAction, setBulkAction] = useState<'approve' | 'reject' | null>(null);
 
+  // Escrow management
+  const [escrowStatusFilter, setEscrowStatusFilter] = useState('all');
+  const [escrowResolution, setEscrowResolution] = useState<{ escrowId: string; resolution: 'buyer' | 'farmer' | 'split' } | null>(null);
+
   const queryClient = useQueryClient();
 
   const { data: stats, isLoading: statsLoading } = useQuery<AdminStats>({ queryKey: ['/api/admin/stats'], enabled: true });
@@ -77,6 +98,12 @@ function AdminDashboardContent() {
   const { data: analytics, isLoading: analyticsLoading } = useQuery<ModerationAnalytics>({
     queryKey: ['/api/admin/moderation/analytics'],
     enabled: activeTab === 'moderation'
+  });
+
+  // Escrow queries
+  const { data: escrows, isLoading: escrowsLoading } = useQuery<Escrow[]>({
+    queryKey: ['/api/admin/escrow'],
+    enabled: activeTab === 'escrow'
   });
 
   const moderateMutation = useMutation({
@@ -123,6 +150,28 @@ function AdminDashboardContent() {
       toast({
         title: "Bulk moderation failed",
         description: error.message || "Failed to moderate selected content",
+        variant: "destructive"
+      });
+    }
+  });
+
+  // Escrow resolution mutation
+  const resolveEscrowMutation = useMutation({
+    mutationFn: async ({ escrowId, resolution }: { escrowId: string; resolution: 'buyer' | 'farmer' | 'split' }) => {
+      return apiRequest('PATCH', `/api/admin/escrow/${escrowId}/resolve`, { resolution });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/escrow'] });
+      toast({
+        title: "Escrow dispute resolved",
+        description: "The escrow dispute has been resolved and both parties have been notified."
+      });
+      setEscrowResolution(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Resolution failed",
+        description: error.message || "Failed to resolve escrow dispute",
         variant: "destructive"
       });
     }
@@ -197,6 +246,47 @@ function AdminDashboardContent() {
     !searchTerm || message.content.toLowerCase().includes(searchTerm.toLowerCase())
   ) || [];
 
+  // Escrow helper functions
+  const getEscrowStatusBadge = (status: Escrow['status']) => {
+    switch (status) {
+      case 'pending':
+        return <Badge variant="secondary">Pending</Badge>;
+      case 'upfront_held':
+        return <Badge variant="outline">Upfront Held</Badge>;
+      case 'remaining_released':
+        return <Badge variant="default">Remaining Released</Badge>;
+      case 'completed':
+        return <Badge variant="default" className="bg-green-100 text-green-800">Completed</Badge>;
+      case 'disputed':
+        return <Badge variant="destructive">Disputed</Badge>;
+      default:
+        return <Badge variant="secondary">{status}</Badge>;
+    }
+  };
+
+  const getEscrowStatusDescription = (escrow: Escrow) => {
+    switch (escrow.status) {
+      case 'pending':
+        return `Waiting for upfront payment of $${escrow.upfrontAmount}`;
+      case 'upfront_held':
+        return `Upfront payment of $${escrow.upfrontAmount} held, waiting for order acceptance`;
+      case 'remaining_released':
+        return `Remaining payment of $${escrow.remainingAmount} released, waiting for delivery confirmation`;
+      case 'completed':
+        return escrow.disputeResolution
+          ? `Dispute resolved in favor of ${escrow.disputeResolution}`
+          : `Order completed, full payment of $${escrow.totalAmount} released`;
+      case 'disputed':
+        return `Dispute filed: ${escrow.disputeReason}`;
+      default:
+        return escrow.status;
+    }
+  };
+
+  const filteredEscrows = escrows?.filter(escrow =>
+    escrowStatusFilter === 'all' || escrow.status === escrowStatusFilter
+  ) || [];
+
   if (statsLoading) return <div>Loading admin dashboard...</div>;
 
   return (
@@ -204,9 +294,10 @@ function AdminDashboardContent() {
       <h1 className="text-2xl font-bold mb-6">Admin Dashboard</h1>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="moderation">Content Moderation</TabsTrigger>
+          <TabsTrigger value="escrow">Escrow Management</TabsTrigger>
           <TabsTrigger value="users">User Management</TabsTrigger>
         </TabsList>
 
@@ -648,6 +739,203 @@ function AdminDashboardContent() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        <TabsContent value="escrow" className="space-y-6">
+          {/* Escrow Analytics */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-gray-600 flex items-center">
+                  <Shield className="h-4 w-4 mr-2" />
+                  Total Escrows
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{escrows?.length ?? 0}</div>
+                <div className="text-xs text-gray-500 mt-1">
+                  Active escrow transactions
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-gray-600 flex items-center">
+                  <AlertTriangle className="h-4 w-4 mr-2" />
+                  Disputed
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {escrows?.filter(e => e.status === 'disputed').length ?? 0}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  Require resolution
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-gray-600 flex items-center">
+                  <CheckSquare className="h-4 w-4 mr-2" />
+                  Completed
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {escrows?.filter(e => e.status === 'completed').length ?? 0}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  Successfully resolved
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-gray-600">Total Value</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  ${escrows?.reduce((sum, e) => sum + e.totalAmount, 0)?.toFixed(2) ?? '0.00'}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  Protected by escrow
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Escrow Filters */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Shield className="h-5 w-5 mr-2" />
+                Escrow Management
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="escrow-status">Status Filter</Label>
+                  <Select value={escrowStatusFilter} onValueChange={setEscrowStatusFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Filter by status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="upfront_held">Upfront Held</SelectItem>
+                      <SelectItem value="remaining_released">Remaining Released</SelectItem>
+                      <SelectItem value="completed">Completed</SelectItem>
+                      <SelectItem value="disputed">Disputed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Escrow List */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                Escrow Transactions
+                <Badge variant="outline">{filteredEscrows.length}</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {escrowsLoading ? (
+                <div>Loading escrows...</div>
+              ) : filteredEscrows.length > 0 ? (
+                filteredEscrows.map((escrow) => (
+                  <div key={escrow.id} className="border rounded-lg p-4 space-y-3">
+                    <div className="flex justify-between items-start">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-medium">Order #{escrow.orderId}</h4>
+                          {getEscrowStatusBadge(escrow.status)}
+                        </div>
+                        <p className="text-sm text-gray-600">{getEscrowStatusDescription(escrow)}</p>
+                        <div className="flex gap-4 text-xs text-gray-500">
+                          <span>Total: ${escrow.totalAmount.toFixed(2)}</span>
+                          <span>Upfront: ${escrow.upfrontAmount.toFixed(2)}</span>
+                          <span>Remaining: ${escrow.remainingAmount.toFixed(2)}</span>
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          Created: {new Date(escrow.createdAt).toLocaleDateString()}
+                          {escrow.disputedAt && ` | Disputed: ${new Date(escrow.disputedAt).toLocaleDateString()}`}
+                        </div>
+                      </div>
+                      {escrow.status === 'disputed' && (
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              size="sm"
+                              onClick={() => setEscrowResolution({ escrowId: escrow.id, resolution: 'buyer' })}
+                            >
+                              <Shield className="h-4 w-4 mr-1" />
+                              Resolve Dispute
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Resolve Escrow Dispute</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Resolve the dispute for Order #{escrow.orderId}. Choose who should receive the escrowed funds.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <div className="py-4 space-y-4">
+                              <div className="space-y-2">
+                                <Label>Dispute Reason</Label>
+                                <p className="text-sm text-gray-600 bg-gray-50 p-2 rounded">
+                                  {escrow.disputeReason}
+                                </p>
+                              </div>
+                              <div className="space-y-2">
+                                <Label>Resolution</Label>
+                                <Select
+                                  value={escrowResolution?.resolution || 'buyer'}
+                                  onValueChange={(value: 'buyer' | 'farmer' | 'split') =>
+                                    setEscrowResolution(prev => prev ? { ...prev, resolution: value } : null)
+                                  }
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="buyer">Return to Buyer</SelectItem>
+                                    <SelectItem value="farmer">Release to Farmer</SelectItem>
+                                    <SelectItem value="split">Split 50/50</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel onClick={() => setEscrowResolution(null)}>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => resolveEscrowMutation.mutate({
+                                  escrowId: escrow.id,
+                                  resolution: escrowResolution?.resolution || 'buyer'
+                                })}
+                                disabled={resolveEscrowMutation.isPending}
+                              >
+                                Resolve Dispute
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      )}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-gray-500 text-center py-4">No escrows match your filters</p>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="users" className="space-y-6">

@@ -40,6 +40,8 @@ import { useEffect, useRef } from "react";
 import { useState } from "react";
 import { Input } from '@/components/ui/input';
 import { Select, SelectItem, SelectContent, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { EscrowStatus } from "@/components/escrow-status";
+import { Escrow } from "@shared/schema";
 
 export default function FarmerDashboard() {
   const { user, refreshUser } = useAuth();
@@ -65,6 +67,11 @@ export default function FarmerDashboard() {
 
   const { data: orders, isLoading: ordersLoading } = useQuery<OrderWithDetails[]>({
     queryKey: ["/api/farmer/orders", user?.id],
+    enabled: !!user?.id,
+  });
+
+  const { data: escrows } = useQuery<Escrow[]>({
+    queryKey: ["/api/escrow"],
     enabled: !!user?.id,
   });
 
@@ -196,6 +203,15 @@ export default function FarmerDashboard() {
       return sum + (isNaN(price) ? 0 : price);
     }, 0) || 0;
   const pendingOrders = orders?.filter(o => o.status === "pending") || [];
+
+  const getEscrowForOrder = (orderId: string) => {
+    return escrows?.find(escrow => escrow.orderId === orderId);
+  };
+
+  const handleReportDispute = (orderId: string) => {
+    // Navigate to order detail page where dispute can be filed
+    setLocation(`/orders/${orderId}`);
+  };
 
   const getOrderStatusBadge = (status: string) => {
     const variants = {
@@ -506,6 +522,15 @@ export default function FarmerDashboard() {
                           )}
                         </div>
                       </div>
+                      {/* Escrow Status */}
+                      {getEscrowForOrder(order.id) && (
+                        <div className="mt-4">
+                          <EscrowStatus
+                            escrow={getEscrowForOrder(order.id)!}
+                            onReportDispute={() => handleReportDispute(order.id)}
+                          />
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 ))}

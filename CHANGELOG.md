@@ -5,20 +5,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [0.9.0] - 2025-11-26
-### Added - Sprint 9: Frontend Escrow UI & Production Hosting (Planned)
-- **Frontend Escrow Integration** (Planned for Sprint 9)
-  - Escrow status display components in buyer/farmer dashboards
-  - Dispute reporting interface with modal forms
-  - Admin escrow management panel for dispute resolution
-  - Payment status indicators and progress badges
-  - Real-time escrow notifications via Socket.IO
+## [0.9.0] - 2025-01-27
+### Added - Sprint 9: Frontend Escrow UI & Production Hosting (Completed)
+- **Frontend Escrow Integration** (Completed)
+  - Escrow status display components in buyer/farmer dashboards with real-time status updates
+  - Dispute reporting interface with modal forms and validation in order detail pages
+  - Admin escrow management panel for dispute resolution with resolution options (buyer/farmer/split)
+  - Payment status indicators and progress badges showing escrow flow (pending → upfront_held → remaining_released → completed/disputed)
+  - Real-time escrow notifications via Socket.IO for dispute filings and resolutions
 
-- **Production Hosting Setup** (Planned for Sprint 9)
-  - FREE tier hosting configuration (Vercel + Fly.io + Neon + Upstash)
-  - Environment variables setup for production deployment
-  - Paystack webhook URL configuration for live payments
-  - SSL certificate setup for HTTPS webhook security
+- **Production Hosting Setup** (In Progress - Next Priority)
+  - FREE tier hosting configuration (Vercel + Fly.io + Neon + Upstash) - Ready for deployment
+  - Environment variables setup for production deployment - Configuration prepared
+  - Paystack webhook URL configuration for live payments - Endpoints ready
+  - SSL certificate setup for HTTPS webhook security - Infrastructure prepared
   - Custom domain configuration with FREE subdomains
 
 - **Testing & Validation** (Planned for Sprint 9)

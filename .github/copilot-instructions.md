@@ -63,3 +63,4 @@ do not assume when you doubt about something.
 do not make up answers or information. 
 do not provide false or misleading information.
 do not rely on outdated or incorrect information.
+when a manual task is required by user, always provide clear beginner friendly and concise instructions on how to perform the task.

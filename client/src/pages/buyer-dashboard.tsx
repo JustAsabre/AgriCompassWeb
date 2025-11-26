@@ -17,6 +17,8 @@ import { useAuth } from "@/lib/auth";
 import { OrderWithDetails } from "@shared/schema";
 import { formatCurrency } from '@/lib/currency';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { EscrowStatus } from "@/components/escrow-status";
+import { Escrow } from "@shared/schema";
 
 export default function BuyerDashboard() {
   const { user } = useAuth();
@@ -27,12 +29,19 @@ export default function BuyerDashboard() {
     enabled: !!user?.id,
   });
 
-  const pendingOrders = orders?.filter(o => o.status === "pending") || [];
-  const completedOrders = orders?.filter(o => o.status === "completed") || [];
-  const totalSpent = completedOrders.reduce((sum, o) => {
-    const price = Number(o.totalPrice);
-    return sum + (isNaN(price) ? 0 : price);
-  }, 0);
+  const { data: escrows } = useQuery<Escrow[]>({
+    queryKey: ["/api/escrow"],
+    enabled: !!user?.id,
+  });
+
+  const getEscrowForOrder = (orderId: string) => {
+    return escrows?.find(escrow => escrow.orderId === orderId);
+  };
+
+  const handleReportDispute = (orderId: string) => {
+    // Navigate to order detail page where dispute can be filed
+    setLocation(`/orders/${orderId}`);
+  };
 
   const getOrderStatusBadge = (status: string) => {
     const variants = {
@@ -175,6 +184,15 @@ export default function BuyerDashboard() {
                           </p>
                         </div>
                       </div>
+                      {/* Escrow Status */}
+                      {getEscrowForOrder(order.id) && (
+                        <div className="mt-4">
+                          <EscrowStatus
+                            escrow={getEscrowForOrder(order.id)!}
+                            onReportDispute={() => handleReportDispute(order.id)}
+                          />
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 ))}
