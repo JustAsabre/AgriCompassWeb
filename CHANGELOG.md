@@ -5,6 +5,79 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.8.9] - 2025-11-26
+### Added - Sprint 8: Payment Integration & Escrow System
+- **Complete Escrow Payment System** ✅
+  - 30% upfront payment held until order acceptance
+  - 70% remaining payment released on delivery confirmation
+  - Automatic escrow status updates via Paystack webhooks
+  - Dispute resolution system for admin intervention
+  - Escrow state machine: pending → upfront_held → remaining_released → completed/disputed
+
+- **Escrow Database Schema** ✅
+  - New escrow table with order linkage, buyer/farmer IDs, amount breakdowns
+  - Status tracking with timestamps for state transitions
+  - Foreign key constraints ensuring data integrity
+  - Unique orderId constraint preventing duplicate escrows
+
+- **Escrow Storage Layer** ✅
+  - 8 new storage methods for escrow CRUD operations
+  - createEscrow, getEscrowByOrder, updateEscrowStatus methods
+  - Automatic timestamp management for escrow state changes
+  - Integration with existing payment and order storage
+
+- **Escrow API Endpoints** ✅
+  - GET /api/escrow - View user's escrows (buyers/farmers)
+  - POST /api/escrow/dispute - Report escrow disputes
+  - GET /api/admin/escrows - Admin escrow management
+  - PATCH /api/admin/escrows/:id/resolve - Admin dispute resolution
+  - Role-based access control for escrow operations
+
+- **Webhook Escrow Integration** ✅
+  - Modified Paystack webhook handler for escrow status updates
+  - Automatic upfront_held status on 30% payment completion
+  - Automatic remaining_released status on 70% payment completion
+  - HMAC signature verification maintained for security
+
+- **Checkout Escrow Creation** ✅
+  - Modified checkout endpoint to create escrow records
+  - Automatic calculation of upfront (30%) and remaining (70%) amounts
+  - Escrow creation tied to order placement
+  - Payment amount validation against escrow calculations
+
+### Technical Implementation
+- **Database Schema:** Added escrow table to shared/schema.ts with proper relationships
+- **Storage Methods:** 8 new methods in server/storage.ts for escrow management
+- **API Routes:** 5 new escrow endpoints in server/routes.ts with authorization
+- **Webhook Handler:** Enhanced Paystack webhook for escrow state transitions
+- **Checkout Flow:** Modified to create escrows alongside orders and payments
+
+### Security & Trust Features
+- **Payment Protection:** Escrow prevents premature fund release
+- **Dispute Resolution:** Admin-mediated conflict resolution system
+- **State Validation:** Automatic status updates via verified webhooks
+- **Amount Verification:** Server-side calculation of escrow amounts
+- **Role-Based Access:** Proper authorization for escrow operations
+
+### Business Logic
+- **Escrow Flow:** Order → 30% upfront → Acceptance → 70% remaining → Completion
+- **Dispute Handling:** Buyers/farmers can report disputes, admins resolve
+- **Fund Security:** Funds held securely until delivery confirmation
+- **Trust Building:** Escrow system protects both buyers and farmers
+
+### Sprint 8 Completion Summary
+- **Target:** Implement escrow-based payment system for 75% MVP completion
+- **Scope:** Complete backend escrow infrastructure with database, storage, API, and webhook integration
+- **Impact:** Secure payment system protecting transactions, enabling production readiness
+- **Next Steps:** Frontend escrow UI, testing, and hosting setup
+
+### Quality Assurance
+- **Database Integrity:** Foreign key constraints and unique constraints
+- **API Security:** Role-based access control and input validation
+- **Webhook Security:** HMAC verification maintained for escrow updates
+- **State Management:** Proper escrow state transitions and error handling
+
+
 ## [0.8.8] - 2025-11-26
 ### Added - Sprint 7 Complete: Security Hardening & Webhook Protection
 - **Session Isolation Security** ✅

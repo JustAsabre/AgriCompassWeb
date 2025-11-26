@@ -808,6 +808,22 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           }, io);
       }
 
+      // Create escrow records for each order
+      for (const order of orders) {
+        const upfrontAmount = Number((Number(order.totalPrice) * 0.3).toFixed(2)); // 30% upfront
+        const remainingAmount = Number((Number(order.totalPrice) * 0.7).toFixed(2)); // 70% remaining
+
+        await storage.createEscrow({
+          orderId: order.id,
+          buyerId: buyerId,
+          farmerId: order.farmerId,
+          totalAmount: Number(order.totalPrice),
+          upfrontAmount,
+          remainingAmount,
+          status: 'pending',
+        });
+      }
+
       // Clear cart
       await storage.clearCart(buyerId);
 
@@ -2999,6 +3015,19 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
                 // update order status to accepted so farmer can move forward
                 await storage.updateOrderStatus(existing.orderId, 'accepted');
 
+                // Handle escrow logic
+                const escrow = await storage.getEscrowByOrder(existing.orderId);
+                if (escrow) {
+                  if (existing.id === escrow.upfrontPaymentId) {
+                    // This is the upfront payment (30%)
+                    await storage.updateEscrowStatus(escrow.id, 'upfront_held');
+                  } else if (existing.id === escrow.remainingPaymentId) {
+                    // This is the remaining payment (70%)
+                    await storage.updateEscrowStatus(escrow.id, 'remaining_released');
+                    await storage.updateEscrowStatus(escrow.id, 'completed');
+                  }
+                }
+
                 // Create buyer/farmer notifications
                 try {
                   if (io) {
@@ -3044,7 +3073,174 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         }
       });
 
-    // ==================== PAYOUTS (MVP) ====================
+    // ==================== ESCROW ROUTES ====================
+
+  // Get escrow by order ID (buyer or farmer)
+  app.get('/api/escrow/order/:orderId', requireAuth, async (req, res) => {
+    try {
+      const { orderId } = req.params;
+      const userId = req.session.user!.id;
+
+      const escrow = await storage.getEscrowByOrder(orderId);
+      if (!escrow) {
+        return res.status(404).json({ message: 'Escrow not found' });
+      }
+
+      // Only buyer or farmer can view this escrow
+      if (escrow.buyerId !== userId && escrow.farmerId !== userId) {
+        return res.status(403).json({ message: 'Not authorized to view this escrow' });
+      }
+
+      res.json(escrow);
+    } catch (err: any) {
+      console.error('Get escrow error:', err);
+      res.status(500).json({ message: 'Failed to fetch escrow' });
+    }
+  });
+
+  // Get escrows for current user (buyer or farmer)
+  app.get('/api/escrow', requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.user!.id;
+      const userRole = req.session.user!.role;
+
+      let escrows: any[] = [];
+      if (userRole === 'buyer') {
+        escrows = await storage.getEscrowsByBuyer(userId);
+      } else if (userRole === 'farmer') {
+        escrows = await storage.getEscrowsByFarmer(userId);
+      } else {
+        return res.status(403).json({ message: 'Only buyers and farmers can view escrows' });
+      }
+
+      res.json(escrows);
+    } catch (err: any) {
+      console.error('Get escrows error:', err);
+      res.status(500).json({ message: 'Failed to fetch escrows' });
+    }
+  });
+
+  // Admin: Get all escrows
+  app.get('/api/admin/escrow', requireRole('admin'), async (req, res) => {
+    try {
+      const escrows = await storage.getAllEscrows();
+      res.json(escrows);
+    } catch (err: any) {
+      console.error('Get all escrows error:', err);
+      res.status(500).json({ message: 'Failed to fetch escrows' });
+    }
+  });
+
+  // Admin: Resolve escrow dispute
+  app.patch('/api/admin/escrow/:id/resolve', requireRole('admin'), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { resolution, reason } = req.body;
+
+      if (!resolution || !['buyer', 'farmer', 'split'].includes(resolution)) {
+        return res.status(400).json({ message: 'Resolution must be buyer, farmer, or split' });
+      }
+
+      const escrow = await storage.getEscrow(id);
+      if (!escrow) {
+        return res.status(404).json({ message: 'Escrow not found' });
+      }
+
+      if (escrow.status !== 'disputed') {
+        return res.status(400).json({ message: 'Escrow must be in disputed status' });
+      }
+
+      const updated = await storage.updateEscrowStatus(id, 'completed', {
+        disputeResolution: resolution,
+        disputeResolvedAt: new Date(),
+      });
+
+      // Notify both parties
+      await sendNotificationToUser(escrow.buyerId, {
+        userId: escrow.buyerId,
+        type: 'escrow_update',
+        title: 'Escrow Dispute Resolved',
+        message: `Your escrow dispute has been resolved in favor of: ${resolution}`,
+        relatedId: escrow.id,
+        relatedType: 'escrow',
+      }, io);
+
+      await sendNotificationToUser(escrow.farmerId, {
+        userId: escrow.farmerId,
+        type: 'escrow_update',
+        title: 'Escrow Dispute Resolved',
+        message: `Your escrow dispute has been resolved in favor of: ${resolution}`,
+        relatedId: escrow.id,
+        relatedType: 'escrow',
+      }, io);
+
+      res.json(updated);
+    } catch (err: any) {
+      console.error('Resolve escrow dispute error:', err);
+      res.status(500).json({ message: 'Failed to resolve escrow dispute' });
+    }
+  });
+
+  // Buyer or Farmer: Report escrow dispute
+  app.post('/api/escrow/:id/dispute', requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+      const userId = req.session.user!.id;
+
+      if (!reason || reason.trim().length === 0) {
+        return res.status(400).json({ message: 'Dispute reason is required' });
+      }
+
+      const escrow = await storage.getEscrow(id);
+      if (!escrow) {
+        return res.status(404).json({ message: 'Escrow not found' });
+      }
+
+      // Only buyer or farmer can dispute
+      if (escrow.buyerId !== userId && escrow.farmerId !== userId) {
+        return res.status(403).json({ message: 'Not authorized to dispute this escrow' });
+      }
+
+      // Can only dispute if remaining payment is released but not completed
+      if (escrow.status !== 'remaining_released') {
+        return res.status(400).json({ message: 'Can only dispute after remaining payment is released' });
+      }
+
+      const updated = await storage.updateEscrowStatus(id, 'disputed', {
+        disputeReason: reason,
+        disputedAt: new Date(),
+      });
+
+      // Notify admin and other party
+      const adminUsers = await storage.getUsersByRole('admin');
+      for (const admin of adminUsers) {
+        await sendNotificationToUser(admin.id, {
+          userId: admin.id,
+          type: 'escrow_dispute',
+          title: 'New Escrow Dispute',
+          message: `Escrow dispute reported for order ${escrow.orderId}: ${reason}`,
+          relatedId: escrow.id,
+          relatedType: 'escrow',
+        }, io);
+      }
+
+      const otherPartyId = escrow.buyerId === userId ? escrow.farmerId : escrow.buyerId;
+      await sendNotificationToUser(otherPartyId, {
+        userId: otherPartyId,
+        type: 'escrow_update',
+        title: 'Escrow Dispute Filed',
+        message: `A dispute has been filed for your escrow: ${reason}`,
+        relatedId: escrow.id,
+        relatedType: 'escrow',
+      }, io);
+
+      res.json(updated);
+    } catch (err: any) {
+      console.error('Report escrow dispute error:', err);
+      res.status(500).json({ message: 'Failed to report escrow dispute' });
+    }
+  });
 
     // Farmer requests a payout
     app.post('/api/payouts/request', requireRole('farmer'), async (req, res) => {

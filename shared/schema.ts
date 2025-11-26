@@ -98,6 +98,28 @@ export const payments = pgTable("payments", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Escrow management for order payments
+export const escrow = pgTable("escrow", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  orderId: varchar("order_id").notNull().references(() => orders.id).unique(),
+  buyerId: varchar("buyer_id").notNull().references(() => users.id),
+  farmerId: varchar("farmer_id").notNull().references(() => users.id),
+  totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).notNull(),
+  upfrontAmount: decimal("upfront_amount", { precision: 10, scale: 2 }).notNull(), // 30% held initially
+  remainingAmount: decimal("remaining_amount", { precision: 10, scale: 2 }).notNull(), // 70% released on delivery
+  upfrontPaymentId: varchar("upfront_payment_id").references(() => payments.id),
+  remainingPaymentId: varchar("remaining_payment_id").references(() => payments.id),
+  status: text("status").default("pending"), // pending, upfront_held, remaining_released, completed, disputed, refunded
+  upfrontHeldAt: timestamp("upfront_held_at"),
+  remainingReleasedAt: timestamp("remaining_released_at"),
+  disputedAt: timestamp("disputed_at"),
+  disputeReason: text("dispute_reason"),
+  disputeResolvedAt: timestamp("dispute_resolved_at"),
+  disputeResolution: text("dispute_resolution"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Transactions (for combined payments)
 export const transactions = pgTable("transactions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -272,10 +294,14 @@ export const insertTransactionSchema = createInsertSchema(transactions).omit({
   completedAt: true,
 });
 
-export const insertPayoutSchema = createInsertSchema(payouts).omit({
+export const insertEscrowSchema = createInsertSchema(escrow).omit({
   id: true,
   createdAt: true,
-  completedAt: true,
+  updatedAt: true,
+  upfrontHeldAt: true,
+  remainingReleasedAt: true,
+  disputedAt: true,
+  disputeResolvedAt: true,
   status: true,
 });
 
@@ -356,6 +382,9 @@ export type InsertTransaction = z.infer<typeof insertTransactionSchema>;
 
 export type Payout = typeof payouts.$inferSelect;
 export type InsertPayout = z.infer<typeof insertPayoutSchema>;
+
+export type Escrow = typeof escrow.$inferSelect;
+export type InsertEscrow = z.infer<typeof insertEscrowSchema>;
 
 export type UserWithRating = User & {
   averageRating?: number;

@@ -30,7 +30,9 @@ import {
   type CartItemWithListing,
   type MessageWithUsers,
   type ReviewWithUsers,
-  type Conversation
+  type Conversation,
+  type Escrow,
+  type InsertEscrow
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -129,6 +131,15 @@ export interface IStorage {
   // Return all payments in the system
   getAllPayments(): Promise<Payment[]>;
 
+  // Escrow operations
+  createEscrow(escrow: InsertEscrow): Promise<Escrow>;
+  getEscrowByOrder(orderId: string): Promise<Escrow | undefined>;
+  getEscrow(id: string): Promise<Escrow | undefined>;
+  updateEscrowStatus(id: string, status: string, updates?: Partial<Escrow>): Promise<Escrow | undefined>;
+  getEscrowsByBuyer(buyerId: string): Promise<Escrow[]>;
+  getEscrowsByFarmer(farmerId: string): Promise<Escrow[]>;
+  getAllEscrows(): Promise<Escrow[]>;
+
   // Moderation stats operations
   createModerationStat(stat: InsertModerationStat): Promise<ModerationStat>;
   getModerationStatsByDateRange(startDate: Date, endDate: Date): Promise<ModerationStat[]>;
@@ -151,6 +162,7 @@ export class MemStorage implements IStorage {
   private payouts: Map<string, Payout>;
   private transactions: Map<string, Transaction>;
   private moderationStats: Map<string, ModerationStat>;
+  private escrows: Map<string, Escrow>;
 
   constructor() {
     this.users = new Map();
@@ -166,6 +178,7 @@ export class MemStorage implements IStorage {
     this.payouts = new Map();
     this.transactions = new Map();
     this.moderationStats = new Map();
+    this.escrows = new Map();
 
     // Seed data for testing
     this.seedData();
@@ -596,6 +609,70 @@ export class MemStorage implements IStorage {
 
   async getAllPayments(): Promise<Payment[]> {
     return Array.from(this.payments.values());
+  }
+
+  // Escrow operations
+  async createEscrow(insertEscrow: InsertEscrow): Promise<Escrow> {
+    const id = randomUUID();
+    const escrow: Escrow = {
+      ...insertEscrow,
+      id,
+      upfrontPaymentId: insertEscrow.upfrontPaymentId ?? null,
+      remainingPaymentId: insertEscrow.remainingPaymentId ?? null,
+      upfrontHeldAt: null,
+      remainingReleasedAt: null,
+      disputedAt: null,
+      disputeReason: null,
+      disputeResolvedAt: null,
+      disputeResolution: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.escrows.set(id, escrow);
+    return escrow;
+  }
+
+  async getEscrowByOrder(orderId: string): Promise<Escrow | undefined> {
+    return Array.from(this.escrows.values()).find(e => e.orderId === orderId);
+  }
+
+  async getEscrow(id: string): Promise<Escrow | undefined> {
+    return this.escrows.get(id);
+  }
+
+  async updateEscrowStatus(id: string, status: string, updates?: Partial<Escrow>): Promise<Escrow | undefined> {
+    const escrow = this.escrows.get(id);
+    if (!escrow) return undefined;
+
+    const now = new Date();
+    const statusUpdates: Partial<Escrow> = { status, updatedAt: now };
+
+    // Set timestamps based on status changes
+    if (status === 'upfront_held' && !escrow.upfrontHeldAt) {
+      statusUpdates.upfrontHeldAt = now;
+    } else if (status === 'remaining_released' && !escrow.remainingReleasedAt) {
+      statusUpdates.remainingReleasedAt = now;
+    } else if (status === 'disputed' && !escrow.disputedAt) {
+      statusUpdates.disputedAt = now;
+    } else if (status === 'completed' && escrow.disputeResolvedAt === null) {
+      statusUpdates.disputeResolvedAt = now;
+    }
+
+    const updated = { ...escrow, ...statusUpdates, ...updates };
+    this.escrows.set(id, updated);
+    return updated;
+  }
+
+  async getEscrowsByBuyer(buyerId: string): Promise<Escrow[]> {
+    return Array.from(this.escrows.values()).filter(e => e.buyerId === buyerId);
+  }
+
+  async getEscrowsByFarmer(farmerId: string): Promise<Escrow[]> {
+    return Array.from(this.escrows.values()).filter(e => e.farmerId === farmerId);
+  }
+
+  async getAllEscrows(): Promise<Escrow[]> {
+    return Array.from(this.escrows.values());
   }
 
   // Transaction operations
@@ -1122,6 +1199,7 @@ export class MemStorage implements IStorage {
     this.payouts.clear();
     this.transactions.clear();
     this.moderationStats.clear();
+    this.escrows.clear();
   }
 }
 
