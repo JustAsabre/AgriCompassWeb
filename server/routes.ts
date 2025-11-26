@@ -2932,24 +2932,33 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       // Paystack webhook handler - used by Paystack to notify server of payment events
       app.post('/api/payments/paystack/webhook', async (req, res) => {
         try {
-          const secret = process.env.PAYSTACK_WEBHOOK_SECRET || process.env.PAYSTACK_SECRET_KEY;
+          // Webhook secret is mandatory for security - no fallback to main secret
+          const secret = process.env.PAYSTACK_WEBHOOK_SECRET;
+          if (!secret) {
+            console.error('PAYSTACK_WEBHOOK_SECRET not configured - webhook security disabled');
+            return res.status(500).json({ message: 'Webhook configuration error' });
+          }
+
           const signature = (req.headers['x-paystack-signature'] as string) || '';
 
-          // Verify signature if secret is provided
-          if (secret) {
-            try {
-              const raw = (req as any).rawBody as Buffer | string | undefined;
-              const payloadBuf = Buffer.isBuffer(raw) ? raw as Buffer : Buffer.from(JSON.stringify(req.body || {}));
-              const computed = crypto.createHmac('sha512', secret).update(payloadBuf).digest('hex');
-              if (!signature || computed !== signature) {
-                console.warn('Invalid Paystack webhook signature');
-                // Respond 401 to indicate signature mismatch
-                return res.status(401).json({ message: 'Invalid signature' });
-              }
-            } catch (vErr) {
-              console.warn('Failed while verifying webhook signature', vErr);
-              return res.status(400).json({ message: 'Invalid webhook' });
+          // Verify signature - mandatory for all webhook requests
+          try {
+            const raw = (req as any).rawBody as Buffer | string | undefined;
+            if (!raw) {
+              console.warn('Webhook received without raw body');
+              return res.status(400).json({ message: 'Invalid webhook format' });
             }
+
+            const payloadBuf = Buffer.isBuffer(raw) ? raw : Buffer.from(typeof raw === 'string' ? raw : JSON.stringify(req.body || {}));
+            const computed = crypto.createHmac('sha512', secret).update(payloadBuf).digest('hex');
+
+            if (!signature || computed !== signature) {
+              console.warn('Invalid Paystack webhook signature - possible security breach');
+              return res.status(401).json({ message: 'Invalid signature' });
+            }
+          } catch (vErr) {
+            console.warn('Failed while verifying webhook signature', vErr);
+            return res.status(400).json({ message: 'Invalid webhook signature verification' });
           }
 
           const event = req.body;

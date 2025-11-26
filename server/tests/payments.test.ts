@@ -262,17 +262,26 @@ describe('Payments API', () => {
     // Create a payment record with a provider transaction reference
     const createdPayment = await storage.createPayment({ orderId, payerId: orders[0].buyerId, amount: '5.00', paymentMethod: 'paystack', transactionId: 'ref-wh-123', status: 'pending' } as any);
 
-    // Simulate webhook payload
-    const payload = { event: 'charge.success', data: { reference: 'ref-wh-123' } };
-    const res = await request(app).post('/api/payments/paystack/webhook').send(payload);
-    expect(res.status).toBe(401); // Signature verification fails in test environment
+    // Temporarily unset webhook secret to test configuration error
+    const originalSecret = process.env.PAYSTACK_WEBHOOK_SECRET;
+    delete process.env.PAYSTACK_WEBHOOK_SECRET;
 
-    const updatedPayment = await storage.getPayment(createdPayment.id);
-    expect(updatedPayment?.status).toBe('pending'); // Payment not updated due to signature failure
+    try {
+      // Simulate webhook payload - should fail due to missing PAYSTACK_WEBHOOK_SECRET
+      const payload = { event: 'charge.success', data: { reference: 'ref-wh-123' } };
+      const res = await request(app).post('/api/payments/paystack/webhook').send(payload);
+      expect(res.status).toBe(500); // Configuration error when webhook secret not set
 
-    const order = await storage.getOrder(orderId);
-    expect(order?.status).toBe('pending'); // Order not updated due to signature failure
-    // Notifications are not created when signature verification fails
+      const updatedPayment = await storage.getPayment(createdPayment.id);
+      expect(updatedPayment?.status).toBe('pending'); // Payment not updated due to configuration error
+
+      const order = await storage.getOrder(orderId);
+      expect(order?.status).toBe('pending'); // Order not updated due to signature failure
+      // Notifications are not created when signature verification fails
+    } finally {
+      // Restore the webhook secret
+      process.env.PAYSTACK_WEBHOOK_SECRET = originalSecret;
+    }
   }, 20000);
 
   it('creates a payout after order completion', async () => {

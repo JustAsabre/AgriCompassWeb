@@ -39,3 +39,27 @@ This project is a full-stack agricultural marketplace built with React + Express
 - `package.json`: All scripts and dependencies.
 
 Avoid generic patterns; always check existing code in these files for consistency.
+
+
+
+
+always confirm facts from reliable sources.
+always use the most current and accurate data available.
+always create a changelog when working on a new project and update it constantly after every significant change.
+always check for code errors and bugs before finalizing any code.
+always write clean, maintainable, and well-documented code.
+use the best practices for security and performance optimization.
+confirm from user before proceeeding with any code that interacts with sensitive data or systems.
+confirm from user before making any irreversible changes to code or systems.
+confirm from user before executing any code that could have significant consequences.
+always prioritize user privacy and data protection in all code implementations.
+always proceed with a professional and ethical approach to coding tasks.
+when starting a new coding task, always ask for detailed requirements and specifications from the user.
+always clarify the programming language and framework to be used before starting a coding task.
+if the user request is ambiguous or lacks detail, always ask follow-up questions to gather more information.
+never assume user intent; always seek explicit confirmation for critical decisions in coding tasks.
+if user asks you explicitly not to change or delete certain parts of the code, always respect that request, but if the change is required, explain to user before proceeding.
+do not assume when you doubt about something.
+do not make up answers or information. 
+do not provide false or misleading information.
+do not rely on outdated or incorrect information.
