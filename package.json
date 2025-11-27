@@ -111,8 +111,12 @@
     "ws": "^8.18.0",
     "zod": "^3.24.2",
     "zod-validation-error": "^3.4.0"
+  ,
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47"
+  ,
+    "@vitejs/plugin-react": "^4.7.0"
   },
-  "@vitejs/plugin-react": "^4.7.0",
   "devDependencies": {
     "@playwright/test": "^1.43.0",
     "@replit/vite-plugin-cartographer": "^0.4.1",
@@ -136,12 +140,10 @@
     "@types/supertest": "^6.0.3",
     "@types/ws": "^8.5.13",
     "@vitest/ui": "^4.0.9",
-    "autoprefixer": "^10.4.20",
     "drizzle-kit": "^0.31.7",
     "esbuild": "^0.25.0",
     "jest": "^30.2.0",
     "jsdom": "^27.2.0",
-    "postcss": "^8.4.47",
     "supertest": "^7.1.4",
     "tailwindcss": "^3.4.17",
     "ts-jest": "^29.4.5",
