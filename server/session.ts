@@ -33,6 +33,7 @@ if (!sessionStore && process.env.REDIS_URL) {
     // Support both shapes.
     let RedisStoreCtor: any = null;
     try {
+      console.log('connect-redis module info', typeof connectRedisModule, Object.keys(connectRedisModule || {}), connectRedisModule && typeof connectRedisModule.default);
       const tryAsFactory = (fn: any) => {
         try {
           return fn(session as any);
