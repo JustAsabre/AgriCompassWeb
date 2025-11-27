@@ -9,7 +9,7 @@ import {
   verifications,
   notifications,
   messages,
-  reviews,
+  reviews as reviewsTable,
   payments,
   payouts,
   transactions,
@@ -123,7 +123,7 @@ export class PostgresStorage implements IStorage {
       const farmer = await this.getUser(l.farmerId);
       if (!farmer) continue;
       const tiers = await db.select().from(pricingTiers).where(eq(pricingTiers.listingId, l.id));
-      const reviewsList = await db.select().from(reviews).where(eq(reviews.revieweeId, farmer.id));
+      const reviewsList = await db.select().from(reviewsTable).where(eq(reviewsTable.revieweeId, farmer.id));
       const averageRating = reviewsList.length > 0 ? (reviewsList.reduce((s, r) => s + (r.rating || 0), 0) / reviewsList.length) : undefined;
       result.push({ ...l as any, farmer: { ...farmer as any, averageRating, reviewCount: reviewsList.length }, pricingTiers: tiers as any });
     }
@@ -405,7 +405,7 @@ export class PostgresStorage implements IStorage {
 
   // Reviews
   async getReviewsByReviewee(revieweeId: string): Promise<ReviewWithUsers[]> {
-    const res = await db.select().from(reviews).where(eq(reviews.revieweeId, revieweeId));
+    const res = await db.select().from(reviewsTable).where(eq(reviewsTable.revieweeId, revieweeId));
     const out: ReviewWithUsers[] = [];
     for (const r of res as any[]) {
       const reviewer = await this.getUser(r.reviewerId);
@@ -416,7 +416,7 @@ export class PostgresStorage implements IStorage {
   }
 
   async getReviewsByOrder(orderId: string): Promise<ReviewWithUsers[]> {
-    const res = await db.select().from(reviews).where(eq(reviews.orderId, orderId));
+    const res = await db.select().from(reviewsTable).where(eq(reviewsTable.orderId, orderId));
     const out: ReviewWithUsers[] = [];
     for (const r of res as any[]) {
       const reviewer = await this.getUser(r.reviewerId);
@@ -427,7 +427,7 @@ export class PostgresStorage implements IStorage {
   }
 
   async getAllReviews(): Promise<ReviewWithUsers[]> {
-    const res = await db.select().from(reviews);
+    const res = await db.select().from(reviewsTable);
     const out: ReviewWithUsers[] = [];
     for (const r of res as any[]) {
       const reviewer = await this.getUser(r.reviewerId);
@@ -438,22 +438,22 @@ export class PostgresStorage implements IStorage {
   }
 
   async createReview(review: InsertReview): Promise<Review> {
-    const [res] = await db.insert(reviews).values(review).returning();
+    const [res] = await db.insert(reviewsTable).values(review).returning();
     return res as any;
   }
 
   async updateReview(id: string, updates: Partial<Review>): Promise<Review | undefined> {
-    const [res] = await db.update(reviews).set(updates as any).where(eq(reviews.id, id)).returning();
+    const [res] = await db.update(reviewsTable).set(updates as any).where(eq(reviewsTable.id, id)).returning();
     return res as any;
   }
 
   async deleteReview(id: string): Promise<boolean> {
-    const r = await db.delete(reviews).where(eq(reviews.id, id));
+    const r = await db.delete(reviewsTable).where(eq(reviewsTable.id, id));
     return r > 0;
   }
 
   async getAverageRating(userId: string): Promise<{ average: number; count: number }> {
-    const res = await db.select().from(reviews).where(eq(reviews.revieweeId, userId), eq(reviews.approved, true));
+    const res = await db.select().from(reviewsTable).where(eq(reviewsTable.revieweeId, userId), eq(reviewsTable.approved, true));
     const count = (res as any).length;
     if (count === 0) return { average: 0, count: 0 };
     const sum = (res as any[]).reduce((acc, r) => acc + (r.rating || 0), 0);
