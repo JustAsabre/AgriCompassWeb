@@ -1,6 +1,6 @@
 import { setTimeout as wait } from 'timers/promises';
 import { type SentMessageInfo } from 'nodemailer';
-import { log } from './vite';
+import { log } from './log';
 import nodemailer from 'nodemailer';
 
 type EmailJob = {

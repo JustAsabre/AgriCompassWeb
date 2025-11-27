@@ -259,28 +259,64 @@ describe('Payments API', () => {
     const orders = checkoutRes.body.orders;
     const orderId = orders[0].id;
 
-    // Create a payment record with a provider transaction reference
-    const createdPayment = await storage.createPayment({ orderId, payerId: orders[0].buyerId, amount: '5.00', paymentMethod: 'paystack', transactionId: 'ref-wh-123', status: 'pending' } as any);
+    // Create a transaction record first (simulating what happens in autoPay checkout)
+    const transaction = await storage.createTransaction({
+      buyerId: orders[0].buyerId,
+      totalAmount: '5.00',
+      paymentMethod: 'paystack',
+      paystackReference: 'ref-wh-123',
+      status: 'pending'
+    } as any);
 
-    // Temporarily unset webhook secret to test configuration error
+    // Create a payment record linked to the transaction
+    const createdPayment = await storage.createPayment({ 
+      orderId, 
+      payerId: orders[0].buyerId, 
+      transactionId: transaction.id, 
+      amount: '5.00', 
+      paymentMethod: 'paystack', 
+      paystackReference: 'ref-wh-123', 
+      status: 'pending' 
+    } as any);
+
+    // Temporarily unset webhook secret to test fallback verification
     const originalSecret = process.env.PAYSTACK_WEBHOOK_SECRET;
+    const originalKey = process.env.PAYSTACK_SECRET_KEY;
     delete process.env.PAYSTACK_WEBHOOK_SECRET;
+    // Set PAYSTACK_SECRET_KEY for fallback verification
+    process.env.PAYSTACK_SECRET_KEY = 'test-paystack-secret';
+
+    // Mock fetch for Paystack verify API fallback
+    // @ts-ignore
+    const origFetch = global.fetch;
+    // @ts-ignore
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes('api.paystack.co/transaction/verify')) {
+        return {
+          ok: true,
+          json: async () => ({ data: { status: 'success' } })
+        };
+      }
+      return origFetch(url);
+    });
 
     try {
-      // Simulate webhook payload - should fail due to missing PAYSTACK_WEBHOOK_SECRET
+      // Simulate webhook payload - should succeed with fallback verification
       const payload = { event: 'charge.success', data: { reference: 'ref-wh-123' } };
       const res = await request(app).post('/api/payments/paystack/webhook').send(payload);
-      expect(res.status).toBe(500); // Configuration error when webhook secret not set
+      expect(res.status).toBe(200); // Success with fallback verification
 
       const updatedPayment = await storage.getPayment(createdPayment.id);
-      expect(updatedPayment?.status).toBe('pending'); // Payment not updated due to configuration error
+      expect(updatedPayment?.status).toBe('completed'); // Payment updated via fallback
 
       const order = await storage.getOrder(orderId);
-      expect(order?.status).toBe('pending'); // Order not updated due to signature failure
-      // Notifications are not created when signature verification fails
+      expect(order?.status).toBe('accepted'); // Order updated
     } finally {
-      // Restore the webhook secret
+      // Restore the webhook secret and key
       process.env.PAYSTACK_WEBHOOK_SECRET = originalSecret;
+      process.env.PAYSTACK_SECRET_KEY = originalKey;
+      // @ts-ignore
+      global.fetch = origFetch;
     }
   }, 20000);
 

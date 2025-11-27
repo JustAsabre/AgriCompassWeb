@@ -34,6 +34,11 @@ export default function BuyerDashboard() {
     enabled: !!user?.id,
   });
 
+  // Compute derived data
+  const pendingOrders = orders?.filter(order => order.status === 'pending' || order.status === 'accepted') || [];
+  const completedOrders = orders?.filter(order => order.status === 'completed') || [];
+  const totalSpent = orders?.reduce((sum, order) => sum + (Number(order.totalPrice) || 0), 0) || 0;
+
   const getEscrowForOrder = (orderId: string) => {
     return escrows?.find(escrow => escrow.orderId === orderId);
   };

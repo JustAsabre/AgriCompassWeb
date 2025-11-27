@@ -61,6 +61,76 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       res.status(500).json({ ok: false, error: err && err.message ? err.message : String(err) });
     }
   });
+
+  // General health endpoint (with optional verbose checks via ?verbose=1)
+  app.get('/api/health', async (req, res) => {
+    try {
+      const verbose = req.query.verbose === '1' || req.query.verbose === 'true';
+
+      const basic = {
+        ok: true,
+        message: 'Server is running',
+        timestamp: new Date().toISOString(),
+        nodeEnv: process.env.NODE_ENV || 'development',
+      };
+
+      if (!verbose) return res.json(basic);
+
+      // Gather more details: DB connectivity, Redis session store, SMTP, storage type
+      const dbStatus: any = { ok: false, error: null };
+      try {
+        if ((pool as any)) {
+          await (pool as any).query('SELECT 1');
+          dbStatus.ok = true;
+        } else {
+          dbStatus.ok = false;
+          dbStatus.error = 'No DATABASE_URL configured';
+        }
+      } catch (err: any) {
+        dbStatus.ok = false;
+        dbStatus.error = err && err.message ? err.message : String(err);
+      }
+
+      const redisStatus: any = { ok: false, type: null, error: null };
+      try {
+        // sessionStore may be RedisStore with a client attached
+        if (sessionStore) {
+          const name = sessionStore.constructor && sessionStore.constructor.name ? sessionStore.constructor.name : 'unknown';
+          redisStatus.type = name;
+          // Attempt a ping if session store exposes `client` (connect-redis) or `get`/set
+          // Many Redis stores expose `client` property; use best effort
+          const client: any = (sessionStore as any).client || (sessionStore as any).redisClient;
+          if (client && client.ping) {
+            try {
+              const pong = await client.ping();
+              redisStatus.ok = pong === 'PONG' || pong === 'OK' || pong === true;
+            } catch (pingErr) {
+              redisStatus.ok = false;
+              redisStatus.error = pingErr && pingErr.message ? pingErr.message : String(pingErr);
+            }
+          } else {
+            // If no client present, assume MemoryStore or unknown store
+            redisStatus.ok = name !== 'MemoryStore';
+          }
+        } else {
+          redisStatus.ok = false;
+          redisStatus.error = 'No session store configured';
+        }
+      } catch (err: any) {
+        redisStatus.ok = false;
+        redisStatus.error = err && err.message ? err.message : String(err);
+      }
+
+      const smtpStatus = getSmtpStatus ? getSmtpStatus() : { configured: false };
+
+      const storageType = storage ? (storage as any).constructor?.name || 'unknown' : 'none';
+
+      return res.json({ ...basic, checks: { db: dbStatus, redis: redisStatus, smtp: smtpStatus, storage: storageType } });
+    } catch (err: any) {
+      console.error('Health check error:', err);
+      return res.status(500).json({ ok: false, message: 'Health checks failed', error: err && err.message ? err.message : String(err) });
+    }
+  });
   // Authentication routes
   app.post("/api/auth/register", async (req, res) => {
     try {
@@ -817,10 +887,9 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           orderId: order.id,
           buyerId: buyerId,
           farmerId: order.farmerId,
-          totalAmount: Number(order.totalPrice),
-          upfrontAmount,
-          remainingAmount,
-          status: 'pending',
+          totalAmount: String(Number(order.totalPrice)),
+          upfrontAmount: String(upfrontAmount),
+          remainingAmount: String(remainingAmount),
         });
       }
 
@@ -2948,37 +3017,42 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       // Paystack webhook handler - used by Paystack to notify server of payment events
       app.post('/api/payments/paystack/webhook', async (req, res) => {
         try {
-          // Webhook secret is mandatory for security - no fallback to main secret
+          // Accept webhook via signature verification when secret is available.
+          // If webhook secret is not provided in env, fallback to server-to-server verification using PAYSTACK_SECRET_KEY.
           const secret = process.env.PAYSTACK_WEBHOOK_SECRET;
-          if (!secret) {
-            console.error('PAYSTACK_WEBHOOK_SECRET not configured - webhook security disabled');
-            return res.status(500).json({ message: 'Webhook configuration error' });
-          }
-
+          const paystackKey = process.env.PAYSTACK_SECRET_KEY;
           const signature = (req.headers['x-paystack-signature'] as string) || '';
 
-          // Verify signature - mandatory for all webhook requests
-          try {
-            const raw = (req as any).rawBody as Buffer | string | undefined;
-            if (!raw) {
-              console.warn('Webhook received without raw body');
-              return res.status(400).json({ message: 'Invalid webhook format' });
-            }
+          if (secret) {
+            // Verify signature - mandatory when webhook secret is set
+            try {
+              const raw = (req as any).rawBody as Buffer | string | undefined;
+              if (!raw) {
+                console.warn('Webhook received without raw body');
+                return res.status(400).json({ message: 'Invalid webhook format' });
+              }
 
-            const payloadBuf = Buffer.isBuffer(raw) ? raw : Buffer.from(typeof raw === 'string' ? raw : JSON.stringify(req.body || {}));
-            const computed = crypto.createHmac('sha512', secret).update(payloadBuf).digest('hex');
-
-            if (!signature || computed !== signature) {
-              console.warn('Invalid Paystack webhook signature - possible security breach');
-              return res.status(401).json({ message: 'Invalid signature' });
+              const payloadBuf = Buffer.isBuffer(raw) ? raw : Buffer.from(typeof raw === 'string' ? raw : JSON.stringify(req.body || {}));
+              const computed = crypto.createHmac('sha512', secret).update(payloadBuf).digest('hex');
+              if (!signature || computed !== signature) {
+                console.warn('Invalid Paystack webhook signature - possible security breach');
+                return res.status(401).json({ message: 'Invalid signature' });
+              }
+            } catch (vErr) {
+              console.warn('Failed while verifying webhook signature', vErr);
+              return res.status(400).json({ message: 'Invalid webhook signature verification' });
             }
-          } catch (vErr) {
-            console.warn('Failed while verifying webhook signature', vErr);
-            return res.status(400).json({ message: 'Invalid webhook signature verification' });
+          } else if (!paystackKey) {
+            console.error('PAYSTACK_WEBHOOK_SECRET not configured and PAYSTACK_SECRET_KEY not provided - webhook cannot be verified');
+            // Do not process webhooks without a verification method
+            return res.status(500).json({ message: 'Webhook configuration error' });
+          } else {
+            console.warn('PAYSTACK_WEBHOOK_SECRET not configured - using API-based fallback verification');
+            // we will perform server-to-server verification later after getting the reference
           }
 
           const event = req.body;
-          const eventType = String(event?.event || '').toLowerCase();
+          let eventType = String(event?.event || '').toLowerCase();
           const reference = event?.data?.reference || event?.data?.id || event?.data?.trx || null;
           if (!reference) {
             // Nothing to do, just acknowledge
@@ -2996,6 +3070,39 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
               return res.json({ ok: true, message: 'no linked transaction' });
             }
             transaction = maybeTransaction;
+          }
+
+          // If PAYSTACK_WEBHOOK_SECRET is not set, perform a server-to-server verification to confirm this event
+          let fallbackVerified = false;
+          if (!secret) {
+            try {
+              const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${paystackKey}` },
+              });
+              if (!verifyRes.ok) {
+                const text = await verifyRes.text().catch(() => '');
+                console.warn('Paystack verify fallback failed', verifyRes.status, text);
+                return res.status(502).json({ message: 'Failed to verify with Paystack' });
+              }
+              const vdata = await verifyRes.json();
+              const vstatus = vdata.data?.status;
+              if (vstatus && (vstatus === 'success' || vstatus === 'completed')) {
+                // treat as success event; continue to process below (or handle event type accordingly)
+                fallbackVerified = true;
+                // If eventType is empty or not a success-type, normalize it so existing logic processes it
+                if (!eventType || !eventType.includes('transaction') && !eventType.includes('charge') && !eventType.includes('payment')) {
+                  eventType = 'transaction.success';
+                }
+              } else {
+                // Not a success - treat as not processed
+                console.warn('Paystack verify fallback reported status not success:', vstatus);
+                return res.json({ ok: true, message: 'not a successful transaction' });
+              }
+            } catch (verifyErr) {
+              console.error('Error during Paystack server-to-server verification', verifyErr);
+              return res.status(502).json({ message: 'Failed to verify with Paystack' });
+            }
           }
 
           // Event types: charge.success, transaction.success -> payment completed

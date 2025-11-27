@@ -310,6 +310,12 @@ export const insertCartItemSchema = createInsertSchema(cartItems).omit({
   createdAt: true,
 });
 
+export const insertPayoutSchema = createInsertSchema(payouts).omit({
+  id: true,
+  createdAt: true,
+  completedAt: true,
+});
+
 // TypeScript types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;

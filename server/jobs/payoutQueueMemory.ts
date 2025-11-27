@@ -1,5 +1,5 @@
 import { storage } from '../storage';
-import { log } from '../vite';
+import { log } from '../log';
 
 type Job = { payoutId: string };
 

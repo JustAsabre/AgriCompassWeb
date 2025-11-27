@@ -31,6 +31,115 @@
 
 ---
 
+## CORS & Production Deployment Testing
+
+### CORS Configuration Testing
+
+**Purpose**: Verify cross-origin requests work between Vercel frontend and Fly.io backend
+
+**Prerequisites**:
+- Frontend deployed to Vercel: `https://agricompass.vercel.app`
+- Backend deployed to Fly.io: `https://agricompassweb.fly.dev`
+- `VITE_API_URL=https://agricompassweb.fly.dev` set in Vercel environment
+
+**Test CORS Headers**:
+```powershell
+# Test CSRF token endpoint (should return 200 with CORS headers)
+Invoke-WebRequest -Uri https://agricompassweb.fly.dev/api/csrf-token -Method GET -Headers @{"Origin"="https://agricompass.vercel.app"}
+
+# Test auth endpoint (should return 401 with CORS headers)
+Invoke-WebRequest -Uri https://agricompassweb.fly.dev/api/auth/me -Method GET -Headers @{"Origin"="https://agricompass.vercel.app"}
+
+# Test preflight request (should return 204 with CORS headers)
+Invoke-WebRequest -Uri https://agricompassweb.fly.dev/api/auth/register -Method OPTIONS -Headers @{"Origin"="https://agricompass.vercel.app"; "Access-Control-Request-Method"="POST"}
+```
+
+**Expected CORS Headers**:
+```
+access-control-allow-origin: https://agricompass.vercel.app
+access-control-allow-credentials: true
+access-control-allow-methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
+access-control-allow-headers: content-type,x-csrf-token,authorization
+```
+
+**Common CORS Issues**:
+- ❌ `access-control-allow-origin` missing → Frontend can't make requests
+- ❌ `access-control-allow-credentials: false` → Session cookies blocked
+- ❌ Wrong origin in allow list → CORS policy blocks request
+
+### Authentication Flow Testing
+
+**Purpose**: Verify user registration and login work in production
+
+**Test User Registration**:
+1. Go to `https://agricompass.vercel.app`
+2. Click "Get Started" → Register
+3. Fill form: `test@example.com`, `Test User`, `Test123!`, role: `farmer`
+4. Click "Register"
+5. **Expected**: Success message, redirected to dashboard
+
+**Test User Login**:
+1. Go to login page
+2. Enter credentials: `test@example.com`, `Test123!`
+3. Click "Login"
+4. **Expected**: Redirected to farmer dashboard
+
+**Test Protected Routes**:
+1. Try to access `https://agricompass.vercel.app/farmer/create-listing` without login
+2. **Expected**: Redirected to login page
+3. Login and try again
+4. **Expected**: Can access create listing page
+
+**Test Listing Creation**:
+1. Login as farmer
+2. Go to "Create New Listing"
+3. Fill form: Product "Tomatoes", Price "5", Quantity "100", Category "Vegetables"
+4. Click "Create Listing"
+5. **Expected**: Success message, redirected to dashboard with new listing
+
+### API Connectivity Testing
+
+**Purpose**: Verify frontend correctly targets Fly.io backend
+
+**Check Browser Network Tab**:
+1. Open browser dev tools → Network tab
+2. Go to `https://agricompass.vercel.app/login`
+3. Try to login
+4. **Expected**: API calls go to `https://agricompassweb.fly.dev/api/auth/login`
+5. **Not Expected**: Calls to `https://agricompass.vercel.app/api/*`
+
+**Environment Variable Verification**:
+- Vercel dashboard → Project settings → Environment variables
+- Confirm `VITE_API_URL=https://agricompassweb.fly.dev`
+
+### Production Debugging
+
+**Check Fly.io Backend Status**:
+```powershell
+# Check if backend is running
+Invoke-WebRequest -Uri https://agricompassweb.fly.dev/api/health
+
+# Check backend logs
+fly logs -a agricompasseb
+```
+
+**Check Vercel Frontend Status**:
+```powershell
+# Check deployment status
+vercel --prod
+
+# Check build logs
+vercel logs --follow
+```
+
+**Common Production Issues**:
+- ❌ Fly.io machine stopped → Restart with `fly scale count 1 -a agricompasseb`
+- ❌ Environment variables not set → Check Vercel/Fly.io dashboards
+- ❌ CORS not configured → Add CORS middleware to `server/index.ts`
+- ❌ API URL wrong → Update `VITE_API_URL` in Vercel
+
+---
+
 ## Prerequisites
 
 Before testing, you need to set up your email service:

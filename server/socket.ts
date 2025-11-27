@@ -1,5 +1,7 @@
 import { Server as HTTPServer } from "http";
 import { Server, Socket } from "socket.io";
+import { createAdapter } from "@socket.io/redis-adapter";
+import { createClient } from "redis";
 import { storage } from "./storage";
 import { Notification, InsertNotification, Message } from "@shared/schema";
 import { sessionStore, sessionCookieName } from "./session";
@@ -40,7 +42,7 @@ const connectedUsers = new Map<string, string>(); // userId -> socketId
 // Socket.IO instance - initialized by initializeSocket
 export let io: Server;
 
-export function initializeSocket(httpServer: HTTPServer) {
+export async function initializeSocket(httpServer: HTTPServer) {
   io = new Server(httpServer, {
     cors: {
       origin: process.env.NODE_ENV === "production" ? false : "*",
@@ -233,6 +235,21 @@ export function initializeSocket(httpServer: HTTPServer) {
       });
     });
   });
+
+  // If REDIS_URL is configured, wire up a Redis adapter for socket.io to support horizontal scaling
+  if (process.env.REDIS_URL) {
+    try {
+      const pubClient = createClient({ url: process.env.REDIS_URL });
+      const subClient = pubClient.duplicate();
+      // connect both - await ensures the adapter is ready before returning
+      await pubClient.connect();
+      await subClient.connect();
+      io.adapter(createAdapter(pubClient, subClient));
+      console.log('Socket.IO Redis adapter configured');
+    } catch (err) {
+      console.error('Failed to configure Redis adapter for Socket.IO', err);
+    }
+  }
 
   return io;
 }

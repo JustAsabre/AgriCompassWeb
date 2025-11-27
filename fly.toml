@@ -11,7 +11,7 @@ primary_region = "fra"
   auto_start_machines = true
   # Keep at least one machine running to avoid autoscaler stopping all containers
   # (prevents short-lived SIGINT/SIGTERM stops when traffic is low)
-  min_machines_running = 1
+  min_machines_running = 2
   processes = ["app"]
 
 [[vm]]

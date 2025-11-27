@@ -240,6 +240,54 @@ The app comes pre-seeded with test accounts:
 
 *Note: Passwords need to be set during registration or check the code*
 
+## 🏷️ Using PostgresStorage in Production
+
+This project now supports a Postgres-backed storage layer using Drizzle ORM. To enable it in staging or production:
+
+1. Set `DATABASE_URL` to your Postgres connection string (Neon recommended). Example:
+   ```env
+   DATABASE_URL=postgresql://user:pass@hostname:5432/agricompass
+   ```
+2. Apply Drizzle DB migrations to the database:
+   ```bash
+   npm run db:push
+   ```
+3. Start the server with `NODE_ENV=production`:
+   ```bash
+   NODE_ENV=production DATABASE_URL="postgresql://..." npm start
+   ```
+4. Optionally set `REDIS_URL` for session storage (Upstash recommended). Example:
+   ```env
+   REDIS_URL=redis://:password@hostname:6379
+   ```
+5. Ensure `SESSION_SECRET` is a strong, random value in production.
+
+If you want sessions backed by Postgres instead of Redis, set `PG_CONNECTION_STRING` and the server will use `connect-pg-simple`.
+
+Troubleshooting:
+- If `npm run db:push` fails, ensure your `DATABASE_URL` is correct and migration tool has access.
+- If Postgres storage is used, verify `SERVER` logs show `Storage: PostgresStorage` at startup.
+
+## 🔁 Scaling & Socket.IO (Production)
+
+To scale the real-time layer across multiple server instances (horizontal scaling), you must configure a shared Redis adapter for Socket.IO and centralize session storage (Redis or Postgres). The server will automatically configure the Socket.IO Redis adapter if `REDIS_URL` is set.
+
+Steps:
+- Set `REDIS_URL` to your Upstash or Redis connection string (e.g., `redis://:password@hostname:6379`).
+- For session persistence, use `REDIS_URL` (Redis sessions) or `PG_CONNECTION_STRING` (Postgres sessions). Set `SESSION_SECRET` to a secure random value.
+- If you're using multiple server instances, confirm that logs show `Socket.IO Redis adapter configured` on startup.
+
+Example env variables:
+```
+REDIS_URL=redis://:yourpassword@your-redis-host:6379
+SESSION_SECRET=someLongStrongRandomValue
+DATABASE_URL=postgresql://username:password@hostname:5432/agricompass
+```
+
+Notes:
+- The server connects to Redis using the `redis` client and the `@socket.io/redis-adapter` package.
+- If Redis is not present, the server continues to run with an in-memory store; horizontal scaling and session persistence are not enabled in that mode.
+
 ## 👥 Team Collaboration Guide
 
 ### Initial Setup for Team Members

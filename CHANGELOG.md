@@ -5,6 +5,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.8.10] - 2025-11-27
+### Fixed - Critical CORS & API Connectivity Issues
+- **CORS Configuration Fix** ✅
+  - **CRITICAL FIX**: Added CORS middleware to allow cross-origin requests from Vercel frontend
+  - Installed `cors` and `@types/cors` packages
+  - Configured CORS to allow requests from `vercel.app` domains, `localhost`, and `agricompassweb.fly.dev`
+  - Enabled credentials for session cookie support
+  - Added proper headers for CSRF tokens and authentication
+  - **Impact**: Frontend can now successfully communicate with Fly.io backend
+
+- **API Base URL Configuration** ✅
+  - **CRITICAL FIX**: Updated frontend API requests to use configurable base URL
+  - Modified `client/src/lib/queryClient.ts` to use `VITE_API_URL` environment variable
+  - Updated `client/src/lib/auth.tsx` to use API base URL for session checks and user refresh
+  - **Impact**: Frontend now correctly targets Fly.io backend instead of Vercel domain
+  - **Environment**: Set `VITE_API_URL=https://agricompassweb.fly.dev` in Vercel deployment
+
+- **Production Deployment** ✅
+  - Deployed CORS-enabled backend to Fly.io
+  - Verified API endpoints respond correctly to cross-origin requests
+  - Confirmed session-based authentication works across domains
+  - **Result**: Full-stack application now functional in production
+
+### Technical Implementation
+- **Backend Changes**: Added CORS middleware in `server/index.ts` with origin validation
+- **Frontend Changes**: Updated API request functions to use environment-based base URLs
+- **Security**: Maintained session security with `credentials: true` and proper origin validation
+- **Testing**: Verified preflight OPTIONS requests and authenticated API calls work
+
+### Impact
+- ✅ **Fixed**: 401 Unauthorized errors when accessing protected routes
+- ✅ **Fixed**: CORS policy blocking all API requests from Vercel frontend
+- ✅ **Fixed**: Frontend making API calls to wrong domain (Vercel instead of Fly.io)
+- ✅ **Result**: Users can now register, login, and create listings successfully
+
+### Deployment Status
+- **Frontend**: Vercel (https://agricompass.vercel.app) - Deployed with API URL configuration
+- **Backend**: Fly.io (https://agricompassweb.fly.dev) - Deployed with CORS support
+- **Database**: Neon PostgreSQL - Production ready
+- **Status**: End-to-end functionality restored
+
+---
+
 ## [1.0.0] - 2025-01-28
 ### Added - Sprint 10: Production Deployment & Launch (Planned)
 - **Production Infrastructure Deployment**

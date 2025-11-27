@@ -1,5 +1,5 @@
 // payouts queue: choose Redis/Bull backend when REDIS_* environment variables are configured.
-import { log } from '../vite';
+import { log } from '../log';
 import path from 'path';
 import fs from 'fs';
 import { storage } from '../storage';

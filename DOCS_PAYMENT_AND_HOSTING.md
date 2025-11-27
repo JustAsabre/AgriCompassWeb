@@ -14,7 +14,7 @@ Take note: payments & webhooks are a security-critical surface — here are the 
 
 ### Webhook signature verification
 - Risk: Forged webhook requests that fake payment status
-- Mitigation: Verify HMAC using `PAYSTACK_WEBHOOK_SECRET` against the `x-paystack-signature` header. If the secret isn't configured, the server will still accept webhooks but logging and alerts should be enabled to avoid misuse.
+ - Mitigation: Verify HMAC using `PAYSTACK_WEBHOOK_SECRET` against the `x-paystack-signature` header. If `PAYSTACK_WEBHOOK_SECRET` isn't configured, the server will fall back to server-to-server verification using `PAYSTACK_SECRET_KEY` (calls Paystack `transaction/verify`) to confirm the transaction status. This is less optimal than signed verification but still secures webhook processing if the `PAYSTACK_SECRET_KEY` is kept server-side and safe. Logging/alerts are still recommended.
 - Recommendation: Always set `PAYSTACK_WEBHOOK_SECRET` in production.
 
 ### Idempotency (webhooks & verification) 

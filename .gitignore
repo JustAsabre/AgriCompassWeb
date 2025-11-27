@@ -9,3 +9,5 @@ vite.config.ts.*
 *.env
 server/.trash/
 server/tests/login.json
+.vercel
+.env*.local

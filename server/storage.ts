@@ -35,6 +35,7 @@ import {
   type InsertEscrow
 } from "@shared/schema";
 import { randomUUID } from "crypto";
+import PostgresStorage from './postgresStorage';
 
 // Storage interface with all CRUD operations
 export interface IStorage {
@@ -619,6 +620,7 @@ export class MemStorage implements IStorage {
       id,
       upfrontPaymentId: insertEscrow.upfrontPaymentId ?? null,
       remainingPaymentId: insertEscrow.remainingPaymentId ?? null,
+      status: 'pending',
       upfrontHeldAt: null,
       remainingReleasedAt: null,
       disputedAt: null,
@@ -1203,4 +1205,12 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+// Export storage instance. Use PostgresStorage when DATABASE_URL is set; otherwise fall back to in-memory.
+export const storage = (process.env.DATABASE_URL ? new PostgresStorage() : new MemStorage()) as any;
+
+// Log storage selection on startup
+try {
+  console.log(`Storage: ${(storage as any).constructor?.name || 'unknown'}`);
+} catch (err) {
+  console.warn('Storage selected (check instance)');
+}
