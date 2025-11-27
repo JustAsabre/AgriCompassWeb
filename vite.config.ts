@@ -1,7 +1,13 @@
 import { defineConfig } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
-import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
+let runtimeErrorOverlay: any = null;
+try {
+  runtimeErrorOverlay = (await import("@replit/vite-plugin-runtime-error-modal")).default || (await import("@replit/vite-plugin-runtime-error-modal"));
+} catch (err) {
+  // plugin might not be present in CI; continue without it
+  console.warn("@replit/vite-plugin-runtime-error-modal not available during Vite config load; continuing without it.", err?.message || err);
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -26,7 +32,7 @@ try {
 export default defineConfig({
   plugins: [
     ...(reactPlugin ? [reactPlugin] : []),
-    runtimeErrorOverlay(),
+    ...(runtimeErrorOverlay ? [runtimeErrorOverlay()] : []),
     ...(process.env.NODE_ENV !== "production" && process.env.REPL_ID !== undefined
       ? [
           await import("@replit/vite-plugin-cartographer").then((m) => m.cartographer()),
