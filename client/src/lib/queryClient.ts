@@ -1,5 +1,7 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://agricompassweb.fly.dev';
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
@@ -28,7 +30,8 @@ export async function apiRequest(
     }
   }
 
-  const res = await fetch(url, {
+  const fullUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
+  const res = await fetch(fullUrl, {
     method,
     headers,
     body: data ? JSON.stringify(data) : undefined,
@@ -42,7 +45,7 @@ export async function apiRequest(
     const refreshed = await getCsrfToken();
     if (refreshed) {
       headers['X-CSRF-Token'] = refreshed;
-      const second = await fetch(url, {
+      const second = await fetch(fullUrl, {
         method,
         headers,
         body: data ? JSON.stringify(data) : undefined,
@@ -72,7 +75,7 @@ let csrfTokenCache: string | null = null;
 export async function getCsrfToken(): Promise<string | null> {
   try {
     if (csrfTokenCache) return csrfTokenCache;
-    const res = await fetch('/api/csrf-token', { credentials: 'include' });
+    const res = await fetch(`${API_BASE_URL}/api/csrf-token`, { credentials: 'include' });
     if (!res.ok) return null;
     const data = await res.json();
     csrfTokenCache = data.csrfToken;
@@ -92,7 +95,8 @@ export const getQueryFn: <T>(options: {
     // Only use the first element of queryKey as the URL
     // Additional elements are for cache differentiation only
     const url = queryKey[0] as string;
-    const res = await fetch(url, {
+    const fullUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
+    const res = await fetch(fullUrl, {
       credentials: "include", // Important: Send session cookie
     });
 

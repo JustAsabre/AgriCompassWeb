@@ -40,7 +40,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     if (!user) return;
 
-    const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+    const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://agricompassweb.fly.dev';
     const socketUrl = API_BASE_URL || undefined; // undefined => current origin
 
     const newSocket = io(socketUrl, {

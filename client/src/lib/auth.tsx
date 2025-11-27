@@ -3,6 +3,8 @@ import { apiRequest } from "@/lib/queryClient";
 import { User } from "@shared/schema";
 import { useQueryClient } from "@tanstack/react-query";
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://agricompassweb.fly.dev';
+
 type AuthContextType = {
   user: User | null;
   login: (user: User) => void;
@@ -25,7 +27,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const checkSession = async () => {
     try {
-      const response = await fetch("/api/auth/me", {
+      const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
         credentials: "include",
       });
       
@@ -42,7 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshUser = async () => {
     try {
-      const response = await fetch("/api/auth/me", {
+      const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
         credentials: "include",
       });
       
