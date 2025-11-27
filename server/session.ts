@@ -59,7 +59,10 @@ export const sessionMiddleware = session({
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    // For cross-site requests (frontend on Vercel talking to API on Fly),
+    // browsers require SameSite=None and Secure to send cookies on XHR/fetch.
+    // Use 'none' only in production where secure is true.
+    sameSite: process.env.NODE_ENV === "production" ? "none" as const : "lax",
   }
 });
 

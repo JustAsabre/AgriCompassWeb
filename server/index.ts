@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express, { type Request, Response, NextFunction } from "express";
+import { log } from "./log";
 import sessionMiddleware, { sessionStore } from "./session";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
@@ -9,8 +10,8 @@ import { Server } from "socket.io";
 import { createServer } from "http";
 import { registerRoutes } from "./routes";
 import { startProcessing as startPayoutProcessing } from './jobs/payoutQueue';
-import { setupVite, serveStatic, log } from "./vite";
 import { initializeSocket } from "./socket";
+import cors from "cors";
 // csurf is optional in case the dependency is not installed in some dev/test setups
 
 const app = express();
@@ -29,8 +30,39 @@ const httpServer = createServer(app);
   }
 }
 
-// Initialize Socket.IO
-export const io = initializeSocket(httpServer);
+// Initialize Socket.IO - moved to IIFE so we can await async setup (e.g., Redis adapter)
+// `io` will be exported from `server/socket.ts` after initialization completes
+
+// CORS configuration
+const corsOptions = {
+  origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Allow localhost for development
+    if (origin.includes('localhost')) return callback(null, true);
+    
+    // Allow Vercel deployment
+    if (origin.includes('vercel.app')) return callback(null, true);
+    
+    // Allow Fly.io domain
+    if (origin.includes('agricompassweb.fly.dev')) return callback(null, true);
+    
+    // In production, you might want to restrict to specific domains
+    // For now, allow all origins in development
+    if (process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+    
+    // Reject other origins in production
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true, // Allow cookies and authentication headers
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Requested-With']
+};
+
+app.use(cors(corsOptions));
 
 // Security middleware
 // Helmet sets various HTTP headers for security
@@ -73,6 +105,7 @@ async function maybeEnableCsrf() {
     const csrfProtection = csurfFn({ cookie: false }); // store in session by default
     app.use(csrfProtection);
     csrfEnabled = true;
+    console.info('CSRF middleware enabled');
   } catch (err) {
     console.warn('csurf not installed or failed to initialize - skipping CSRF middleware in this environment.');
   }
@@ -168,7 +201,9 @@ app.use((req, res, next) => {
 
 (async () => {
   await maybeEnableCsrf();
-  await registerRoutes(app, httpServer, io);
+  // Initialize socket - await to ensure Redis adapter is connected before the app starts
+  await initializeSocket(httpServer);
+  await registerRoutes(app, httpServer, (await import('./socket')).io);
 
   // Start any job workers needed (in-memory fallback worker)
   try { startPayoutProcessing(); } catch (err) { console.error('Failed to start payout worker', err); }
@@ -204,8 +239,10 @@ app.use((req, res, next) => {
   // (so `npm start` without NODE_ENV won't accidentally enable dev middleware)
   const isDevelopment = process.env.NODE_ENV === "development";
   if (isDevelopment) {
+    const { setupVite } = await import("./vite");
     await setupVite(app, httpServer);
   } else {
+    const { serveStatic } = await import("./vite");
     serveStatic(app);
   }
 

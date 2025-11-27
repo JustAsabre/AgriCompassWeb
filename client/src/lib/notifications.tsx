@@ -40,7 +40,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     if (!user) return;
 
-    const newSocket = io({
+    const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+    const socketUrl = API_BASE_URL || undefined; // undefined => current origin
+
+    const newSocket = io(socketUrl, {
       path: "/socket.io",
       transports: ["websocket", "polling"],
       withCredentials: true,
