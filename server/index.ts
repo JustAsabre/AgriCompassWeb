@@ -218,7 +218,9 @@ app.use((req, res, next) => {
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     if (err && err.code === 'EBADCSRFTOKEN') {
       const rid = (req as any).requestId || '-';
-      log(`CSRF error [${rid}]`);
+      log(`CSRF error [${rid}] name=${err.name} code=${err.code} message=${err.message}`);
+      // Log stack and additional debug info for diagnosing misconfiguration
+      try { console.error(err.stack); } catch (e) {}
       return res.status(403).json({ message: 'Invalid CSRF token', requestId: rid });
     }
     _next(err);
@@ -230,7 +232,8 @@ app.use((req, res, next) => {
     const rid = (req as any).requestId || "-";
 
     // Log the error server-side with request id, don't rethrow to avoid crashing the process
-    log(`ERROR [${rid}] ${message}`);
+    log(`ERROR [${rid}] ${message} name=${err?.name || ''} code=${err?.code || ''}`);
+    try { console.error(err.stack); } catch (e) {}
     if (err.stack) {
       // keep stack printing limited in dev
       if (process.env.NODE_ENV === "development") {
