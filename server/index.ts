@@ -102,10 +102,16 @@ async function maybeEnableCsrf() {
   try {
     const csurfModule = await import('csurf');
     const csurfFn = (csurfModule as any).default || csurfModule;
-    const csrfProtection = csurfFn({ cookie: false }); // store in session by default
+    const useCookie = process.env.CSRF_USE_COOKIE === 'true';
+    // If running in cross-origin hosting scenario, cookie-based CSRF will be easier to
+    // use for double-submit patterns. Otherwise, default to session-backed tokens.
+    const csrfOptions = useCookie
+      ? { cookie: { httpOnly: false, secure: process.env.NODE_ENV === 'production', sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' } }
+      : { cookie: false };
+    const csrfProtection = csurfFn(csrfOptions as any);
     app.use(csrfProtection);
     csrfEnabled = true;
-    console.info('CSRF middleware enabled');
+    console.info(`CSRF middleware enabled (cookie:${useCookie})`);
   } catch (err) {
     console.warn('csurf not installed or failed to initialize - skipping CSRF middleware in this environment.');
   }
