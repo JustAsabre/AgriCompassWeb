@@ -19,7 +19,7 @@ export async function getRevenueAggregated(lastNMonths = 6, providedPool?: any) 
 
   // Fallback to in-memory storage
   const allOrders = await storage.getAllOrders();
-  const completed = allOrders.filter(o => o.status === 'completed');
+  const completed = allOrders.filter((o: any) => o.status === 'completed');
   const now = new Date();
   const months: string[] = [];
   for (let i = lastNMonths - 1; i >= 0; i--) {
@@ -57,7 +57,7 @@ export async function getActiveSellers(limit = 10, offset = 0, providedPool?: an
   }
 
   // Fallback to memory
-  const completed = (await storage.getAllOrders()).filter(o => o.status === 'completed');
+  const completed = (await storage.getAllOrders()).filter((o: any) => o.status === 'completed');
   const map: Record<string, { farmerId: string; completedOrders: number; revenue: number }> = {};
   for (const o of completed) {
     const fid = o.farmerId;
@@ -108,7 +108,9 @@ export async function getAdminTotals(providedPool?: any) {
   const totalListings = (await storage.getAllListings()).length;
   const allOrders = await storage.getAllOrders();
   const totalOrders = allOrders.length;
-  const totalRevenueFromCompleted = allOrders.filter(o => o.status === 'completed').reduce((acc, o) => acc + (Number(o.totalPrice || 0) || 0), 0);
+  const totalRevenueFromCompleted = allOrders
+    .filter((o: any) => o.status === 'completed')
+    .reduce((acc: number, o: any) => acc + (Number(o.totalPrice || 0) || 0), 0);
   const totalPayouts = (await storage.getAllPayouts()).length;
   const totalReviews = (await storage.getAllReviews()).length;
   return { totalUsers, totalListings, totalOrders, totalRevenueFromCompleted, totalPayouts, totalReviews };

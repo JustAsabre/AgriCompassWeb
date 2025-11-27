@@ -106,7 +106,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
               redisStatus.ok = pong === 'PONG' || pong === 'OK' || pong === true;
             } catch (pingErr) {
               redisStatus.ok = false;
-              redisStatus.error = pingErr && pingErr.message ? pingErr.message : String(pingErr);
+              redisStatus.error = pingErr && (pingErr as Error).message ? (pingErr as Error).message : String(pingErr);
             }
           } else {
             // If no client present, assume MemoryStore or unknown store
@@ -1006,7 +1006,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       // Skip payment validation in test environments
       if (status === 'delivered' && process.env.ENABLE_TEST_ENDPOINTS !== 'true') {
         const payments = await storage.getPaymentsByOrder(req.params.id);
-        const hasCompletedPayment = payments.some(p => p.status === 'completed');
+        const hasCompletedPayment = payments.some((p: any) => p.status === 'completed');
         if (!hasCompletedPayment) {
           // Notify buyer to complete payment and inform farmer that delivery cannot be marked
           try {
@@ -1085,7 +1085,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       // Skip payment validation in test environments
       if (process.env.ENABLE_TEST_ENDPOINTS !== 'true') {
         const payments = await storage.getPaymentsByOrder(req.params.id);
-        const hasCompletedPayment = payments.some(p => p.status === 'completed');
+        const hasCompletedPayment = payments.some((p: any) => p.status === 'completed');
         if (!hasCompletedPayment) {
           try {
             await sendNotificationToUser(order.buyerId, {
@@ -1461,8 +1461,11 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
   app.get("/api/officer/farmers", requireRole("field_officer"), async (req, res) => {
     try {
       const farmers = await storage.getUsersByRole("farmer");
-      // Remove passwords before sending
-      const safeFarmers = farmers.map(({ password, ...rest }) => rest);
+        // Remove passwords before sending
+        const safeFarmers = farmers.map((farmer: any) => {
+          const { password, ...rest } = farmer;
+          return rest;
+        });
       res.json(safeFarmers);
     } catch (error: any) {
       console.error("Get farmers error:", error);
@@ -1664,16 +1667,16 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       
       // Calculate metrics
       const totalListings = listings.length;
-      const activeListings = listings.filter(l => l.status === "active").length;
+      const activeListings = listings.filter((l: any) => l.status === "active").length;
       const totalOrders = orders.length;
-      const completedOrders = orders.filter(o => o.status === "completed").length;
-      const pendingOrders = orders.filter(o => o.status === "pending").length;
+      const completedOrders = orders.filter((o: any) => o.status === "completed").length;
+      const pendingOrders = orders.filter((o: any) => o.status === "pending").length;
       
       // Calculate total revenue (completed orders only)
       const totalRevenue = completedOrders > 0 
         ? orders
-            .filter(o => o.status === "completed")
-            .reduce((sum, order) => sum + Number(order.totalPrice || 0), 0)
+            .filter((o: any) => o.status === "completed")
+            .reduce((sum: number, order: any) => sum + Number(order.totalPrice || 0), 0)
         : 0;
 
       // Sales by month (last 6 months)
@@ -1681,13 +1684,13 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
       
       const salesByMonth = orders
-        .filter(o => o.createdAt && new Date(o.createdAt) >= sixMonthsAgo)
-        .reduce((acc: any[], order) => {
+        .filter((o: any) => o.createdAt && new Date(o.createdAt) >= sixMonthsAgo)
+        .reduce((acc: any[], order: any) => {
           const month = new Date(order.createdAt!).toLocaleDateString('en-US', { 
             month: 'short', 
             year: 'numeric' 
           });
-          const existing = acc.find(item => item.month === month);
+          const existing = acc.find((item: any) => item.month === month);
           if (existing) {
             existing.orders += 1;
             existing.revenue += Number(order.totalPrice || 0);
@@ -1702,7 +1705,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         }, []);
 
       // Top selling products
-      const productSales = orders.reduce((acc: any, order) => {
+      const productSales = orders.reduce((acc: any, order: any) => {
         const listingId = order.listingId;
         if (!acc[listingId]) {
           acc[listingId] = {
@@ -1756,27 +1759,27 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       
       // Calculate metrics
       const totalOrders = orders.length;
-      const completedOrders = orders.filter(o => o.status === "completed").length;
-      const pendingOrders = orders.filter(o => o.status === "pending").length;
-      const cancelledOrders = orders.filter(o => o.status === "cancelled").length;
+      const completedOrders = orders.filter((o: any) => o.status === "completed").length;
+      const pendingOrders = orders.filter((o: any) => o.status === "pending").length;
+      const cancelledOrders = orders.filter((o: any) => o.status === "cancelled").length;
       
       // Calculate total spending (completed orders only)
       const totalSpending = orders
-        .filter(o => o.status === "completed")
-        .reduce((sum, order) => sum + Number(order.totalPrice || 0), 0);
+        .filter((o: any) => o.status === "completed")
+        .reduce((sum: number, order: any) => sum + Number(order.totalPrice || 0), 0);
 
       // Spending by month (last 6 months)
       const sixMonthsAgo = new Date();
       sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
       
       const spendingByMonth = orders
-        .filter(o => o.createdAt && new Date(o.createdAt) >= sixMonthsAgo)
-        .reduce((acc: any[], order) => {
+        .filter((o: any) => o.createdAt && new Date(o.createdAt) >= sixMonthsAgo)
+        .reduce((acc: any[], order: any) => {
           const month = new Date(order.createdAt!).toLocaleDateString('en-US', { 
             month: 'short', 
             year: 'numeric' 
           });
-          const existing = acc.find(item => item.month === month);
+          const existing = acc.find((item: any) => item.month === month);
           if (existing) {
             existing.orders += 1;
             existing.spending += Number(order.totalPrice || 0);
@@ -1791,7 +1794,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         }, []);
 
       // Most purchased products
-      const productPurchases = orders.reduce((acc: any, order) => {
+      const productPurchases = orders.reduce((acc: any, order: any) => {
         const listingId = order.listingId;
         if (!acc[listingId]) {
           acc[listingId] = {
@@ -1851,23 +1854,23 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       
       // Calculate metrics
       const totalFarmers = farmers.length;
-      const verifiedFarmers = farmers.filter(f => f.verified).length;
-      const pendingVerifications = allVerifications.filter(v => v.status === "pending").length;
-      const approvedVerifications = allVerifications.filter(v => v.status === "approved").length;
-      const rejectedVerifications = allVerifications.filter(v => v.status === "rejected").length;
+      const verifiedFarmers = farmers.filter((f: any) => f.verified).length;
+      const pendingVerifications = allVerifications.filter((v: any) => v.status === "pending").length;
+      const approvedVerifications = allVerifications.filter((v: any) => v.status === "approved").length;
+      const rejectedVerifications = allVerifications.filter((v: any) => v.status === "rejected").length;
       
       // Verifications by month (last 6 months)
       const sixMonthsAgo = new Date();
       sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
       
       const verificationsByMonth = allVerifications
-        .filter(v => v.createdAt && new Date(v.createdAt) >= sixMonthsAgo)
-        .reduce((acc: any[], verification) => {
+        .filter((v: any) => v.createdAt && new Date(v.createdAt) >= sixMonthsAgo)
+        .reduce((acc: any[], verification: any) => {
           const month = new Date(verification.createdAt!).toLocaleDateString('en-US', { 
             month: 'short', 
             year: 'numeric' 
           });
-          const existing = acc.find(item => item.month === month);
+          const existing = acc.find((item: any) => item.month === month);
           if (existing) {
             existing.total += 1;
             if (verification.status === "approved") existing.approved += 1;
@@ -1886,9 +1889,9 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         }, []);
 
       // Farmers by region
-      const farmersByRegion = farmers.reduce((acc: any[], farmer) => {
+      const farmersByRegion = farmers.reduce((acc: any[], farmer: any) => {
         const region = farmer.region || 'Unknown';
-        const existing = acc.find(item => item.region === region);
+        const existing = acc.find((item: any) => item.region === region);
         if (existing) {
           existing.count += 1;
         } else {
@@ -1934,8 +1937,8 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
             usersByRole,
             totalListings: totals.totalListings,
               registeredFarmers: (await storage.getUsersByRole('farmer')).length,
-              verifiedFarmers: (await storage.getUsersByRole('farmer')).filter(f => f.verified).length,
-            pendingVerifications: (await storage.getAllVerifications()).filter(v => v.status === 'pending').length,
+              verifiedFarmers: (await storage.getUsersByRole('farmer')).filter((f: any) => f.verified).length,
+            pendingVerifications: (await storage.getAllVerifications()).filter((v: any) => v.status === 'pending').length,
             totalReviews: totals.totalReviews,
             totalOrders: totals.totalOrders,
             totalRevenueFromCompleted: totals.totalRevenueFromCompleted,
@@ -1948,14 +1951,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           const totalListings = listings.length;
           const farmers = await storage.getUsersByRole('farmer');
           const registeredFarmers = farmers.length;
-          const verifiedFarmers = farmers.filter(f => f.verified).length;
+          const verifiedFarmers = farmers.filter((f: any) => f.verified).length;
           const allVerifs = await storage.getAllVerifications();
-          const pendingVerifications = allVerifs.filter(v => v.status === 'pending').length;
+          const pendingVerifications = allVerifs.filter((v: any) => v.status === 'pending').length;
           const reviews = await storage.getAllReviews();
           const totalReviews = reviews.length;
           const allOrders = await storage.getAllOrders();
           const totalOrders = allOrders.length;
-          const totalRevenueFromCompleted = allOrders.filter(o => o.status === 'completed').reduce((acc, o) => acc + (Number(o.totalPrice || 0) || 0), 0);
+          const totalRevenueFromCompleted = allOrders.filter((o: any) => o.status === 'completed').reduce((acc: number, o: any) => acc + (Number(o.totalPrice || 0) || 0), 0);
           const payouts = await storage.getAllPayouts();
           const totalPayouts = payouts.length;
           const payments = await storage.getAllPayments();
@@ -2043,7 +2046,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
       // Check if tier with same minQuantity already exists
       const existingTiers = await storage.getPricingTiersByListing(id);
-      if (existingTiers.some(t => t.minQuantity === data.minQuantity)) {
+      if (existingTiers.some((t: any) => t.minQuantity === data.minQuantity)) {
         return res.status(400).json({ message: "A tier with this minimum quantity already exists" });
       }
 
@@ -2110,7 +2113,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       const userId = req.session.user!.id;
 
       const reviews = await storage.getReviewsByOrder(orderId);
-      const userReview = reviews.find(r => r.reviewerId === userId);
+      const userReview = reviews.find((r: any) => r.reviewerId === userId);
 
       if (!userReview) {
         return res.status(404).json({ message: "No review found" });
@@ -2148,7 +2151,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
       // Check if review already exists
       const existingReviews = await storage.getReviewsByOrder(orderId);
-      if (existingReviews.some(r => r.reviewerId === reviewerId)) {
+      if (existingReviews.some((r: any) => r.reviewerId === reviewerId)) {
         return res.status(400).json({ message: "You have already reviewed this order" });
       }
 
@@ -2208,7 +2211,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
       // Get review to check ownership
       const reviews = await storage.getAllReviews();
-      const review = reviews.find(r => r.id === id);
+      const review = reviews.find((r: any) => r.id === id);
       
       if (!review) {
         return res.status(404).json({ message: "Review not found" });
@@ -2353,46 +2356,46 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       // Calculate current pending counts
       const pendingListings = await storage.getListingsByModerationStatus("pending");
       const pendingMessages = await storage.getMessagesByModerationStatus("pending");
-      const pendingReviews = await storage.getAllReviews().then(reviews =>
-        reviews.filter(r => !r.approved).length
+      const pendingReviews = await storage.getAllReviews().then((reviews: any[]) =>
+        reviews.filter((r: any) => !r.approved).length
       );
 
       // Calculate totals from stats
       const totalStats = {
         listings: {
-          total: stats.filter(s => s.contentType === 'listing').reduce((acc, s) => acc + (s.totalApproved || 0) + (s.totalRejected || 0), 0),
-          approved: stats.filter(s => s.contentType === 'listing').reduce((acc, s) => acc + (s.totalApproved || 0), 0),
-          rejected: stats.filter(s => s.contentType === 'listing').reduce((acc, s) => acc + (s.totalRejected || 0), 0),
+          total: stats.filter((s: any) => s.contentType === 'listing').reduce((acc: number, s: any) => acc + (s.totalApproved || 0) + (s.totalRejected || 0), 0),
+          approved: stats.filter((s: any) => s.contentType === 'listing').reduce((acc: number, s: any) => acc + (s.totalApproved || 0), 0),
+          rejected: stats.filter((s: any) => s.contentType === 'listing').reduce((acc: number, s: any) => acc + (s.totalRejected || 0), 0),
           pending: pendingListings.length,
         },
         messages: {
-          total: stats.filter(s => s.contentType === 'message').reduce((acc, s) => acc + (s.totalApproved || 0) + (s.totalRejected || 0), 0),
-          approved: stats.filter(s => s.contentType === 'message').reduce((acc, s) => acc + (s.totalApproved || 0), 0),
-          rejected: stats.filter(s => s.contentType === 'message').reduce((acc, s) => acc + (s.totalRejected || 0), 0),
+          total: stats.filter((s: any) => s.contentType === 'message').reduce((acc: number, s: any) => acc + (s.totalApproved || 0) + (s.totalRejected || 0), 0),
+          approved: stats.filter((s: any) => s.contentType === 'message').reduce((acc: number, s: any) => acc + (s.totalApproved || 0), 0),
+          rejected: stats.filter((s: any) => s.contentType === 'message').reduce((acc: number, s: any) => acc + (s.totalRejected || 0), 0),
           pending: pendingMessages.length,
         },
         reviews: {
-          total: stats.filter(s => s.contentType === 'review').reduce((acc, s) => acc + (s.totalApproved || 0) + (s.totalRejected || 0), 0),
-          approved: stats.filter(s => s.contentType === 'review').reduce((acc, s) => acc + (s.totalApproved || 0), 0),
-          rejected: stats.filter(s => s.contentType === 'review').reduce((acc, s) => acc + (s.totalRejected || 0), 0),
+          total: stats.filter((s: any) => s.contentType === 'review').reduce((acc: number, s: any) => acc + (s.totalApproved || 0) + (s.totalRejected || 0), 0),
+          approved: stats.filter((s: any) => s.contentType === 'review').reduce((acc: number, s: any) => acc + (s.totalApproved || 0), 0),
+          rejected: stats.filter((s: any) => s.contentType === 'review').reduce((acc: number, s: any) => acc + (s.totalRejected || 0), 0),
           pending: pendingReviews,
         }
       };
 
       // Calculate average moderation times
       const avgModerationTime = {
-        listings: stats.filter(s => s.contentType === 'listing' && s.averageModerationTime)
-          .reduce((acc, s, _, arr) => acc + (s.averageModerationTime || 0) / arr.length, 0),
-        messages: stats.filter(s => s.contentType === 'message' && s.averageModerationTime)
-          .reduce((acc, s, _, arr) => acc + (s.averageModerationTime || 0) / arr.length, 0),
-        reviews: stats.filter(s => s.contentType === 'review' && s.averageModerationTime)
-          .reduce((acc, s, _, arr) => acc + (s.averageModerationTime || 0) / arr.length, 0),
+        listings: stats.filter((s: any) => s.contentType === 'listing' && s.averageModerationTime)
+          .reduce((acc: number, s: any, _: number, arr: any[]) => acc + (s.averageModerationTime || 0) / arr.length, 0),
+        messages: stats.filter((s: any) => s.contentType === 'message' && s.averageModerationTime)
+          .reduce((acc: number, s: any, _: number, arr: any[]) => acc + (s.averageModerationTime || 0) / arr.length, 0),
+        reviews: stats.filter((s: any) => s.contentType === 'review' && s.averageModerationTime)
+          .reduce((acc: number, s: any, _: number, arr: any[]) => acc + (s.averageModerationTime || 0) / arr.length, 0),
       };
 
       // Daily stats for charts
-      const dailyStats = stats.reduce((acc: any[], stat) => {
+      const dailyStats = stats.reduce((acc: any[], stat: any) => {
         const dateKey = stat.date.toISOString().split('T')[0];
-        const existing = acc.find(item => item.date === dateKey);
+        const existing = acc.find((item: any) => item.date === dateKey);
         if (existing) {
           existing[stat.contentType] = {
             approved: (existing[stat.contentType]?.approved || 0) + (stat.totalApproved || 0),
@@ -2415,7 +2418,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       res.json({
         summary: totalStats,
         averageModerationTime: avgModerationTime,
-        dailyStats: dailyStats.sort((a, b) => a.date.localeCompare(b.date)),
+        dailyStats: dailyStats.sort((a: any, b: any) => a.date.localeCompare(b.date)),
         period: `${days} days`
       });
     } catch (error: any) {
@@ -2437,14 +2440,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
       // Filter by role
       if (role) {
-        filteredUsers = filteredUsers.filter(u => u.role === role);
+        filteredUsers = filteredUsers.filter((u: any) => u.role === role);
       }
 
       // Filter by search (username or email)
       if (search) {
         const searchStr = String(Array.isArray(search) ? search[0] : search);
         const searchLower = searchStr.toLowerCase();
-        filteredUsers = filteredUsers.filter(u =>
+        filteredUsers = filteredUsers.filter((u: any) =>
           u.fullName.toLowerCase().includes(searchLower) ||
           u.email.toLowerCase().includes(searchLower)
         );
@@ -2452,9 +2455,9 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
       // Filter by status (active/inactive based on account status)
       if (status === "active") {
-        filteredUsers = filteredUsers.filter(u => u.isActive === true);
+        filteredUsers = filteredUsers.filter((u: any) => u.isActive === true);
       } else if (status === "inactive") {
-        filteredUsers = filteredUsers.filter(u => u.isActive === false);
+        filteredUsers = filteredUsers.filter((u: any) => u.isActive === false);
       }
 
       // Paginate
@@ -2710,29 +2713,29 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
       // Apply filters
       if (status && status !== "all") {
-        pendingListings = pendingListings.filter(l => l.moderationStatus === status);
-        pendingMessages = pendingMessages.filter(m => m.moderationStatus === status);
+        pendingListings = pendingListings.filter((l: any) => l.moderationStatus === status);
+        pendingMessages = pendingMessages.filter((m: any) => m.moderationStatus === status);
       }
 
       if (userId) {
-        pendingListings = pendingListings.filter(l => l.farmerId === userId);
-        pendingMessages = pendingMessages.filter(m => m.senderId === userId);
+        pendingListings = pendingListings.filter((l: any) => l.farmerId === userId);
+        pendingMessages = pendingMessages.filter((m: any) => m.senderId === userId);
       }
 
       if (category && category !== "all") {
-        pendingListings = pendingListings.filter(l => l.category === category);
+        pendingListings = pendingListings.filter((l: any) => l.category === category);
       }
 
       if (dateFrom || dateTo) {
         const fromDate = dateFrom ? new Date(dateFrom) : null;
         const toDate = dateTo ? new Date(dateTo) : null;
 
-        pendingListings = pendingListings.filter(l => {
+        pendingListings = pendingListings.filter((l: any) => {
           const createdDate = new Date(l.createdAt!);
           return (!fromDate || createdDate >= fromDate) && (!toDate || createdDate <= toDate);
         });
 
-        pendingMessages = pendingMessages.filter(m => {
+        pendingMessages = pendingMessages.filter((m: any) => {
           const createdDate = new Date(m.createdAt!);
           return (!fromDate || createdDate >= fromDate) && (!toDate || createdDate <= toDate);
         });
@@ -2936,7 +2939,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         const userId = req.session.user!.id;
         const userRole = req.session.user!.role;
         // Only allow if caller is the payer for at least one payment or admin
-        const belongsToUser = payments.some(p => p.payerId === userId);
+        const belongsToUser = payments.some((p: any) => p.payerId === userId);
         if (!belongsToUser && userRole !== 'admin') return res.status(403).json({ message: 'Forbidden' });
 
         res.json({ payments });
@@ -2994,7 +2997,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
             await sendNotificationToUser(transaction.buyerId, { userId: transaction.buyerId, type: 'order_update', title: 'Payment received', message: `Your payment for transaction ${transaction.id} has been confirmed.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
 
             // Get all unique farmers from the payments
-            const farmerIds = Array.from(new Set((await Promise.all(payments.map(async p => {
+            const farmerIds = Array.from(new Set((await Promise.all(payments.map(async (p: any) => {
               const order = await storage.getOrder(p.orderId);
               return order?.farmerId;
             }))).filter(Boolean)));
@@ -3007,7 +3010,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           } catch (err) { console.error('Failed to create notifications after verification', err); }
         }
 
-        res.json({ status: status, transaction: await storage.getTransaction(transaction.id), payments: await Promise.all((await storage.getPaymentsByTransactionId(transaction.id)).map(p => storage.getPayment(p.id))) });
+        res.json({ status: status, transaction: await storage.getTransaction(transaction.id), payments: await Promise.all((await storage.getPaymentsByTransactionId(transaction.id)).map((p: any) => storage.getPayment(p.id))) });
       } catch (err: any) {
         console.error('Client verify error:', err);
         res.status(500).json({ message: 'Verification failed' });
@@ -3577,23 +3580,23 @@ app.get("/api/admin/users", requireRole("admin"), async (req: Request, res: Resp
       let allUsers = await storage.getAllUsers();
 
       if (role) {
-        allUsers = allUsers.filter(u => u.role === role);
+        allUsers = allUsers.filter((u: any) => u.role === role);
       }
 
       if (status) {
-        allUsers = allUsers.filter(u => u.isActive === (status === "active"));
+        allUsers = allUsers.filter((u: any) => u.isActive === (status === "active"));
       }
 
       if (search) {
         const searchLower = search.toLowerCase();
-        allUsers = allUsers.filter(u =>
+        allUsers = allUsers.filter((u: any) =>
           u.fullName.toLowerCase().includes(searchLower) ||
           u.email.toLowerCase().includes(searchLower)
         );
       }
 
       users = allUsers
-        .sort((a, b) => (new Date(b.createdAt || 0).getTime()) - (new Date(a.createdAt || 0).getTime()))
+        .sort((a: any, b: any) => (new Date(b.createdAt || 0).getTime()) - (new Date(a.createdAt || 0).getTime()))
         .slice(offset, offset + Number(limit));
     }
 
