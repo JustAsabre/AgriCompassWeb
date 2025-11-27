@@ -27,14 +27,49 @@ if (process.env.PG_CONNECTION_STRING) {
 if (!sessionStore && process.env.REDIS_URL) {
   try {
     const require = createRequire(import.meta.url);
-    const connectRedis = require('connect-redis');
+    const connectRedisModule = require('connect-redis');
     const redis = require('redis');
-    const RedisStore = connectRedis(session as any);
+    // connect-redis can export either a factory (f(session) => Store) or a Store class / constructor.
+    // Support both shapes.
+    let RedisStoreCtor: any = null;
+    try {
+      const tryAsFactory = (fn: any) => {
+        try {
+          return fn(session as any);
+        } catch (err) {
+          return null;
+        }
+      };
+      if (typeof connectRedisModule === 'function') {
+        // if it's a class (has prototype methods) then use as constructor directly, else try to call as factory
+        if (connectRedisModule.prototype && Object.getOwnPropertyNames(connectRedisModule.prototype).length > 1) {
+          RedisStoreCtor = connectRedisModule;
+        } else {
+          RedisStoreCtor = tryAsFactory(connectRedisModule) || connectRedisModule;
+        }
+      } else if (connectRedisModule && typeof connectRedisModule.default === 'function') {
+        const dmod = connectRedisModule.default;
+        if (dmod.prototype && Object.getOwnPropertyNames(dmod.prototype).length > 1) {
+          RedisStoreCtor = dmod;
+        } else {
+          RedisStoreCtor = tryAsFactory(dmod) || dmod;
+        }
+      }
+      // If still not resolved, try to see if module has a property 'default' that is a factory/class
+      if (!RedisStoreCtor && connectRedisModule && connectRedisModule.default) {
+        const dmod = connectRedisModule.default;
+        if (typeof dmod === 'function') RedisStoreCtor = tryAsFactory(dmod) || dmod;
+      }
+    } catch (e) {
+      console.warn('Failed to initialize connect-redis module; module shape unexpected', e);
+      RedisStoreCtor = null;
+    }
     const client = redis.createClient({ url: process.env.REDIS_URL });
     client.on('error', (err: any) => console.error('Redis client error', err));
     // Connect in the background; don't block startup
     client.connect().catch((e: any) => console.error('Failed connecting redis client for session store', e));
-    sessionStore = new RedisStore({ client, prefix: process.env.REDIS_SESSION_PREFIX || 'sess:' });
+    if (!RedisStoreCtor) throw new Error('No RedisStore constructor available after inspecting connect-redis export');
+    sessionStore = new RedisStoreCtor({ client, prefix: process.env.REDIS_SESSION_PREFIX || 'sess:' });
     console.log('Session store: using Redis');
   } catch (err) {
     console.warn('Redis session store not available, falling back to other session stores', err);
