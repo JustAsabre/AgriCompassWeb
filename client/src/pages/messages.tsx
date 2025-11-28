@@ -103,6 +103,10 @@ export default function Messages() {
           ["/api/messages", selectedConversation],
           (old = []) => [...old, message]
         );
+
+        // Force invalidate the specific conversation query to ensure we have the latest state
+        queryClient.invalidateQueries({ queryKey: ["/api/messages", selectedConversation] });
+
         // Mark as read if message is from the other person
         if (message.senderId === selectedConversation) {
           socket.emit("mark_conversation_read", message.senderId);

@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -87,24 +88,7 @@ export default function FarmerDashboard() {
 
   const updateOrderMutation = useMutation({
     mutationFn: async ({ orderId, status }: { orderId: string; status: string }) => {
-      const response = await fetch(`/api/orders/${orderId}/status`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ status }),
-      });
-      if (!response.ok) {
-        let errorMessage = "Failed to update order";
-        try {
-          const error = await response.json();
-          errorMessage = error.message || errorMessage;
-        } catch (e) {
-          // If response is not JSON (e.g. 404 HTML), use status text
-          errorMessage = `Error: ${response.status} ${response.statusText}`;
-        }
-        throw new Error(errorMessage);
-      }
-      return response.json();
+      return apiRequest("PATCH", `/api/orders/${orderId}/status`, { status });
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/farmer/orders", user?.id] });
