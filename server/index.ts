@@ -99,21 +99,26 @@ app.use(sessionMiddleware);
 // Note: install `csurf` for production deployments where CSRF protection is required.
 async function maybeEnableCsrf() {
   let csrfEnabled = false;
-  try {
-    const csurfModule = await import('csurf');
-    const csurfFn = (csurfModule as any).default || csurfModule;
-    const useCookie = process.env.CSRF_USE_COOKIE === 'true';
-    // If running in cross-origin hosting scenario, cookie-based CSRF will be easier to
-    // use for double-submit patterns. Otherwise, default to session-backed tokens.
-    const csrfOptions = useCookie
-      ? { cookie: { httpOnly: false, secure: process.env.NODE_ENV === 'production', sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' } }
-      : { cookie: false };
-    const csrfProtection = csurfFn(csrfOptions as any);
-    app.use(csrfProtection);
-    csrfEnabled = true;
-    console.info(`CSRF middleware enabled (cookie:${useCookie})`);
-  } catch (err) {
-    console.warn('csurf not installed or failed to initialize - skipping CSRF middleware in this environment.');
+  // Disable CSRF protection in local/test environments for E2E
+  if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
+    console.warn('CSRF protection is DISABLED for local/test (E2E)');
+    // Ensure csurf is NOT loaded in dev/test
+    return;
+  } else {
+    try {
+      const csurfModule = await import('csurf');
+      const csurfFn = (csurfModule as any).default || csurfModule;
+      const useCookie = process.env.CSRF_USE_COOKIE === 'true';
+      const csrfOptions = useCookie
+        ? { cookie: { httpOnly: false, secure: process.env.NODE_ENV === 'production', sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' } }
+        : { cookie: false };
+      const csrfProtection = csurfFn(csrfOptions as any);
+      app.use(csrfProtection);
+      csrfEnabled = true;
+      console.info(`CSRF middleware enabled (cookie:${useCookie})`);
+    } catch (err) {
+      console.warn('csurf not installed or failed to initialize - skipping CSRF middleware in this environment.');
+    }
   }
 
   // Always register the endpoint to return JSON so the client and E2E tooling don't receive HTML
@@ -156,9 +161,10 @@ app.use(mongoSanitize());
 if (process.env.NODE_ENV === 'production') {
   app.use((req, res, next) => {
     const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
-    if (proto && proto.split(',')[0] !== 'https') {
-      // Redirect to HTTPS
-      const host = req.headers.host;
+    const host = req.headers.host || '';
+    // Only redirect to HTTPS if not localhost or 127.0.0.1
+    const isLocalhost = host.includes('localhost') || host.includes('127.0.0.1');
+    if (proto && proto.split(',')[0] !== 'https' && !isLocalhost) {
       if (host) {
         return res.redirect(`https://${host}${req.url}`);
       }

@@ -1329,3 +1329,32 @@ For questions about this changelog or version history:
 **Changelog Maintained By:** AgriCompass Development Team  
 **Last Updated:** November 19, 2025  
 **Next Review:** End of Sprint 5
+## [0.8.11] - 2025-11-27
+### Changed - Documentation & Production Readiness
+- Updated README.md with latest setup, environment variable, deployment, and testing instructions
+- Updated ARCHITECTURE.md to reflect new API endpoints, database schema, and deployment strategy
+- Clarified environment variable requirements and production checklist
+- Added CORS, session, webhook, and SSL notes to documentation
+- Improved Playwright/manual/integration testing workflow in docs
+
+### Fixed - Security & API Connectivity
+- CORS middleware now fully supports Vercel frontend and Fly.io backend
+- Session cookie configuration hardened for production (secure, httpOnly, sameSite)
+- Paystack webhook endpoint now requires HMAC-SHA512 signature (no fallback)
+- All admin endpoints require proper role and support pagination/filtering
+- API base URL is now configurable via VITE_API_URL in frontend
+- All secrets and environment variables must be set in Vercel and Fly.io dashboards
+- SSL/HTTPS required for all endpoints in production
+
+### Added - Testing & E2E Helpers
+- Playwright E2E tests now documented and enabled for production validation
+- Test-only endpoints gated by ENABLE_TEST_ENDPOINTS=true for CI and local runs
+- Manual testing workflow clarified for registration, login, listing, order, payment, and admin flows
+- Email and webhook simulation scripts documented for production and test environments
+
+### Impact
+- All documentation up to date for production deployment and testing
+- Security and connectivity issues resolved for full-stack readiness
+- Testing workflow standardized for Playwright, manual, and integration tests
+
+---

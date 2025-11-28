@@ -16,80 +16,107 @@
 - [Project Structure](#project-structure)
 - [API Documentation](#api-documentation)
 - [Security](#security)
-- [Contributing](#contributing)
-- [Team](#team)
-- [📚 Documentation](#-documentation)
 
----
+## 🛠 Getting Started & Deployment
 
-## 📚 Documentation
+### Prerequisites
 
-**Comprehensive project documentation for funding and development:**
+- Node.js >= 18.x
+- npm >= 9.x
+- Git
 
-### **For Stakeholders & Investors**
-- 📊 **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)** - Executive summary, funding readiness, success metrics
-- 📋 **[PRD.md](PRD.md)** - Product Requirements Document with complete feature specifications
-- 📅 **[ROADMAP.md](ROADMAP.md)** - 24-week sprint-by-sprint implementation plan
+### Installation
 
-### **For Developers**
-- 🏗️ **[ARCHITECTURE.md](ARCHITECTURE.md)** - Technical architecture, database schema, API specs
-- 📝 **[CHANGELOG.md](CHANGELOG.md)** - Version history and release notes
-- ⚠️ **[SPRINT_RISK_MITIGATION.md](SPRINT_RISK_MITIGATION.md)** - Critical issues analysis & mitigation plan
-- 🚀 **[HOSTING_STRATEGY_FREE.md](HOSTING_STRATEGY_FREE.md)** - $0 budget hosting & manual setup guides
-- 🤝 **[CONTRIBUTING.md](CONTRIBUTING.md)** - Code standards and contribution workflow
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/JustAsabre/AgriCompassWeb.git
+   cd AgriCompassWeb
+   ```
 
-### **Quick Facts**
-- **Current Status:** 85% MVP Complete (Sprint 6 Complete - Comprehensive Test Coverage)
-- **Test Coverage:** 52.79% statements, 54.06% lines (195 tests passing)
-- **Risk Assessment:** 11 Critical Issues Identified - Mitigation Plan Active
-- **Timeline:** 24 weeks to production launch (Risk Mitigation: Sprints 7-11)
-- **Team Size:** 4 developers
-- **Tech Stack:** React + TypeScript + Express + PostgreSQL
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
 
----
+3. **Set up environment variables**
+   - Copy `.env.example` to `.env` and fill in required secrets for production:
+     ```bash
+     cp .env.example .env
+     ```
+   - **Required for production:**
+     - `SESSION_SECRET` (strong random string)
+     - `DATABASE_URL` (Postgres connection string)
+     - `PAYSTACK_SECRET_KEY` (Paystack secret)
+     - `PAYSTACK_WEBHOOK_SECRET` (Paystack webhook secret)
+     - `FRONTEND_URL` (e.g., https://agricompass.vercel.app)
+     - `REDIS_URL` (optional, for session store)
+     - `RESEND_API_KEY` (for email delivery)
+     - See [SECURITY.md](SECURITY.md) for full checklist.
 
-## ⚠️ Risk Assessment & Mitigation Plan
+4. **Run the development server**
+   ```bash
+   npm run dev
+   ```
 
-**Critical Security & Stability Issues Identified** - Immediate action required for production deployment.
+5. **Open your browser**
+   ```
+   http://localhost:5000
+   ```
 
-### **Identified Risks (11 Total)**
-- 🔴 **Security Vulnerabilities** (3): Session isolation, webhook security, admin race conditions
-- 🟡 **Real-Time Stability** (2): Socket.IO reliability, notification delivery
-- 🟡 **Integration Fragility** (2): Email service, payment validation
-- 🟠 **Database Performance** (2): Admin analytics, order status management
-- 🟠 **API Consistency** (2): Response formats, validation errors
+### Production Deployment
 
-### **Immediate Mitigation Plan (Sprints 7-11)**
-- **Sprint 7 (Dec 1-14, 2025):** Security hardening - session isolation, webhook verification, admin operations
-- **Sprint 8 (Dec 15-28, 2025):** Real-time reliability - Socket.IO stability, notification backup
-- **Sprint 9 (Jan 1-14, 2026):** Integration monitoring - email health, payment validation
-- **Sprint 10 (Jan 15-28, 2026):** Performance optimization - analytics, order management
-- **Sprint 11 (Feb 1-14, 2026):** API standardization - response formats, error handling
+- **Frontend:** Deploy to Vercel (set `VITE_API_URL=https://agricompassweb.fly.dev`)
+- **Backend:** Deploy to Fly.io (set all secrets in Fly.io dashboard)
+- **Database:** Neon PostgreSQL (set `DATABASE_URL`)
+- **Session Store:** Upstash Redis (set `REDIS_URL`)
+- **Email:** Resend or SMTP fallback (set `RESEND_API_KEY` or SMTP config)
+- **CORS:** Backend must allow requests from Vercel frontend and production domains
+- **SSL:** Ensure HTTPS is enabled for all endpoints
 
-### **Success Criteria**
-- ✅ Zero session isolation breaches
-- ✅ 99.9% message delivery reliability
-- ✅ 100% API response format compliance
-- ✅ Enterprise-grade security monitoring
-- ✅ Production-ready stability
+#### Quick Deployment Steps
+1. Push code to GitHub
+2. Deploy frontend to Vercel, backend to Fly.io
+3. Set all environment variables in Vercel and Fly.io dashboards
+4. Run database migrations:
+   ```bash
+   npm run db:push
+   ```
+5. Verify API connectivity and CORS headers
+6. Run Playwright and manual tests (see below)
 
-**📋 Full Risk Assessment:** See [SPRINT_RISK_MITIGATION.md](SPRINT_RISK_MITIGATION.md) for detailed analysis and action plan.
+### Environment Variables Reference
 
----
+| Variable | Description | Required | Example |
+|----------|-------------|----------|---------|
+| SESSION_SECRET | Session encryption key | Yes | longrandomstring |
+| DATABASE_URL | Postgres connection | Yes | postgresql://user:pass@host:5432/db |
+| PAYSTACK_SECRET_KEY | Paystack API key | Yes (prod) | sk_live_xxx |
+| PAYSTACK_WEBHOOK_SECRET | Paystack webhook secret | Yes (prod) | webhook_secret |
+| FRONTEND_URL | Frontend URL | Yes (prod) | https://agricompass.vercel.app |
+| REDIS_URL | Redis session store | Optional | redis://:pass@host:6379 |
+| RESEND_API_KEY | Email delivery | Optional | re_xxx |
+| ENABLE_TEST_ENDPOINTS | Enable test-only routes | Dev/test | true |
 
-## 🎯 Overview
+See [SECURITY.md](SECURITY.md) for full checklist and recommendations.
 
-AgriCompassWeb is a comprehensive agricultural marketplace platform that facilitates direct connections between farmers and buyers. The platform enables farmers to list their products, buyers to browse and purchase in bulk, and field officers to verify farmer credentials.
+### Payments & Payouts (Paystack)
 
-### Key Roles
+- If `PAYSTACK_SECRET_KEY` is not set, app falls back to manual payment records for testing.
+- For payouts, set `PAYSTACK_AUTO_PAYOUTS` and `PLATFORM_COMMISSION_PERCENT` as needed.
+- See API docs for payout endpoints.
 
-- **👨‍🌾 Farmers**: Create product listings, manage inventory, handle orders
-- **🏢 Buyers**: Browse marketplace, add to cart, place bulk orders
-- **🔍 Field Officers**: Verify farmer credentials and listings
-- **👑 Admin**: Manage platform operations, user accounts, and system monitoring
+### Test Accounts
 
-## ✨ Features
+The app comes pre-seeded with test accounts:
 
+| Role | Email | Features |
+|------|-------|----------|
+| Farmer | `farmer1@test.com` | Create listings, manage products |
+| Farmer | `farmer2@test.com` | Alternative farmer account |
+| Buyer | `buyer@test.com` | Browse, cart, checkout |
+| Field Officer | `officer@test.com` | Verify farmers |
+
+*Note: Passwords need to be set during registration or check the code*
 ### For Farmers
 - ✅ Create and manage product listings
 - ✅ Set bulk pricing tiers
@@ -114,29 +141,64 @@ AgriCompassWeb is a comprehensive agricultural marketplace platform that facilit
 - ✅ Platform analytics and monitoring
 - ✅ Content moderation tools
 
+
 ## 🧪 Quality Assurance & Testing
 
-### Test Coverage Achievements (Sprint 6)
+### Test Coverage Achievements
 - **Overall Coverage**: 52.79% statements, 54.06% lines
 - **Total Tests**: 195 tests passing across 25 test files
 - **Test Categories**: Verification, Messaging, Notifications, Analytics, Reviews, Payments, Payouts, Admin
 
-### Comprehensive Test Suite
-- ✅ **Verification System**: Farmer requests, officer reviews, role-based access
-- ✅ **Messaging System**: Real-time conversations, unread counts, message exchange
-- ✅ **Notification System**: Management, mark as read, bulk operations
-- ✅ **Analytics Dashboards**: Farmer/buyer/officer metrics with data validation
-- ✅ **Review System**: Bidirectional reviews, moderation, rating calculations
-- ✅ **Payment Processing**: Paystack integration, webhooks, multi-order transactions
-- ✅ **Payout Management**: Recipient creation, payout requests, admin processing
-- ✅ **Admin Functions**: User management, statistics, revenue reporting
+### Testing Workflow
 
-### Quality Features
-- **Security Testing**: Authentication bypass prevention, role-based access validation
-- **Performance Testing**: Concurrent load testing for admin endpoints
-- **Integration Testing**: End-to-end payment flows, webhook processing
-- **Error Handling**: Comprehensive validation testing, edge case coverage
-- **Real-time Testing**: Socket.IO notification delivery validation
+#### 1. TypeScript & Dependency Checks
+```bash
+npm run check      # TypeScript type checking
+npm audit          # Check for vulnerabilities
+```
+
+#### 2. Playwright E2E Tests
+```bash
+npx playwright test --workers=1
+```
+*Set `ENABLE_TEST_ENDPOINTS=true` for test-only routes.*
+
+#### 3. Manual Testing (Production)
+- Register, login, create listings, place orders, verify payments, test all roles
+- Use browser dev tools to confirm API calls go to backend (Fly.io)
+- Check CORS headers and session cookies
+
+#### 4. API Connectivity & CORS
+- Confirm frontend (Vercel) targets backend (Fly.io)
+- Test cross-origin requests, session persistence, and authentication
+
+#### 5. Email & Webhook Testing
+- Register and verify email delivery (Resend/SMTP)
+- Simulate Paystack webhook events using scripts/simulate-paystack-webhook.mjs
+
+#### 6. Admin & Security Testing
+- Test admin endpoints, role-based access, and security features
+- Run security checklist from [SECURITY.md](SECURITY.md)
+
+#### 7. Production Readiness
+- Run all tests, verify environment variables, check deployment logs
+- See [TESTING_GUIDE.md](TESTING_GUIDE.md) for full step-by-step instructions
+
+### Common Issues & Troubleshooting
+- CORS errors: Check backend CORS config and allowed origins
+- Session/auth errors: Confirm cookies are set and sent with requests
+- API connectivity: Ensure VITE_API_URL is set correctly in frontend
+- Email not sending: Check RESEND_API_KEY or SMTP config
+- Playwright failures: Enable test endpoints and check logs
+
+### Success Criteria
+- All tests pass (Playwright, manual, integration)
+- No TypeScript errors
+- No critical vulnerabilities
+- All emails and webhooks work in production
+- API connectivity and CORS verified
+
+See [TESTING_GUIDE.md](TESTING_GUIDE.md) for advanced scenarios, troubleshooting, and E2E helpers.
 
 ## 🛠 Tech Stack
 

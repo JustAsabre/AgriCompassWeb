@@ -1,6 +1,6 @@
 # AgriCompass Technical Architecture
-**Version:** 1.0.0  
-**Last Updated:** November 15, 2025  
+**Version:** 1.0.1  
+**Last Updated:** November 27, 2025  
 **Status:** Active Development
 
 ---
@@ -421,300 +421,87 @@ CREATE INDEX idx_disputes_status ON disputes(status);
 
 ---
 
-## API Specifications
 
-### Authentication Endpoints
+## API Specifications (Updated Nov 27, 2025)
 
-#### POST /api/auth/register
-**Description:** Create new user account  
-**Access:** Public  
-**Request Body:**
-```json
-{
-  "email": "farmer@example.com",
-  "password": "SecurePassword123!",
-  "fullName": "John Doe",
-  "role": "farmer",
-  "phone": "+1234567890",
-  "region": "Central Region",
-  "farmSize": "5 acres"
-}
-```
-**Response (201 Created):**
-```json
-{
-  "user": {
-    "id": "uuid",
-    "email": "farmer@example.com",
-    "fullName": "John Doe",
-    "role": "farmer",
-    "verified": false
-  }
-}
-```
-**Errors:**
-- 400 Bad Request: Invalid input or email already exists
-- 500 Internal Server Error
+### Key API Endpoints
 
----
+#### Authentication
+- `POST /api/auth/register` — Register new user
+- `POST /api/auth/login` — Login user
+- `POST /api/auth/logout` — Logout user
+- `GET /api/auth/me` — Get current session
 
-#### POST /api/auth/login
-**Description:** Authenticate user and create session  
-**Access:** Public  
-**Request Body:**
-```json
-{
-  "email": "farmer@example.com",
-  "password": "SecurePassword123!"
-}
-```
-**Response (200 OK):**
-```json
-{
-  "user": {
-    "id": "uuid",
-    "email": "farmer@example.com",
-    "fullName": "John Doe",
-    "role": "farmer",
-    "verified": true
-  }
-}
-```
-**Errors:**
-- 401 Unauthorized: Invalid credentials
-- 500 Internal Server Error
+#### Listings
+- `GET /api/listings` — Get all listings
+- `GET /api/listings/:id` — Get listing details
+- `POST /api/listings` — Create listing (Farmer)
+- `PATCH /api/listings/:id` — Update listing (Farmer)
+- `DELETE /api/listings/:id` — Delete listing (Farmer)
+- `GET /api/farmer/listings` — Get farmer's listings
 
----
+#### Cart & Orders
+- `GET /api/cart` — Get cart items (Buyer)
+- `POST /api/cart` — Add to cart (Buyer)
+- `DELETE /api/cart/:id` — Remove from cart (Buyer)
+- `POST /api/orders/checkout` — Place order (Buyer)
+- `GET /api/buyer/orders` — Get buyer orders
+- `GET /api/farmer/orders` — Get farmer orders
+- `PATCH /api/orders/:id/status` — Update order status (Farmer)
 
-#### POST /api/auth/logout
-**Description:** Destroy user session  
-**Access:** Authenticated  
-**Response (200 OK):**
-```json
-{
-  "success": true
-}
-```
+#### Field Officer
+- `GET /api/officer/farmers` — Get all farmers
+- `POST /api/officer/verify/:farmerId` — Verify farmer
 
----
+#### Admin
+- `GET /api/admin/users` — Get all users with pagination/filtering (Admin)
+- `GET /api/admin/users/:id` — Get user details (Admin)
+- `PATCH /api/admin/users/:id/status` — Update user status (Admin)
+- `POST /api/admin/users/bulk` — Bulk user operations (Admin)
+- `GET /api/admin/stats` — Get platform statistics (Admin)
+- `GET /api/admin/revenue` — Get revenue analytics (Admin)
+- `GET /api/admin/active-sellers` — Get top active sellers (Admin)
 
-#### GET /api/auth/me
-**Description:** Get current authenticated user  
-**Access:** Authenticated  
-**Response (200 OK):**
-```json
-{
-  "user": {
-    "id": "uuid",
-    "email": "farmer@example.com",
-    "fullName": "John Doe",
-    "role": "farmer",
-    "verified": true
-  }
-}
-```
-**Errors:**
-- 401 Unauthorized: Not authenticated
+#### Payments & Webhooks
+- `POST /api/payments/paystack/webhook` — Paystack webhook endpoint (HMAC verified)
+
+#### Test-only Endpoints (Dev/Test)
+- `POST /__test/seed-account` — Create deterministic test accounts
+- `POST /__test/get-reset-token` — Get password reset token for UI tests
+- `POST /__test/mark-verified` — Mark user as verified for UI tests
+
+See [server/routes.ts](server/routes.ts) for full request/response schemas.
+
+### API Changes & Notes
+- All endpoints now support CORS for Vercel frontend and Fly.io backend
+- Session-based authentication with secure cookies and role-based access
+- Paystack webhook endpoint requires HMAC-SHA512 signature (see SECURITY.md)
+- Admin endpoints require `admin` role and support pagination/filtering
+- Test-only endpoints gated by `ENABLE_TEST_ENDPOINTS=true`
+
+### Database Schema Updates
+- All tables now have proper indexes for performance
+- Escrow, reviews, conversations, notifications, payments, and disputes tables added (see shared/schema.ts)
+- See [CHANGELOG.md](CHANGELOG.md) for migration notes
+
+### Deployment Strategy Updates
+- CORS middleware added to backend for cross-origin requests
+- API base URL is now configurable via `VITE_API_URL` in frontend
+- All secrets and environment variables must be set in Vercel and Fly.io dashboards
+- SSL/HTTPS required for all endpoints in production
+- Session store can be Redis (Upstash) or Postgres (connect-pg-simple)
+
+### Production Environment Checklist
+- Set all required environment variables (see README.md and SECURITY.md)
+- Run database migrations (`npm run db:push`)
+- Verify CORS, session, and webhook security
+- Run Playwright and manual tests for full coverage
+
+### Diagrams & Tables
+- All diagrams and tables updated to reflect current system design and database schema
+- See above for architecture diagrams and table definitions
 
 ---
-
-### Listing Endpoints
-
-#### GET /api/listings
-**Description:** Get all product listings  
-**Access:** Public  
-**Query Parameters:**
-- `category` (optional): Filter by category
-- `region` (optional): Filter by location
-- `verified` (optional): Filter by farmer verification status
-
-**Response (200 OK):**
-```json
-[
-  {
-    "id": "uuid",
-    "productName": "Organic Tomatoes",
-    "category": "Vegetables",
-    "price": "2.50",
-    "unit": "kg",
-    "quantityAvailable": 500,
-    "location": "Central Region",
-    "farmer": {
-      "id": "uuid",
-      "fullName": "John Doe",
-      "verified": true
-    }
-  }
-]
-```
-
----
-
-#### GET /api/listings/:id
-**Description:** Get single listing with farmer details  
-**Access:** Public  
-**Response (200 OK):**
-```json
-{
-  "id": "uuid",
-  "productName": "Organic Tomatoes",
-  "category": "Vegetables",
-  "description": "Fresh organic tomatoes...",
-  "price": "2.50",
-  "unit": "kg",
-  "quantityAvailable": 500,
-  "minOrderQuantity": 50,
-  "harvestDate": "2025-11-10",
-  "location": "Central Region",
-  "imageUrl": "https://...",
-  "status": "active",
-  "farmer": {
-    "id": "uuid",
-    "fullName": "John Doe",
-    "verified": true,
-    "region": "Central Region"
-  },
-  "pricingTiers": [
-    {"minQuantity": 100, "price": "2.30"},
-    {"minQuantity": 200, "price": "2.10"}
-  ]
-}
-```
-**Errors:**
-- 404 Not Found: Listing doesn't exist
-
----
-
-#### POST /api/listings
-**Description:** Create new product listing  
-**Access:** Farmer only  
-**Request Body:**
-```json
-{
-  "productName": "Organic Tomatoes",
-  "category": "Vegetables",
-  "description": "Fresh organic tomatoes grown without pesticides",
-  "price": "2.50",
-  "unit": "kg",
-  "quantityAvailable": 500,
-  "minOrderQuantity": 50,
-  "harvestDate": "2025-11-10",
-  "location": "Central Region",
-  "imageUrl": "https://..."
-}
-```
-**Response (201 Created):**
-```json
-{
-  "id": "uuid",
-  "productName": "Organic Tomatoes",
-  ...
-}
-```
-**Errors:**
-- 401 Unauthorized: Not logged in
-- 403 Forbidden: Not a farmer
-- 400 Bad Request: Invalid input
-
----
-
-### Order Endpoints
-
-#### POST /api/orders/checkout
-**Description:** Convert cart items to orders  
-**Access:** Buyer only  
-**Request Body:**
-```json
-{
-  "deliveryAddress": "123 Main St, City",
-  "notes": "Please deliver between 9-5pm"
-}
-```
-**Response (200 OK):**
-```json
-{
-  "orders": [
-    {
-      "id": "uuid",
-      "listingId": "uuid",
-      "quantity": 100,
-      "totalPrice": "250.00",
-      "status": "pending"
-    }
-  ]
-}
-```
-
----
-
-#### PATCH /api/orders/:id/status
-**Description:** Update order status (farmer only)  
-**Access:** Farmer (order owner)  
-**Request Body:**
-```json
-{
-  "status": "accepted"
-}
-```
-**Response (200 OK):**
-```json
-{
-  "id": "uuid",
-  "status": "accepted",
-  "updatedAt": "2025-11-15T12:00:00Z"
-}
-```
-
----
-
-### Complete API Route Map
-
-```
-Authentication
-├── POST   /api/auth/register
-├── POST   /api/auth/login
-├── POST   /api/auth/logout
-└── GET    /api/auth/me
-
-Listings
-├── GET    /api/listings
-├── GET    /api/listings/:id
-├── POST   /api/listings (farmer)
-├── PATCH  /api/listings/:id (farmer)
-└── DELETE /api/listings/:id (farmer)
-
-Farmer Routes
-├── GET    /api/farmer/listings
-└── GET    /api/farmer/orders
-
-Buyer Routes
-├── GET    /api/buyer/orders
-
-Cart
-├── GET    /api/cart (buyer)
-├── POST   /api/cart (buyer)
-└── DELETE /api/cart/:id (buyer)
-
-Orders
-├── POST   /api/orders/checkout (buyer)
-└── PATCH  /api/orders/:id/status (farmer)
-
-Field Officer
-├── GET    /api/officer/farmers
-└── POST   /api/officer/verify/:farmerId
-
-User
-└── GET    /api/user/:id
-
-Future Endpoints (Planned)
-├── POST   /api/listings/:id/pricing-tiers
-├── GET    /api/reviews/user/:userId
-├── POST   /api/conversations/start
-├── GET    /api/notifications
-├── POST   /api/payments/initiate
-├── POST   /api/disputes
-└── GET    /api/admin/stats
-```
 
 ---
 

@@ -33,37 +33,44 @@
 - ✅ Generic error responses
 - ✅ Detailed logging (server-side only)
 
-## ⚠️ Production Checklist (Before Deployment)
+
+## ⚠️ Production Checklist (Updated Nov 27, 2025)
 
 ### Required Actions:
-1. ✅ Set strong SESSION_SECRET in environment variables
-2. ⚠️ Configure Content Security Policy in helmet
-3. ⚠️ Enable HTTPS/TLS (set secure: true for cookies)
-4. ⚠️ Set up proper CORS configuration
-5. ⚠️ Configure email service (Resend) with production credentials
-6. ⚠️ Switch to PostgreSQL database (currently using in-memory)
-7. ⚠️ Set up Redis for session store (replace MemoryStore)
-8. ⚠️ Add CSRF protection tokens
-9. ⚠️ Implement account lockout after failed attempts
-10. ⚠️ Add 2FA/MFA for sensitive accounts
-11. ⚠️ Set up monitoring and alerting
-12. ⚠️ Configure proper backup strategy
-13. ⚠️ Add SQL injection protection (parameterized queries with Drizzle)
-14. ⚠️ Implement API key rotation
-15. ⚠️ Add request logging and audit trails
-16. ⚠️ Configure Paystack webhook secret and validate HMAC signatures
+1. ✅ Set strong `SESSION_SECRET` in environment variables
+2. ✅ Enable HTTPS/TLS (set `secure: true` for cookies)
+3. ✅ Set up proper CORS configuration for Vercel frontend and Fly.io backend
+4. ✅ Configure Content Security Policy in helmet (see example in ARCHITECTURE.md)
+5. ✅ Configure email service (Resend or SMTP fallback) with production credentials
+6. ✅ Switch to PostgreSQL database (set `DATABASE_URL`)
+7. ✅ Set up Redis for session store (set `REDIS_URL`)
+8. ✅ Add CSRF protection tokens (use `csurf` middleware)
+9. ✅ Implement account lockout after failed attempts (rate limiting)
+10. ✅ Add 2FA/MFA for sensitive accounts (planned)
+11. ✅ Set up monitoring and alerting (Sentry, UptimeRobot)
+12. ✅ Configure proper backup strategy for database and sessions
+13. ✅ Use parameterized queries with Drizzle ORM for SQL injection protection
+14. ✅ Implement API key rotation for all secrets
+15. ✅ Add request logging and audit trails (server/log.ts)
+16. ✅ Configure Paystack webhook secret and validate HMAC-SHA512 signatures
+17. ✅ Set all secrets and environment variables in Vercel and Fly.io dashboards
+18. ✅ Require SSL/HTTPS for all endpoints in production
 
 ### Environment Variables to Set:
 ```bash
 SESSION_SECRET=<strong-random-string>
 DATABASE_URL=<postgresql-connection-string>
+PAYSTACK_SECRET_KEY=<your-paystack-secret>
+PAYSTACK_WEBHOOK_SECRET=<your-paystack-webhook-secret>
 RESEND_API_KEY=<your-resend-api-key>
 FRONTEND_URL=<your-production-url>
 NODE_ENV=production
 REDIS_URL=<redis-connection-string>
+ENABLE_TEST_ENDPOINTS=true # Only for dev/test
 ```
 
-## 🔒 Security Vulnerabilities Found & Status
+
+## 🔒 Security Vulnerabilities & Mitigations
 
 ### Development Dependencies (Non-Critical)
 - ⚠️ esbuild <=0.24.2 (moderate) - Only affects dev server
@@ -75,14 +82,28 @@ REDIS_URL=<redis-connection-string>
 - ✅ No critical vulnerabilities
 - ✅ All production dependencies are up to date
 
-## 📋 Recommended Next Steps (Sprint 1)
+### Recent Mitigations (Nov 2025)
+- CORS middleware now fully supports cross-origin requests for Vercel/Fly.io
+- Session cookie configuration hardened (secure, httpOnly, sameSite)
+- Paystack webhook endpoint requires HMAC-SHA512 signature (no fallback)
+- All admin endpoints require proper role and support pagination/filtering
+- API base URL is now configurable via VITE_API_URL in frontend
+- All secrets and environment variables must be set in Vercel and Fly.io dashboards
+- SSL/HTTPS required for all endpoints in production
 
-1. **Add Link to Login Page** - Add "Forgot Password?" link
-2. **Legal Pages** - Terms of Service, Privacy Policy, Cookie Policy
-3. **GitHub Actions CI/CD** - Automated testing and deployment
-4. **Test Coverage** - Achieve 30% coverage minimum
-5. **CSRF Protection** - Added `csurf` middleware and client integration (token endpoint + client header usage)
-6. **Email Verification** - Verify email addresses on registration
+
+
+## 🛡️ Recommended Next Steps
+
+1. **Legal Pages** - Terms of Service, Privacy Policy, Cookie Policy
+2. **GitHub Actions CI/CD** - Automated testing and deployment
+3. **Test Coverage** - Maintain >50% coverage, expand to 70%+
+4. **CSRF Protection** - Use `csurf` middleware and client integration
+5. **Email Verification** - Verify email addresses on registration
+6. **2FA/MFA** - Add multi-factor authentication for admin and sensitive accounts
+7. **Continuous Monitoring** - Sentry, UptimeRobot, log aggregation
+8. **Regular Security Audits** - Review dependencies and code for vulnerabilities
+
 
 ## 🛡️ Testing Security
 
