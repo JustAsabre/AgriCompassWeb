@@ -38,22 +38,22 @@ const corsOptions = {
   origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    
+
     // Allow localhost for development
     if (origin.includes('localhost')) return callback(null, true);
-    
+
     // Allow Vercel deployment
     if (origin.includes('vercel.app')) return callback(null, true);
-    
+
     // Allow Fly.io domain
     if (origin.includes('agricompassweb.fly.dev')) return callback(null, true);
-    
+
     // In production, you might want to restrict to specific domains
     // For now, allow all origins in development
     if (process.env.NODE_ENV !== 'production') {
       return callback(null, true);
     }
-    
+
     // Reject other origins in production
     return callback(new Error('Not allowed by CORS'));
   },
@@ -93,6 +93,15 @@ app.use('/api/auth/register', authLimiter);
 
 // Session configuration (centralized)
 app.use(sessionMiddleware);
+
+// DEBUG: Diagnose session/CSRF issues
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api')) {
+    const proto = req.headers['x-forwarded-proto'];
+    console.log(`[DEBUG] ${req.method} ${req.path} | Secure: ${req.secure} | Proto: ${req.protocol} (Header: ${proto}) | Session: ${!!req.session} | ID: ${req.session?.id}`);
+  }
+  next();
+});
 
 // CSRF protection - ensure it sits after session middleware
 // We use a dynamic import here to avoid static import resolution failing when `csurf` is not installed.
@@ -226,7 +235,7 @@ app.use((req, res, next) => {
       const rid = (req as any).requestId || '-';
       log(`CSRF error [${rid}] name=${err.name} code=${err.code} message=${err.message}`);
       // Log stack and additional debug info for diagnosing misconfiguration
-      try { console.error(err.stack); } catch (e) {}
+      try { console.error(err.stack); } catch (e) { }
       return res.status(403).json({ message: 'Invalid CSRF token', requestId: rid });
     }
     _next(err);
@@ -239,7 +248,7 @@ app.use((req, res, next) => {
 
     // Log the error server-side with request id, don't rethrow to avoid crashing the process
     log(`ERROR [${rid}] ${message} name=${err?.name || ''} code=${err?.code || ''}`);
-    try { console.error(err.stack); } catch (e) {}
+    try { console.error(err.stack); } catch (e) { }
     if (err.stack) {
       // keep stack printing limited in dev
       if (process.env.NODE_ENV === "development") {
