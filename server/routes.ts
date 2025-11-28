@@ -1021,6 +1021,72 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         }
       }
 
+      // Handle Refunds on Rejection
+      if (status === 'rejected') {
+        const payments = await storage.getPaymentsByOrder(req.params.id);
+        const completedPayment = payments.find((p: any) => p.status === 'completed');
+
+        if (completedPayment && completedPayment.paymentMethod === 'paystack' && completedPayment.transactionId) {
+          console.log(`[Refund] Initiating refund for rejected order ${req.params.id}, payment ${completedPayment.id}`);
+          const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
+
+          if (paystackSecret) {
+            try {
+              const refundRes = await fetch('https://api.paystack.co/refund', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${paystackSecret}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  transaction: completedPayment.transactionId,
+                  amount: Number(completedPayment.amount) * 100 // Amount in kobo
+                }),
+              });
+
+              if (refundRes.ok) {
+                const refundData = await refundRes.json();
+                console.log(`[Refund] Refund successful for order ${req.params.id}`, refundData);
+
+                // Update payment status
+                await storage.updatePaymentStatus(completedPayment.id, 'refunded');
+
+                // Update escrow if exists
+                const escrow = await storage.getEscrowByOrder(req.params.id);
+                if (escrow) {
+                  await storage.updateEscrowStatus(escrow.id, 'refunded');
+                }
+
+                // Notify buyer
+                await sendNotificationToUser(order.buyerId, {
+                  userId: order.buyerId,
+                  type: 'order_update',
+                  title: 'Order Refunded',
+                  message: `Your order for ${order.listing.productName} was rejected and a refund has been initiated.`,
+                  relatedId: order.id,
+                  relatedType: 'order',
+                }, io);
+              } else {
+                const errorText = await refundRes.text();
+                console.error(`[Refund] Paystack refund failed: ${errorText}`);
+                // We still reject the order but log the refund failure. 
+                // In a real system, you might want to flag this for admin review.
+                await sendNotificationToUser(order.farmerId, {
+                  userId: order.farmerId,
+                  type: 'order_update',
+                  title: 'Refund Failed',
+                  message: `Order rejected but automatic refund failed. Please contact support.`,
+                  relatedId: order.id,
+                  relatedType: 'order',
+                }, io);
+              }
+            } catch (err) {
+              console.error(`[Refund] Error processing refund:`, err);
+            }
+          }
+        }
+      }
+
       const updated = await storage.updateOrderStatus(req.params.id, status);
 
       // Notify buyer about order status update
@@ -2846,14 +2912,29 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       const updated = await storage.updatePaymentStatus(paymentId, 'completed');
       if (updated) {
         await storage.updateOrderStatus(updated.orderId, 'accepted');
-        // Notify buyer and farmer
-        try {
-          const order = await storage.getOrder(updated.orderId);
-          if (order) {
+
+        // Create Escrow Record
+        const order = await storage.getOrder(updated.orderId);
+        if (order) {
+          const existingEscrow = await storage.getEscrowByOrder(order.id);
+          if (!existingEscrow) {
+            await storage.createEscrow({
+              orderId: order.id,
+              buyerId: order.buyerId,
+              farmerId: order.farmerId,
+              amount: String(order.totalPrice),
+              status: 'upfront_held',
+              upfrontPaymentId: updated.id,
+            });
+            console.log(`[Escrow] Created escrow for order ${order.id}`);
+          }
+
+          // Notify buyer and farmer
+          try {
             await sendNotificationToUser(updated.payerId, { userId: updated.payerId, type: 'order_update', title: 'Payment received', message: `Payment completed for order ${order.id}.`, relatedId: order.id, relatedType: 'order' }, io);
             await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Payment received', message: `A payment for order ${order.id} has been completed.`, relatedId: order.id, relatedType: 'order' }, io);
-          }
-        } catch (err) { console.error('Failed to send payment notifications', err); }
+          } catch (err) { console.error('Failed to send payment notifications', err); }
+        }
       }
 
       res.json({ payment: updated });
@@ -2982,6 +3063,23 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           await storage.updatePaymentStatus(payment.id, 'completed');
           // Update order status to accepted
           await storage.updateOrderStatus(payment.orderId, 'accepted');
+
+          // Create Escrow Record for each order
+          const order = await storage.getOrder(payment.orderId);
+          if (order) {
+            const existingEscrow = await storage.getEscrowByOrder(order.id);
+            if (!existingEscrow) {
+              await storage.createEscrow({
+                orderId: order.id,
+                buyerId: order.buyerId,
+                farmerId: order.farmerId,
+                amount: String(order.totalPrice),
+                status: 'upfront_held',
+                upfrontPaymentId: payment.id,
+              });
+              console.log(`[Escrow] Created escrow for order ${order.id} (Transaction: ${transaction.id})`);
+            }
+          }
         }
 
         // Notify buyer and farmers

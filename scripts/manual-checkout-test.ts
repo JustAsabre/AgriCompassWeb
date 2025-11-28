@@ -1,6 +1,6 @@
 
-import { apiRequest } from "../client/src/lib/queryClient";
-import fetch from "node-fetch";
+// import { apiRequest } from "../client/src/lib/queryClient";
+// import fetch from "node-fetch"; // Node 18+ has global fetch
 
 // Mock browser environment for apiRequest if needed, or just use fetch directly
 const API_URL = "https://agricompass.vercel.app";
@@ -19,7 +19,7 @@ async function runTest() {
     });
 
     if (!loginRes.ok) {
-        console.error("Login failed:", await loginRes.text());
+        console.error("Login failed:", loginRes.status, await loginRes.text());
         return;
     }
 
