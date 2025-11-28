@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -54,37 +55,32 @@ export default function Messages() {
   // Get user data from conversations or session storage
   const getUserData = () => {
     if (!selectedConversation) return null;
-    
+
     // Try to find in conversations first
     const fromConversations = conversations?.find(c => c.otherUser.id === selectedConversation)?.otherUser;
     if (fromConversations) return fromConversations;
-    
+
     // Try to get from session storage
     const stored = sessionStorage.getItem(`user_${selectedConversation}`);
     if (stored) {
       return JSON.parse(stored);
     }
-    
+
     return null;
   };
-  
+
   const selectedUserData = getUserData();
 
   // Fetch messages for selected conversation
   const { data: messages, isLoading: messagesLoading } = useQuery<MessageWithUsers[]>({
-    queryKey: ["/api/messages", user?.id, selectedConversation],
+    queryKey: [`/api/messages/${selectedConversation}`, user?.id],
     enabled: !!selectedConversation && !!user?.id,
   });
 
   // Mark conversation as read mutation
   const markReadMutation = useMutation({
     mutationFn: async (otherUserId: string) => {
-      const response = await fetch(`/api/messages/${otherUserId}/read`, {
-        method: "PATCH",
-        credentials: "include",
-      });
-      if (!response.ok) throw new Error("Failed to mark as read");
-      return response.json();
+      return apiRequest("PATCH", `/api/messages/${otherUserId}/read`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/messages/conversations"] });
@@ -98,10 +94,10 @@ export default function Messages() {
 
     const handleNewMessage = (message: MessageWithUsers) => {
       // Update messages list if conversation is open with either sender or receiver
-      const isRelevantConversation = 
-        selectedConversation === message.senderId || 
+      const isRelevantConversation =
+        selectedConversation === message.senderId ||
         selectedConversation === message.receiverId;
-      
+
       if (isRelevantConversation && selectedConversation) {
         queryClient.setQueryData<MessageWithUsers[]>(
           ["/api/messages", selectedConversation],
@@ -237,11 +233,10 @@ export default function Messages() {
                       <button
                         key={conversation.otherUser.id}
                         onClick={() => handleSelectConversation(conversation.otherUser.id)}
-                        className={`w-full p-4 text-left hover:bg-accent transition-colors ${
-                          selectedConversation === conversation.otherUser.id
-                            ? "bg-accent"
-                            : ""
-                        }`}
+                        className={`w-full p-4 text-left hover:bg-accent transition-colors ${selectedConversation === conversation.otherUser.id
+                          ? "bg-accent"
+                          : ""
+                          }`}
                       >
                         <div className="flex items-center gap-3">
                           <Avatar>
@@ -321,19 +316,17 @@ export default function Messages() {
                               className={`flex ${isOwn ? "justify-end" : "justify-start"}`}
                             >
                               <div
-                                className={`max-w-[70%] rounded-lg p-3 ${
-                                  isOwn
-                                    ? "bg-primary text-primary-foreground"
-                                    : "bg-muted"
-                                }`}
+                                className={`max-w-[70%] rounded-lg p-3 ${isOwn
+                                  ? "bg-primary text-primary-foreground"
+                                  : "bg-muted"
+                                  }`}
                               >
                                 <p className="text-sm">{message.content}</p>
                                 <p
-                                  className={`text-xs mt-1 ${
-                                    isOwn
-                                      ? "text-primary-foreground/70"
-                                      : "text-muted-foreground"
-                                  }`}
+                                  className={`text-xs mt-1 ${isOwn
+                                    ? "text-primary-foreground/70"
+                                    : "text-muted-foreground"
+                                    }`}
                                 >
                                   {formatDistanceToNow(new Date(message.createdAt!), {
                                     addSuffix: true,

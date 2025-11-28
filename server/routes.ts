@@ -12,6 +12,7 @@ import { sendNotificationToUser, broadcastNewListing } from "./socket";
 import { enqueuePayout } from './jobs/payoutQueue';
 import { pool } from "./db";
 import crypto from "crypto";
+import fs from "fs";
 
 // Helper: Validate Ghana mobile number E.164 format (e.g., +233XXXXXXXXX)
 function isValidGhanaMobileNumber(mobile?: string) {
@@ -135,18 +136,18 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
   app.post("/api/auth/register", async (req, res) => {
     try {
       const data = insertUserSchema.parse(req.body);
-      
+
       // Validate email format more strictly
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(data.email)) {
         return res.status(400).json({ message: "Invalid email format" });
       }
-      
+
       // Check password strength
       if (data.password.length < 8) {
         return res.status(400).json({ message: "Password must be at least 8 characters" });
       }
-      
+
       // Check if user already exists
       const existingUser = await storage.getUserByEmail(data.email.toLowerCase());
       if (existingUser) {
@@ -161,7 +162,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         email: data.email.toLowerCase(), // Normalize email
         password: hashedPassword,
       });
-      
+
       // Create session
       req.session.user = sanitizeUser(user);
 
@@ -425,8 +426,8 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       }
 
       const fileUrls = req.files.map(file => getFileUrl(file.filename, req));
-      
-      res.json({ 
+
+      res.json({
         message: "Files uploaded successfully",
         files: req.files.map((file, index) => ({
           filename: file.filename,
@@ -471,20 +472,20 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     try {
       // Get farmer ID from authenticated session
       const farmerId = req.session.user!.id;
-      
+
       const data = insertListingSchema.parse({
         ...req.body,
         farmerId,
       });
 
       const listing = await storage.createListing(data);
-      
+
       // Broadcast new listing to all connected users
       const listingWithFarmer = await storage.getListingWithFarmer(listing.id);
       if (listingWithFarmer) {
         broadcastNewListing(listingWithFarmer, io);
       }
-      
+
       res.json(listing);
     } catch (error: any) {
       console.error("Create listing error:", error);
@@ -506,7 +507,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       const updated = await storage.updateListing(req.params.id, req.body);
       // After marking as completed, create a payout record for the farmer
       await maybeCreatePayoutForOrder(req.params.id);
-      
+
       res.json(updated);
     } catch (error: any) {
       console.error("Update listing error:", error);
@@ -615,7 +616,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       // Buyers can only cancel their own pending orders
       if (order.buyerId === userId && status === "cancelled" && order.status === "pending") {
         const updated = await storage.updateOrderStatus(req.params.id, "cancelled");
-        
+
         // Notify farmer
         await sendNotificationToUser(order.farmerId, {
           userId: order.farmerId,
@@ -664,14 +665,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       }
 
       if (data.quantity > listing.quantityAvailable) {
-        return res.status(400).json({ 
-          message: `Only ${listing.quantityAvailable} ${listing.unit} available` 
+        return res.status(400).json({
+          message: `Only ${listing.quantityAvailable} ${listing.unit} available`
         });
       }
 
       if (data.quantity < listing.minOrderQuantity) {
-        return res.status(400).json({ 
-          message: `Minimum order is ${listing.minOrderQuantity} ${listing.unit}` 
+        return res.status(400).json({
+          message: `Minimum order is ${listing.minOrderQuantity} ${listing.unit}`
         });
       }
 
@@ -686,7 +687,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
   app.delete("/api/cart/:id", requireRole("buyer"), async (req, res) => {
     try {
       const buyerId = req.session.user!.id;
-      
+
       // Verify ownership
       const item = await storage.getCartItem(req.params.id);
       if (!item) {
@@ -724,8 +725,8 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         return res.status(400).json({ message: "Listing no longer available" });
       }
       if (quantity > listing.quantityAvailable) {
-        return res.status(400).json({ 
-          message: `Only ${listing.quantityAvailable} ${listing.unit} available` 
+        return res.status(400).json({
+          message: `Only ${listing.quantityAvailable} ${listing.unit} available`
         });
       }
 
@@ -758,14 +759,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       for (const item of cartItems) {
         const listing = await storage.getListing(item.listingId);
         if (!listing) {
-          return res.status(400).json({ 
-            message: `Listing ${item.listing.productName} no longer available` 
+          return res.status(400).json({
+            message: `Listing ${item.listing.productName} no longer available`
           });
         }
-        
+
         if (item.quantity > listing.quantityAvailable) {
-          return res.status(400).json({ 
-            message: `Only ${listing.quantityAvailable} ${listing.unit} of ${listing.productName} available` 
+          return res.status(400).json({
+            message: `Only ${listing.quantityAvailable} ${listing.unit} of ${listing.productName} available`
           });
         }
       }
@@ -775,7 +776,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       for (const item of cartItems) {
         const tiers = await storage.getPricingTiersByListing(item.listingId);
         let pricePerUnit = Number(item.listing.price);
-        
+
         if (tiers && tiers.length > 0) {
           const sortedTiers = [...tiers].sort((a, b) => b.minQuantity - a.minQuantity);
           const applicableTier = sortedTiers.find(tier => item.quantity >= tier.minQuantity);
@@ -783,7 +784,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
             pricePerUnit = Number(applicableTier.price);
           }
         }
-        
+
         totalTransactionAmount += (pricePerUnit * item.quantity);
       }
 
@@ -801,15 +802,15 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         // Calculate tier-based pricing
         const tiers = await storage.getPricingTiersByListing(item.listingId);
         let pricePerUnit = Number(item.listing.price);
-        
+
         // Validate base price
         if (isNaN(pricePerUnit) || !item.listing.price) {
           console.error(`Invalid base price for listing ${item.listingId}:`, item.listing.price);
-          return res.status(500).json({ 
-            message: `Invalid price for ${item.listing.productName}` 
+          return res.status(500).json({
+            message: `Invalid price for ${item.listing.productName}`
           });
         }
-        
+
         if (tiers && tiers.length > 0) {
           // Sort tiers by minQuantity descending to find the highest applicable tier
           const sortedTiers = [...tiers].sort((a, b) => b.minQuantity - a.minQuantity);
@@ -821,9 +822,9 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
             }
           }
         }
-        
+
         const totalPrice = (pricePerUnit * item.quantity).toFixed(2);
-        
+
         const order = await storage.createOrder({
           buyerId,
           farmerId: item.listing.farmerId,
@@ -838,7 +839,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         // Send email notifications (async, non-blocking)
         const buyer = await storage.getUser(buyerId);
         const farmer = await storage.getUser(item.listing.farmerId);
-        
+
         if (buyer) {
           sendOrderConfirmationEmail(
             buyer.email,
@@ -868,14 +869,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         }
 
         // Notify farmer about new order
-          await sendNotificationToUser(item.listing.farmerId, {
+        await sendNotificationToUser(item.listing.farmerId, {
           userId: item.listing.farmerId,
           type: "order_update",
           title: "New Order Received",
           message: `You have a new order for ${item.listing.productName} (${item.quantity} ${item.listing.unit})`,
           relatedId: order.id,
           relatedType: "order",
-          }, io);
+        }, io);
       }
 
       // Create escrow records for each order
@@ -902,7 +903,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         if (paystackSecret) {
           const amountInKobo = Math.round(totalTransactionAmount * 100);
           const buyer = await storage.getUser(buyerId);
-          
+
           // Collect farmers with missing recipients so frontend can warn buyers
           const farmerIds = Array.from(new Set(orders.map(o => o.farmerId)));
           const missingRecipients: string[] = [];
@@ -962,21 +963,22 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           // Notify buyer and farmers
           try {
             await sendNotificationToUser(buyerId, { userId: buyerId, type: 'order_update', title: 'Payment initiated', message: `Payment initiated for ${orders.length} order(s).`, relatedId: transaction.id, relatedType: 'transaction' }, io);
-              // Notify all farmers involved
-              const farmerIds = Array.from(new Set(orders.map(o => o.farmerId)));
-              for (const fid of farmerIds) {
-                try {
-                  await sendNotificationToUser(fid, { userId: fid, type: 'order_update', title: 'Buyer payment initiated', message: `A buyer has initiated payment for orders.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
-                } catch (err) { /* ignore individual notification errors */ }
-              }
+            // Notify all farmers involved
+            const farmerIds = Array.from(new Set(orders.map(o => o.farmerId)));
+            for (const fid of farmerIds) {
+              try {
+                await sendNotificationToUser(fid, { userId: fid, type: 'order_update', title: 'Buyer payment initiated', message: `A buyer has initiated payment for orders.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
+              } catch (err) { /* ignore individual notification errors */ }
+            }
           } catch (err) { console.error('Failed to create payment notifications', err); }
-            return res.json({ orders, transaction, autoPay: { payments, authorization_url, reference, missingRecipients } });
+          return res.json({ orders, transaction, autoPay: { payments, authorization_url, reference, missingRecipients } });
         }
       }
 
       res.json({ orders, transaction });
     } catch (error: any) {
       console.error("Checkout error:", error);
+      try { fs.appendFileSync('checkout_debug.log', `[${new Date().toISOString()}] Checkout Error: ${error.message}\nStack: ${error.stack}\n`); } catch (e) { }
       res.status(400).json({ message: error.message || "Checkout failed" });
     }
   });
@@ -1044,7 +1046,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
       if (statusMessages[status]) {
         const orderDetails = await storage.getOrderWithDetails(req.params.id);
-          if (orderDetails) {
+        if (orderDetails) {
           await sendNotificationToUser(order.buyerId, {
             userId: order.buyerId,
             type: "order_update",
@@ -1195,13 +1197,13 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     try {
       // Get ALL verifications, not just ones assigned to this officer
       const allVerifications = Array.from((storage as any).verifications.values());
-      
+
       // Fetch farmer details for each verification
       const verificationsWithFarmers = await Promise.all(
         allVerifications.map(async (v: any) => {
           const farmer = await storage.getUser(v.farmerId);
           if (!farmer) return null;
-          
+
           const { password, ...safeFarmer } = farmer;
           return { ...v, farmer: safeFarmer };
         })
@@ -1292,11 +1294,11 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       if (status === 'approved') {
         const farmerId = verification.farmerId;
         console.log(`Approving verification for farmer ${farmerId}, verification status updated`);
-        
+
         // Check user after update
         const updatedUser = await storage.getUser(farmerId);
         console.log(`User after verification update:`, updatedUser ? { ...updatedUser, verified: updatedUser.verified } : 'null');
-        
+
         // Emit socket event for this farmer's connected clients
         try {
           if (io) io.to(`user:${farmerId}`).emit('user_updated', { userId: farmerId, verified: true });
@@ -1461,11 +1463,11 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
   app.get("/api/officer/farmers", requireRole("field_officer"), async (req, res) => {
     try {
       const farmers = await storage.getUsersByRole("farmer");
-        // Remove passwords before sending
-        const safeFarmers = farmers.map((farmer: any) => {
-          const { password, ...rest } = farmer;
-          return rest;
-        });
+      // Remove passwords before sending
+      const safeFarmers = farmers.map((farmer: any) => {
+        const { password, ...rest } = farmer;
+        return rest;
+      });
       res.json(safeFarmers);
     } catch (error: any) {
       console.error("Get farmers error:", error);
@@ -1481,7 +1483,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
       // Check if verification already exists
       let verification = await storage.getVerificationByFarmer(farmerId);
-      
+
       if (!verification) {
         // Create new verification
         verification = await storage.createVerification({
@@ -1506,14 +1508,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
 
-    // User profile routes
+  // User profile routes
   app.get("/api/user/:id", requireAuth, async (req, res) => {
     try {
       const user = await storage.getUser(req.params.id);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
-      
+
       const { password, ...userWithoutPassword } = user;
       res.json(userWithoutPassword);
     } catch (error: any) {
@@ -1609,7 +1611,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     try {
       const { id } = req.params;
       const notification = await storage.markNotificationRead(id);
-      
+
       if (!notification) {
         return res.status(404).json({ message: "Notification not found" });
       }
@@ -1638,7 +1640,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     try {
       const { id } = req.params;
       const success = await storage.deleteNotification(id);
-      
+
       if (!success) {
         return res.status(404).json({ message: "Notification not found" });
       }
@@ -1658,47 +1660,47 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
   app.get("/api/analytics/farmer", requireRole("farmer"), async (req: Request, res: Response) => {
     try {
       const farmerId = req.session.user!.id;
-      
+
       // Get farmer's listings
       const listings = await storage.getListingsByFarmer(farmerId);
-      
+
       // Get all orders for farmer's products
       const orders = await storage.getOrdersByFarmer(farmerId);
-      
+
       // Calculate metrics
       const totalListings = listings.length;
       const activeListings = listings.filter((l: any) => l.status === "active").length;
       const totalOrders = orders.length;
       const completedOrders = orders.filter((o: any) => o.status === "completed").length;
       const pendingOrders = orders.filter((o: any) => o.status === "pending").length;
-      
+
       // Calculate total revenue (completed orders only)
-      const totalRevenue = completedOrders > 0 
+      const totalRevenue = completedOrders > 0
         ? orders
-            .filter((o: any) => o.status === "completed")
-            .reduce((sum: number, order: any) => sum + Number(order.totalPrice || 0), 0)
+          .filter((o: any) => o.status === "completed")
+          .reduce((sum: number, order: any) => sum + Number(order.totalPrice || 0), 0)
         : 0;
 
       // Sales by month (last 6 months)
       const sixMonthsAgo = new Date();
       sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-      
+
       const salesByMonth = orders
         .filter((o: any) => o.createdAt && new Date(o.createdAt) >= sixMonthsAgo)
         .reduce((acc: any[], order: any) => {
-          const month = new Date(order.createdAt!).toLocaleDateString('en-US', { 
-            month: 'short', 
-            year: 'numeric' 
+          const month = new Date(order.createdAt!).toLocaleDateString('en-US', {
+            month: 'short',
+            year: 'numeric'
           });
           const existing = acc.find((item: any) => item.month === month);
           if (existing) {
             existing.orders += 1;
             existing.revenue += Number(order.totalPrice || 0);
           } else {
-            acc.push({ 
-              month, 
-              orders: 1, 
-              revenue: Number(order.totalPrice || 0) 
+            acc.push({
+              month,
+              orders: 1,
+              revenue: Number(order.totalPrice || 0)
             });
           }
           return acc;
@@ -1753,16 +1755,16 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
   app.get("/api/analytics/buyer", requireRole("buyer"), async (req: Request, res: Response) => {
     try {
       const buyerId = req.session.user!.id;
-      
+
       // Get buyer's orders
       const orders = await storage.getOrdersByBuyer(buyerId);
-      
+
       // Calculate metrics
       const totalOrders = orders.length;
       const completedOrders = orders.filter((o: any) => o.status === "completed").length;
       const pendingOrders = orders.filter((o: any) => o.status === "pending").length;
       const cancelledOrders = orders.filter((o: any) => o.status === "cancelled").length;
-      
+
       // Calculate total spending (completed orders only)
       const totalSpending = orders
         .filter((o: any) => o.status === "completed")
@@ -1771,23 +1773,23 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       // Spending by month (last 6 months)
       const sixMonthsAgo = new Date();
       sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-      
+
       const spendingByMonth = orders
         .filter((o: any) => o.createdAt && new Date(o.createdAt) >= sixMonthsAgo)
         .reduce((acc: any[], order: any) => {
-          const month = new Date(order.createdAt!).toLocaleDateString('en-US', { 
-            month: 'short', 
-            year: 'numeric' 
+          const month = new Date(order.createdAt!).toLocaleDateString('en-US', {
+            month: 'short',
+            year: 'numeric'
           });
           const existing = acc.find((item: any) => item.month === month);
           if (existing) {
             existing.orders += 1;
             existing.spending += Number(order.totalPrice || 0);
           } else {
-            acc.push({ 
-              month, 
-              orders: 1, 
-              spending: Number(order.totalPrice || 0) 
+            acc.push({
+              month,
+              orders: 1,
+              spending: Number(order.totalPrice || 0)
             });
           }
           return acc;
@@ -1842,7 +1844,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     try {
       // Get all farmers
       const farmers = await storage.getUsersByRole("farmer");
-      
+
       // Get all verifications (we'll need to add a method to get all verifications)
       const allVerifications: any[] = [];
       for (const farmer of farmers) {
@@ -1851,24 +1853,24 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           allVerifications.push(verification);
         }
       }
-      
+
       // Calculate metrics
       const totalFarmers = farmers.length;
       const verifiedFarmers = farmers.filter((f: any) => f.verified).length;
       const pendingVerifications = allVerifications.filter((v: any) => v.status === "pending").length;
       const approvedVerifications = allVerifications.filter((v: any) => v.status === "approved").length;
       const rejectedVerifications = allVerifications.filter((v: any) => v.status === "rejected").length;
-      
+
       // Verifications by month (last 6 months)
       const sixMonthsAgo = new Date();
       sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-      
+
       const verificationsByMonth = allVerifications
         .filter((v: any) => v.createdAt && new Date(v.createdAt) >= sixMonthsAgo)
         .reduce((acc: any[], verification: any) => {
-          const month = new Date(verification.createdAt!).toLocaleDateString('en-US', { 
-            month: 'short', 
-            year: 'numeric' 
+          const month = new Date(verification.createdAt!).toLocaleDateString('en-US', {
+            month: 'short',
+            year: 'numeric'
           });
           const existing = acc.find((item: any) => item.month === month);
           if (existing) {
@@ -1877,8 +1879,8 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
             if (verification.status === "rejected") existing.rejected += 1;
             if (verification.status === "pending") existing.pending += 1;
           } else {
-            acc.push({ 
-              month, 
+            acc.push({
+              month,
               total: 1,
               approved: verification.status === "approved" ? 1 : 0,
               rejected: verification.status === "rejected" ? 1 : 0,
@@ -1915,73 +1917,73 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
 
-    // ==================== ADMIN ROUTES ====================
-    // Get system-wide admin statistics
-    app.get('/api/admin/stats', requireRole('admin'), async (req: Request, res: Response) => {
-      try {
-        const roles = ['farmer', 'buyer', 'field_officer', 'admin'];
-        const usersByRole: Record<string, number> = {};
-        for (const r of roles) {
-          const users = await storage.getUsersByRole(r);
-          usersByRole[r] = users.length;
-        }
-
-        const totalUsers = Object.values(usersByRole).reduce((acc, v) => acc + v, 0);
-
-        // Try to use optimized DB-level totals; fallback to storage computed totals
-        try {
-          const totals = await getAdminTotals();
-          // Merge result with usersByRole computed above
-          res.json({
-            totalUsers,
-            usersByRole,
-            totalListings: totals.totalListings,
-              registeredFarmers: (await storage.getUsersByRole('farmer')).length,
-              verifiedFarmers: (await storage.getUsersByRole('farmer')).filter((f: any) => f.verified).length,
-            pendingVerifications: (await storage.getAllVerifications()).filter((v: any) => v.status === 'pending').length,
-            totalReviews: totals.totalReviews,
-            totalOrders: totals.totalOrders,
-            totalRevenueFromCompleted: totals.totalRevenueFromCompleted,
-            totalPayments: (await storage.getAllPayments()).length,
-            totalPayouts: totals.totalPayouts,
-          });
-        } catch (err) {
-          // If DB not available, fallback to previous storage-based totals
-          const listings = await storage.getAllListings();
-          const totalListings = listings.length;
-          const farmers = await storage.getUsersByRole('farmer');
-          const registeredFarmers = farmers.length;
-          const verifiedFarmers = farmers.filter((f: any) => f.verified).length;
-          const allVerifs = await storage.getAllVerifications();
-          const pendingVerifications = allVerifs.filter((v: any) => v.status === 'pending').length;
-          const reviews = await storage.getAllReviews();
-          const totalReviews = reviews.length;
-          const allOrders = await storage.getAllOrders();
-          const totalOrders = allOrders.length;
-          const totalRevenueFromCompleted = allOrders.filter((o: any) => o.status === 'completed').reduce((acc: number, o: any) => acc + (Number(o.totalPrice || 0) || 0), 0);
-          const payouts = await storage.getAllPayouts();
-          const totalPayouts = payouts.length;
-          const payments = await storage.getAllPayments();
-          const totalPayments = payments.length;
-          res.json({
-            totalUsers,
-            usersByRole,
-            totalListings,
-            registeredFarmers,
-            verifiedFarmers,
-            pendingVerifications,
-            totalReviews,
-            totalOrders,
-            totalRevenueFromCompleted,
-            totalPayments,
-            totalPayouts,
-          });
-        }
-      } catch (err: any) {
-        console.error('Admin stats error:', err);
-        res.status(500).json({ message: 'Failed to fetch admin stats' });
+  // ==================== ADMIN ROUTES ====================
+  // Get system-wide admin statistics
+  app.get('/api/admin/stats', requireRole('admin'), async (req: Request, res: Response) => {
+    try {
+      const roles = ['farmer', 'buyer', 'field_officer', 'admin'];
+      const usersByRole: Record<string, number> = {};
+      for (const r of roles) {
+        const users = await storage.getUsersByRole(r);
+        usersByRole[r] = users.length;
       }
-    });
+
+      const totalUsers = Object.values(usersByRole).reduce((acc, v) => acc + v, 0);
+
+      // Try to use optimized DB-level totals; fallback to storage computed totals
+      try {
+        const totals = await getAdminTotals();
+        // Merge result with usersByRole computed above
+        res.json({
+          totalUsers,
+          usersByRole,
+          totalListings: totals.totalListings,
+          registeredFarmers: (await storage.getUsersByRole('farmer')).length,
+          verifiedFarmers: (await storage.getUsersByRole('farmer')).filter((f: any) => f.verified).length,
+          pendingVerifications: (await storage.getAllVerifications()).filter((v: any) => v.status === 'pending').length,
+          totalReviews: totals.totalReviews,
+          totalOrders: totals.totalOrders,
+          totalRevenueFromCompleted: totals.totalRevenueFromCompleted,
+          totalPayments: (await storage.getAllPayments()).length,
+          totalPayouts: totals.totalPayouts,
+        });
+      } catch (err) {
+        // If DB not available, fallback to previous storage-based totals
+        const listings = await storage.getAllListings();
+        const totalListings = listings.length;
+        const farmers = await storage.getUsersByRole('farmer');
+        const registeredFarmers = farmers.length;
+        const verifiedFarmers = farmers.filter((f: any) => f.verified).length;
+        const allVerifs = await storage.getAllVerifications();
+        const pendingVerifications = allVerifs.filter((v: any) => v.status === 'pending').length;
+        const reviews = await storage.getAllReviews();
+        const totalReviews = reviews.length;
+        const allOrders = await storage.getAllOrders();
+        const totalOrders = allOrders.length;
+        const totalRevenueFromCompleted = allOrders.filter((o: any) => o.status === 'completed').reduce((acc: number, o: any) => acc + (Number(o.totalPrice || 0) || 0), 0);
+        const payouts = await storage.getAllPayouts();
+        const totalPayouts = payouts.length;
+        const payments = await storage.getAllPayments();
+        const totalPayments = payments.length;
+        res.json({
+          totalUsers,
+          usersByRole,
+          totalListings,
+          registeredFarmers,
+          verifiedFarmers,
+          pendingVerifications,
+          totalReviews,
+          totalOrders,
+          totalRevenueFromCompleted,
+          totalPayments,
+          totalPayouts,
+        });
+      }
+    } catch (err: any) {
+      console.error('Admin stats error:', err);
+      res.status(500).json({ message: 'Failed to fetch admin stats' });
+    }
+  });
 
   // ==================== PRICING TIERS ROUTES ====================
 
@@ -1993,6 +1995,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       res.json(tiers);
     } catch (error: any) {
       console.error("Get pricing tiers error:", error);
+      try { fs.appendFileSync('checkout_debug.log', `[${new Date().toISOString()}] Pricing Tiers Error: ${error.message}\nStack: ${error.stack}\n`); } catch (e) { }
       res.status(500).json({ message: "Failed to fetch pricing tiers" });
     }
   });
@@ -2038,7 +2041,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       }
 
       const data = insertPricingTierSchema.parse({ ...req.body, listingId: id });
-      
+
       // Validate pricing tier
       if (data.minQuantity < 1) {
         return res.status(400).json({ message: "Minimum quantity must be at least 1" });
@@ -2063,7 +2066,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     try {
       const { id } = req.params;
       const deleted = await storage.deletePricingTier(id);
-      
+
       if (!deleted) {
         return res.status(404).json({ message: "Pricing tier not found" });
       }
@@ -2083,7 +2086,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       const { userId } = req.params;
       const reviews = await storage.getReviewsByReviewee(userId);
       const rating = await storage.getAverageRating(userId);
-      
+
       res.json({
         reviews,
         averageRating: rating.average,
@@ -2212,7 +2215,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       // Get review to check ownership
       const reviews = await storage.getAllReviews();
       const review = reviews.find((r: any) => r.id === id);
-      
+
       if (!review) {
         return res.status(404).json({ message: "Review not found" });
       }
@@ -2766,424 +2769,424 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
   // ==================== PAYMENTS ROUTES - MVP STUBS ====================
 
-    // Initiate a payment
-    app.post('/api/payments/initiate', requireRole('buyer'), async (req, res) => {
-      try {
-        const buyerId = req.session.user!.id;
-        const { orderId, paymentMethod, returnUrl } = req.body;
-        if (!orderId) return res.status(400).json({ message: 'orderId is required' });
+  // Initiate a payment
+  app.post('/api/payments/initiate', requireRole('buyer'), async (req, res) => {
+    try {
+      const buyerId = req.session.user!.id;
+      const { orderId, paymentMethod, returnUrl } = req.body;
+      if (!orderId) return res.status(400).json({ message: 'orderId is required' });
 
-        const order = await storage.getOrder(orderId);
-        if (!order) {
-          console.warn(`Order not found: ${req.params.orderId || req.params.id || 'unknown'} requested by user: ${req.session.user?.id} role: ${req.session.user?.role}`);
-          return res.status(404).json({ message: 'Order not found' });
-        }
-        if (order.buyerId !== buyerId) return res.status(403).json({ message: 'Not your order' });
-
-        const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
-        if (paystackSecret) {
-          // server authoritative amount
-          const expectedAmount = Number(order.totalPrice || 0);
-          if (isNaN(expectedAmount) || expectedAmount <= 0) {
-            return res.status(400).json({ message: 'Invalid order amount' });
-          }
-
-          const amountInKobo = Math.round(expectedAmount * 100);
-          const buyer = await storage.getUser(buyerId);
-
-          const bodyPayload: any = { email: buyer?.email, amount: amountInKobo, metadata: { orderId } };
-          if (returnUrl) bodyPayload.callback_url = returnUrl;
-          const initRes = await fetch('https://api.paystack.co/transaction/initialize', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${paystackSecret}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(bodyPayload),
-          });
-
-          if (!initRes.ok) {
-            const text = await initRes.text().catch(() => '');
-            console.error('Paystack init failed', initRes.status, text);
-            return res.status(502).json({ message: 'Payment provider error' });
-          }
-
-          const body = await initRes.json();
-          const { authorization_url, reference } = body.data || {};
-
-          const payment = await storage.createPayment({
-            orderId,
-            payerId: buyerId,
-            amount: String(expectedAmount),
-            paymentMethod: 'paystack',
-            transactionId: reference,
-            status: 'pending',
-          } as any);
-
-          // Notify buyer and farmer that a payment has been initiated (persist+emit)
-          try {
-            await sendNotificationToUser(buyerId, { userId: buyerId, type: 'order_update', title: 'Payment initiated', message: `Payment initiated for order ${orderId}.`, relatedId: orderId, relatedType: 'order' }, io);
-            await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Buyer payment initiated', message: `A buyer has initiated payment for order ${orderId}.`, relatedId: orderId, relatedType: 'order' }, io);
-          } catch (err) { console.error('Failed to create payment notifications', err); }
-
-          return res.json({ payment, authorization_url, reference });
-        }
-
-        // fallback to manual
-        const payment = await storage.createPayment({ orderId, payerId: buyerId, amount: String(order.totalPrice), paymentMethod: paymentMethod || 'manual', transactionId: null, status: 'pending' } as any);
-        try {
-          await sendNotificationToUser(buyerId, { userId: buyerId, type: 'order_update', title: 'Payment created', message: `Your payment record for order ${orderId} has been created.`, relatedId: orderId, relatedType: 'order' }, io);
-          await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Buyer created payment record', message: `Buyer created a payment record for order ${orderId}.`, relatedId: orderId, relatedType: 'order' }, io);
-        } catch (err) { console.error('Failed to create payment notifications', err); }
-        res.json({ payment });
-      } catch (err: any) {
-        console.error('Initiate payment error:', err);
-        res.status(500).json({ message: 'Failed to initiate payment' });
+      const order = await storage.getOrder(orderId);
+      if (!order) {
+        console.warn(`Order not found: ${req.params.orderId || req.params.id || 'unknown'} requested by user: ${req.session.user?.id} role: ${req.session.user?.role}`);
+        return res.status(404).json({ message: 'Order not found' });
       }
-    });
+      if (order.buyerId !== buyerId) return res.status(403).json({ message: 'Not your order' });
 
-    // Verify a payment (admin or provider webhook) - admin-only endpoint for simulating verification
-    app.post('/api/payments/verify', requireRole('admin'), async (req, res) => {
-      try {
-        const { paymentId } = req.body;
-        if (!paymentId) return res.status(400).json({ message: 'paymentId required' });
-
-        const payment = await storage.getPayment(paymentId);
-        if (!payment) return res.status(404).json({ message: 'Payment not found' });
-
-        const updated = await storage.updatePaymentStatus(paymentId, 'completed');
-        if (updated) {
-          await storage.updateOrderStatus(updated.orderId, 'accepted');
-          // Notify buyer and farmer
-          try {
-            const order = await storage.getOrder(updated.orderId);
-            if (order) {
-              await sendNotificationToUser(updated.payerId, { userId: updated.payerId, type: 'order_update', title: 'Payment received', message: `Payment completed for order ${order.id}.`, relatedId: order.id, relatedType: 'order' }, io);
-              await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Payment received', message: `A payment for order ${order.id} has been completed.`, relatedId: order.id, relatedType: 'order' }, io);
-            }
-          } catch (err) { console.error('Failed to send payment notifications', err); }
+      const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
+      if (paystackSecret) {
+        // server authoritative amount
+        const expectedAmount = Number(order.totalPrice || 0);
+        if (isNaN(expectedAmount) || expectedAmount <= 0) {
+          return res.status(400).json({ message: 'Invalid order amount' });
         }
 
-        res.json({ payment: updated });
-      } catch (err: any) {
-        console.error('Verify payment error:', err);
-        res.status(500).json({ message: 'Failed to verify payment' });
-      }
-    });
+        const amountInKobo = Math.round(expectedAmount * 100);
+        const buyer = await storage.getUser(buyerId);
 
-    // Get payment status
-    app.get('/api/payments/:id', requireAuth, async (req, res) => {
-      try {
-        const payment = await storage.getPayment(req.params.id);
-        if (!payment) return res.status(404).json({ message: 'Payment not found' });
-
-        const order = await storage.getOrder(payment.orderId);
-        if (!order) {
-          console.warn(`Order not found: ${req.params.orderId || req.params.id || 'unknown'} requested by user: ${req.session.user?.id} role: ${req.session.user?.role}`);
-          return res.status(404).json({ message: 'Order not found' });
-        }
-        const userId = req.session.user!.id;
-        if (userId !== payment.payerId && userId !== order.farmerId && req.session.user!.role !== 'admin') {
-          return res.status(403).json({ message: 'Not authorized' });
-        }
-
-        res.json({ payment });
-      } catch (err: any) {
-        console.error('Get payment error:', err);
-        res.status(500).json({ message: 'Failed to fetch payment' });
-      }
-    });
-
-    // List payments for an order
-    app.get('/api/payments/order/:orderId', requireAuth, async (req, res) => {
-      try {
-        const { orderId } = req.params;
-        const userId = req.session.user!.id;
-        const userRole = req.session.user!.role;
-
-        const order = await storage.getOrder(orderId);
-        if (!order) {
-          console.warn(`Order not found: ${req.params.orderId || req.params.id || 'unknown'} requested in payment flow. user: ${req.session.user?.id} role: ${req.session.user?.role}`);
-          return res.status(404).json({ message: 'Order not found' });
-        }
-        // Only buyer, farmer or admin can access
-        if (userId !== order.buyerId && userId !== order.farmerId && userRole !== 'admin') {
-          return res.status(403).json({ message: 'Forbidden' });
-        }
-
-        const payments = await storage.getPaymentsByOrder(orderId);
-        res.json({ payments });
-      } catch (err: any) {
-        console.error('Get payments by order error:', err);
-        res.status(500).json({ message: 'Failed to fetch payments' });
-      }
-    });
-
-    // Get payments by transaction id (useful for finding related orders after redirect)
-    app.get('/api/payments/transaction/:transactionId', requireAuth, async (req, res) => {
-      try {
-        const transactionId = req.params.transactionId;
-        
-        // First try to find payments by transaction UUID
-        let payments = await storage.getPaymentsByTransactionId(transactionId);
-        
-        // If no payments found, try to find transaction by Paystack reference and get payments
-        if (!payments || payments.length === 0) {
-          const transaction = await storage.getTransactionByPaystackReference(transactionId);
-          if (transaction) {
-            payments = await storage.getPaymentsByTransactionId(transaction.id);
-          }
-        }
-        
-        if (!payments || payments.length === 0) return res.status(404).json({ message: 'Payments not found for this transaction' });
-        const userId = req.session.user!.id;
-        const userRole = req.session.user!.role;
-        // Only allow if caller is the payer for at least one payment or admin
-        const belongsToUser = payments.some((p: any) => p.payerId === userId);
-        if (!belongsToUser && userRole !== 'admin') return res.status(403).json({ message: 'Forbidden' });
-
-        res.json({ payments });
-      } catch (err: any) {
-        console.error('Get payments by transaction error:', err);
-        res.status(500).json({ message: 'Failed to fetch payments for transaction' });
-      }
-    });
-
-    // Client endpoint to verify a Paystack transaction: buyer can call to verify their payment using reference
-    app.post('/api/payments/paystack/verify-client', requireAuth, async (req, res) => {
-      try {
-        const { reference } = req.body;
-        if (!reference) return res.status(400).json({ message: 'reference is required' });
-        const userId = req.session.user!.id;
-        const paystackKey = process.env.PAYSTACK_SECRET_KEY;
-        if (!paystackKey) return res.status(400).json({ message: 'Paystack not configured' });
-
-        // Find transaction by Paystack reference
-        const transaction = await storage.getTransactionByPaystackReference(reference);
-        if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
-
-        // Ensure the transaction belongs to this user
-        if (transaction.buyerId !== userId && req.session.user!.role !== 'admin') {
-          return res.status(403).json({ message: 'Forbidden' });
-        }
-
-        // Call Paystack verify
-        const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
-          method: 'GET',
-          headers: { 'Authorization': `Bearer ${paystackKey}` },
+        const bodyPayload: any = { email: buyer?.email, amount: amountInKobo, metadata: { orderId } };
+        if (returnUrl) bodyPayload.callback_url = returnUrl;
+        const initRes = await fetch('https://api.paystack.co/transaction/initialize', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${paystackSecret}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(bodyPayload),
         });
-        if (!verifyRes.ok) {
-          const text = await verifyRes.text().catch(() => '');
-          console.error('Paystack verify failed', verifyRes.status, text);
+
+        if (!initRes.ok) {
+          const text = await initRes.text().catch(() => '');
+          console.error('Paystack init failed', initRes.status, text);
+          return res.status(502).json({ message: 'Payment provider error' });
+        }
+
+        const body = await initRes.json();
+        const { authorization_url, reference } = body.data || {};
+
+        const payment = await storage.createPayment({
+          orderId,
+          payerId: buyerId,
+          amount: String(expectedAmount),
+          paymentMethod: 'paystack',
+          transactionId: reference,
+          status: 'pending',
+        } as any);
+
+        // Notify buyer and farmer that a payment has been initiated (persist+emit)
+        try {
+          await sendNotificationToUser(buyerId, { userId: buyerId, type: 'order_update', title: 'Payment initiated', message: `Payment initiated for order ${orderId}.`, relatedId: orderId, relatedType: 'order' }, io);
+          await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Buyer payment initiated', message: `A buyer has initiated payment for order ${orderId}.`, relatedId: orderId, relatedType: 'order' }, io);
+        } catch (err) { console.error('Failed to create payment notifications', err); }
+
+        return res.json({ payment, authorization_url, reference });
+      }
+
+      // fallback to manual
+      const payment = await storage.createPayment({ orderId, payerId: buyerId, amount: String(order.totalPrice), paymentMethod: paymentMethod || 'manual', transactionId: null, status: 'pending' } as any);
+      try {
+        await sendNotificationToUser(buyerId, { userId: buyerId, type: 'order_update', title: 'Payment created', message: `Your payment record for order ${orderId} has been created.`, relatedId: orderId, relatedType: 'order' }, io);
+        await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Buyer created payment record', message: `Buyer created a payment record for order ${orderId}.`, relatedId: orderId, relatedType: 'order' }, io);
+      } catch (err) { console.error('Failed to create payment notifications', err); }
+      res.json({ payment });
+    } catch (err: any) {
+      console.error('Initiate payment error:', err);
+      res.status(500).json({ message: 'Failed to initiate payment' });
+    }
+  });
+
+  // Verify a payment (admin or provider webhook) - admin-only endpoint for simulating verification
+  app.post('/api/payments/verify', requireRole('admin'), async (req, res) => {
+    try {
+      const { paymentId } = req.body;
+      if (!paymentId) return res.status(400).json({ message: 'paymentId required' });
+
+      const payment = await storage.getPayment(paymentId);
+      if (!payment) return res.status(404).json({ message: 'Payment not found' });
+
+      const updated = await storage.updatePaymentStatus(paymentId, 'completed');
+      if (updated) {
+        await storage.updateOrderStatus(updated.orderId, 'accepted');
+        // Notify buyer and farmer
+        try {
+          const order = await storage.getOrder(updated.orderId);
+          if (order) {
+            await sendNotificationToUser(updated.payerId, { userId: updated.payerId, type: 'order_update', title: 'Payment received', message: `Payment completed for order ${order.id}.`, relatedId: order.id, relatedType: 'order' }, io);
+            await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Payment received', message: `A payment for order ${order.id} has been completed.`, relatedId: order.id, relatedType: 'order' }, io);
+          }
+        } catch (err) { console.error('Failed to send payment notifications', err); }
+      }
+
+      res.json({ payment: updated });
+    } catch (err: any) {
+      console.error('Verify payment error:', err);
+      res.status(500).json({ message: 'Failed to verify payment' });
+    }
+  });
+
+  // Get payment status
+  app.get('/api/payments/:id', requireAuth, async (req, res) => {
+    try {
+      const payment = await storage.getPayment(req.params.id);
+      if (!payment) return res.status(404).json({ message: 'Payment not found' });
+
+      const order = await storage.getOrder(payment.orderId);
+      if (!order) {
+        console.warn(`Order not found: ${req.params.orderId || req.params.id || 'unknown'} requested by user: ${req.session.user?.id} role: ${req.session.user?.role}`);
+        return res.status(404).json({ message: 'Order not found' });
+      }
+      const userId = req.session.user!.id;
+      if (userId !== payment.payerId && userId !== order.farmerId && req.session.user!.role !== 'admin') {
+        return res.status(403).json({ message: 'Not authorized' });
+      }
+
+      res.json({ payment });
+    } catch (err: any) {
+      console.error('Get payment error:', err);
+      res.status(500).json({ message: 'Failed to fetch payment' });
+    }
+  });
+
+  // List payments for an order
+  app.get('/api/payments/order/:orderId', requireAuth, async (req, res) => {
+    try {
+      const { orderId } = req.params;
+      const userId = req.session.user!.id;
+      const userRole = req.session.user!.role;
+
+      const order = await storage.getOrder(orderId);
+      if (!order) {
+        console.warn(`Order not found: ${req.params.orderId || req.params.id || 'unknown'} requested in payment flow. user: ${req.session.user?.id} role: ${req.session.user?.role}`);
+        return res.status(404).json({ message: 'Order not found' });
+      }
+      // Only buyer, farmer or admin can access
+      if (userId !== order.buyerId && userId !== order.farmerId && userRole !== 'admin') {
+        return res.status(403).json({ message: 'Forbidden' });
+      }
+
+      const payments = await storage.getPaymentsByOrder(orderId);
+      res.json({ payments });
+    } catch (err: any) {
+      console.error('Get payments by order error:', err);
+      res.status(500).json({ message: 'Failed to fetch payments' });
+    }
+  });
+
+  // Get payments by transaction id (useful for finding related orders after redirect)
+  app.get('/api/payments/transaction/:transactionId', requireAuth, async (req, res) => {
+    try {
+      const transactionId = req.params.transactionId;
+
+      // First try to find payments by transaction UUID
+      let payments = await storage.getPaymentsByTransactionId(transactionId);
+
+      // If no payments found, try to find transaction by Paystack reference and get payments
+      if (!payments || payments.length === 0) {
+        const transaction = await storage.getTransactionByPaystackReference(transactionId);
+        if (transaction) {
+          payments = await storage.getPaymentsByTransactionId(transaction.id);
+        }
+      }
+
+      if (!payments || payments.length === 0) return res.status(404).json({ message: 'Payments not found for this transaction' });
+      const userId = req.session.user!.id;
+      const userRole = req.session.user!.role;
+      // Only allow if caller is the payer for at least one payment or admin
+      const belongsToUser = payments.some((p: any) => p.payerId === userId);
+      if (!belongsToUser && userRole !== 'admin') return res.status(403).json({ message: 'Forbidden' });
+
+      res.json({ payments });
+    } catch (err: any) {
+      console.error('Get payments by transaction error:', err);
+      res.status(500).json({ message: 'Failed to fetch payments for transaction' });
+    }
+  });
+
+  // Client endpoint to verify a Paystack transaction: buyer can call to verify their payment using reference
+  app.post('/api/payments/paystack/verify-client', requireAuth, async (req, res) => {
+    try {
+      const { reference } = req.body;
+      if (!reference) return res.status(400).json({ message: 'reference is required' });
+      const userId = req.session.user!.id;
+      const paystackKey = process.env.PAYSTACK_SECRET_KEY;
+      if (!paystackKey) return res.status(400).json({ message: 'Paystack not configured' });
+
+      // Find transaction by Paystack reference
+      const transaction = await storage.getTransactionByPaystackReference(reference);
+      if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
+
+      // Ensure the transaction belongs to this user
+      if (transaction.buyerId !== userId && req.session.user!.role !== 'admin') {
+        return res.status(403).json({ message: 'Forbidden' });
+      }
+
+      // Call Paystack verify
+      const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${paystackKey}` },
+      });
+      if (!verifyRes.ok) {
+        const text = await verifyRes.text().catch(() => '');
+        console.error('Paystack verify failed', verifyRes.status, text);
+        return res.status(502).json({ message: 'Failed to verify with Paystack' });
+      }
+      const data = await verifyRes.json();
+      const status = data.data?.status;
+
+      if (status === 'success' || status === 'completed') {
+        // Update transaction status
+        await storage.updateTransactionStatus(transaction.id, 'completed');
+
+        // Update all payments linked to this transaction
+        const payments = await storage.getPaymentsByTransactionId(transaction.id);
+        for (const payment of payments) {
+          await storage.updatePaymentStatus(payment.id, 'completed');
+          // Update order status to accepted
+          await storage.updateOrderStatus(payment.orderId, 'accepted');
+        }
+
+        // Notify buyer and farmers
+        try {
+          await sendNotificationToUser(transaction.buyerId, { userId: transaction.buyerId, type: 'order_update', title: 'Payment received', message: `Your payment for transaction ${transaction.id} has been confirmed.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
+
+          // Get all unique farmers from the payments
+          const farmerIds = Array.from(new Set((await Promise.all(payments.map(async (p: any) => {
+            const order = await storage.getOrder(p.orderId);
+            return order?.farmerId;
+          }))).filter(Boolean)));
+
+          for (const farmerId of farmerIds) {
+            if (farmerId) {
+              await sendNotificationToUser(farmerId, { userId: farmerId, type: 'order_update', title: 'Payment received', message: `A payment for transaction ${transaction.id} has been confirmed.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
+            }
+          }
+        } catch (err) { console.error('Failed to create notifications after verification', err); }
+      }
+
+      res.json({ status: status, transaction: await storage.getTransaction(transaction.id), payments: await Promise.all((await storage.getPaymentsByTransactionId(transaction.id)).map((p: any) => storage.getPayment(p.id))) });
+    } catch (err: any) {
+      console.error('Client verify error:', err);
+      res.status(500).json({ message: 'Verification failed' });
+    }
+  });
+
+  // Paystack webhook handler - used by Paystack to notify server of payment events
+  app.post('/api/payments/paystack/webhook', async (req, res) => {
+    try {
+      // Accept webhook via signature verification when secret is available.
+      // If webhook secret is not provided in env, fallback to server-to-server verification using PAYSTACK_SECRET_KEY.
+      const secret = process.env.PAYSTACK_WEBHOOK_SECRET;
+      const paystackKey = process.env.PAYSTACK_SECRET_KEY;
+      const signature = (req.headers['x-paystack-signature'] as string) || '';
+
+      if (secret) {
+        // Verify signature - mandatory when webhook secret is set
+        try {
+          const raw = (req as any).rawBody as Buffer | string | undefined;
+          if (!raw) {
+            console.warn('Webhook received without raw body');
+            return res.status(400).json({ message: 'Invalid webhook format' });
+          }
+
+          const payloadBuf = Buffer.isBuffer(raw) ? raw : Buffer.from(typeof raw === 'string' ? raw : JSON.stringify(req.body || {}));
+          const computed = crypto.createHmac('sha512', secret).update(payloadBuf).digest('hex');
+          if (!signature || computed !== signature) {
+            console.warn('Invalid Paystack webhook signature - possible security breach');
+            return res.status(401).json({ message: 'Invalid signature' });
+          }
+        } catch (vErr) {
+          console.warn('Failed while verifying webhook signature', vErr);
+          return res.status(400).json({ message: 'Invalid webhook signature verification' });
+        }
+      } else if (!paystackKey) {
+        console.error('PAYSTACK_WEBHOOK_SECRET not configured and PAYSTACK_SECRET_KEY not provided - webhook cannot be verified');
+        // Do not process webhooks without a verification method
+        return res.status(500).json({ message: 'Webhook configuration error' });
+      } else {
+        console.warn('PAYSTACK_WEBHOOK_SECRET not configured - using API-based fallback verification');
+        // we will perform server-to-server verification later after getting the reference
+      }
+
+      const event = req.body;
+      let eventType = String(event?.event || '').toLowerCase();
+      const reference = event?.data?.reference || event?.data?.id || event?.data?.trx || null;
+      if (!reference) {
+        // Nothing to do, just acknowledge
+        return res.json({ ok: true, message: 'no reference' });
+      }
+
+      // Find transaction by Paystack reference
+      let transaction = await storage.getTransactionByPaystackReference(reference);
+
+      if (!transaction) {
+        // Another option: find by paystackReference field
+        const maybeTransaction = await storage.getTransactionByPaystackReference?.(reference as any);
+        if (!maybeTransaction) {
+          // Just acknowledge - we want to avoid unprocessed webhooks disrupting the provider
+          return res.json({ ok: true, message: 'no linked transaction' });
+        }
+        transaction = maybeTransaction;
+      }
+
+      // If PAYSTACK_WEBHOOK_SECRET is not set, perform a server-to-server verification to confirm this event
+      let fallbackVerified = false;
+      if (!secret) {
+        try {
+          const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${paystackKey}` },
+          });
+          if (!verifyRes.ok) {
+            const text = await verifyRes.text().catch(() => '');
+            console.warn('Paystack verify fallback failed', verifyRes.status, text);
+            return res.status(502).json({ message: 'Failed to verify with Paystack' });
+          }
+          const vdata = await verifyRes.json();
+          const vstatus = vdata.data?.status;
+          if (vstatus && (vstatus === 'success' || vstatus === 'completed')) {
+            // treat as success event; continue to process below (or handle event type accordingly)
+            fallbackVerified = true;
+            // If eventType is empty or not a success-type, normalize it so existing logic processes it
+            if (!eventType || !eventType.includes('transaction') && !eventType.includes('charge') && !eventType.includes('payment')) {
+              eventType = 'transaction.success';
+            }
+          } else {
+            // Not a success - treat as not processed
+            console.warn('Paystack verify fallback reported status not success:', vstatus);
+            return res.json({ ok: true, message: 'not a successful transaction' });
+          }
+        } catch (verifyErr) {
+          console.error('Error during Paystack server-to-server verification', verifyErr);
           return res.status(502).json({ message: 'Failed to verify with Paystack' });
         }
-        const data = await verifyRes.json();
-        const status = data.data?.status;
-
-        if (status === 'success' || status === 'completed') {
-          // Update transaction status
-          await storage.updateTransactionStatus(transaction.id, 'completed');
-
-          // Update all payments linked to this transaction
-          const payments = await storage.getPaymentsByTransactionId(transaction.id);
-          for (const payment of payments) {
-            await storage.updatePaymentStatus(payment.id, 'completed');
-            // Update order status to accepted
-            await storage.updateOrderStatus(payment.orderId, 'accepted');
-          }
-
-          // Notify buyer and farmers
-          try {
-            await sendNotificationToUser(transaction.buyerId, { userId: transaction.buyerId, type: 'order_update', title: 'Payment received', message: `Your payment for transaction ${transaction.id} has been confirmed.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
-
-            // Get all unique farmers from the payments
-            const farmerIds = Array.from(new Set((await Promise.all(payments.map(async (p: any) => {
-              const order = await storage.getOrder(p.orderId);
-              return order?.farmerId;
-            }))).filter(Boolean)));
-
-            for (const farmerId of farmerIds) {
-              if (farmerId) {
-                await sendNotificationToUser(farmerId, { userId: farmerId, type: 'order_update', title: 'Payment received', message: `A payment for transaction ${transaction.id} has been confirmed.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
-              }
-            }
-          } catch (err) { console.error('Failed to create notifications after verification', err); }
-        }
-
-        res.json({ status: status, transaction: await storage.getTransaction(transaction.id), payments: await Promise.all((await storage.getPaymentsByTransactionId(transaction.id)).map((p: any) => storage.getPayment(p.id))) });
-      } catch (err: any) {
-        console.error('Client verify error:', err);
-        res.status(500).json({ message: 'Verification failed' });
       }
-    });
 
-      // Paystack webhook handler - used by Paystack to notify server of payment events
-      app.post('/api/payments/paystack/webhook', async (req, res) => {
-        try {
-          // Accept webhook via signature verification when secret is available.
-          // If webhook secret is not provided in env, fallback to server-to-server verification using PAYSTACK_SECRET_KEY.
-          const secret = process.env.PAYSTACK_WEBHOOK_SECRET;
-          const paystackKey = process.env.PAYSTACK_SECRET_KEY;
-          const signature = (req.headers['x-paystack-signature'] as string) || '';
+      // Event types: charge.success, transaction.success -> payment completed
+      if (eventType.includes('charge.success') || eventType.includes('transaction.success') || eventType.includes('payment.success')) {
+        // Update transaction status
+        await storage.updateTransactionStatus(transaction.id, 'completed');
 
-          if (secret) {
-            // Verify signature - mandatory when webhook secret is set
+        // Update all payments linked to this transaction
+        const payments = await storage.getPaymentsByTransactionId(transaction.id);
+        for (const p of payments) {
+          try {
+            const existing = await storage.getPayment(p.id);
+            if (!existing) continue;
+            if (existing.status === 'completed') continue; // idempotency
+
+            await storage.updatePaymentStatus(p.id, 'completed');
+            // update order status to accepted so farmer can move forward
+            await storage.updateOrderStatus(existing.orderId, 'accepted');
+
+            // Handle escrow logic
+            const escrow = await storage.getEscrowByOrder(existing.orderId);
+            if (escrow) {
+              if (existing.id === escrow.upfrontPaymentId) {
+                // This is the upfront payment (30%)
+                await storage.updateEscrowStatus(escrow.id, 'upfront_held');
+              } else if (existing.id === escrow.remainingPaymentId) {
+                // This is the remaining payment (70%)
+                await storage.updateEscrowStatus(escrow.id, 'remaining_released');
+                await storage.updateEscrowStatus(escrow.id, 'completed');
+              }
+            }
+
+            // Create buyer/farmer notifications
             try {
-              const raw = (req as any).rawBody as Buffer | string | undefined;
-              if (!raw) {
-                console.warn('Webhook received without raw body');
-                return res.status(400).json({ message: 'Invalid webhook format' });
-              }
-
-              const payloadBuf = Buffer.isBuffer(raw) ? raw : Buffer.from(typeof raw === 'string' ? raw : JSON.stringify(req.body || {}));
-              const computed = crypto.createHmac('sha512', secret).update(payloadBuf).digest('hex');
-              if (!signature || computed !== signature) {
-                console.warn('Invalid Paystack webhook signature - possible security breach');
-                return res.status(401).json({ message: 'Invalid signature' });
-              }
-            } catch (vErr) {
-              console.warn('Failed while verifying webhook signature', vErr);
-              return res.status(400).json({ message: 'Invalid webhook signature verification' });
-            }
-          } else if (!paystackKey) {
-            console.error('PAYSTACK_WEBHOOK_SECRET not configured and PAYSTACK_SECRET_KEY not provided - webhook cannot be verified');
-            // Do not process webhooks without a verification method
-            return res.status(500).json({ message: 'Webhook configuration error' });
-          } else {
-            console.warn('PAYSTACK_WEBHOOK_SECRET not configured - using API-based fallback verification');
-            // we will perform server-to-server verification later after getting the reference
-          }
-
-          const event = req.body;
-          let eventType = String(event?.event || '').toLowerCase();
-          const reference = event?.data?.reference || event?.data?.id || event?.data?.trx || null;
-          if (!reference) {
-            // Nothing to do, just acknowledge
-            return res.json({ ok: true, message: 'no reference' });
-          }
-
-          // Find transaction by Paystack reference
-          let transaction = await storage.getTransactionByPaystackReference(reference);
-
-          if (!transaction) {
-            // Another option: find by paystackReference field
-            const maybeTransaction = await storage.getTransactionByPaystackReference?.(reference as any);
-            if (!maybeTransaction) {
-              // Just acknowledge - we want to avoid unprocessed webhooks disrupting the provider
-              return res.json({ ok: true, message: 'no linked transaction' });
-            }
-            transaction = maybeTransaction;
-          }
-
-          // If PAYSTACK_WEBHOOK_SECRET is not set, perform a server-to-server verification to confirm this event
-          let fallbackVerified = false;
-          if (!secret) {
-            try {
-              const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
-                method: 'GET',
-                headers: { 'Authorization': `Bearer ${paystackKey}` },
-              });
-              if (!verifyRes.ok) {
-                const text = await verifyRes.text().catch(() => '');
-                console.warn('Paystack verify fallback failed', verifyRes.status, text);
-                return res.status(502).json({ message: 'Failed to verify with Paystack' });
-              }
-              const vdata = await verifyRes.json();
-              const vstatus = vdata.data?.status;
-              if (vstatus && (vstatus === 'success' || vstatus === 'completed')) {
-                // treat as success event; continue to process below (or handle event type accordingly)
-                fallbackVerified = true;
-                // If eventType is empty or not a success-type, normalize it so existing logic processes it
-                if (!eventType || !eventType.includes('transaction') && !eventType.includes('charge') && !eventType.includes('payment')) {
-                  eventType = 'transaction.success';
+              if (io) {
+                await sendNotificationToUser(existing.payerId, { userId: existing.payerId, type: 'order_update', title: 'Payment received', message: `Your payment for order ${existing.orderId} has been confirmed.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
+                const order = await storage.getOrder(existing.orderId);
+                if (order) {
+                  await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Payment received', message: `A payment for order ${order.id} has been confirmed.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
                 }
-              } else {
-                // Not a success - treat as not processed
-                console.warn('Paystack verify fallback reported status not success:', vstatus);
-                return res.json({ ok: true, message: 'not a successful transaction' });
               }
-            } catch (verifyErr) {
-              console.error('Error during Paystack server-to-server verification', verifyErr);
-              return res.status(502).json({ message: 'Failed to verify with Paystack' });
-            }
-          }
-
-          // Event types: charge.success, transaction.success -> payment completed
-          if (eventType.includes('charge.success') || eventType.includes('transaction.success') || eventType.includes('payment.success')) {
-            // Update transaction status
-            await storage.updateTransactionStatus(transaction.id, 'completed');
-
-            // Update all payments linked to this transaction
-            const payments = await storage.getPaymentsByTransactionId(transaction.id);
-            for (const p of payments) {
-              try {
-                const existing = await storage.getPayment(p.id);
-                if (!existing) continue;
-                if (existing.status === 'completed') continue; // idempotency
-
-                await storage.updatePaymentStatus(p.id, 'completed');
-                // update order status to accepted so farmer can move forward
-                await storage.updateOrderStatus(existing.orderId, 'accepted');
-
-                // Handle escrow logic
-                const escrow = await storage.getEscrowByOrder(existing.orderId);
-                if (escrow) {
-                  if (existing.id === escrow.upfrontPaymentId) {
-                    // This is the upfront payment (30%)
-                    await storage.updateEscrowStatus(escrow.id, 'upfront_held');
-                  } else if (existing.id === escrow.remainingPaymentId) {
-                    // This is the remaining payment (70%)
-                    await storage.updateEscrowStatus(escrow.id, 'remaining_released');
-                    await storage.updateEscrowStatus(escrow.id, 'completed');
-                  }
-                }
-
-                // Create buyer/farmer notifications
-                try {
-                  if (io) {
-                    await sendNotificationToUser(existing.payerId, { userId: existing.payerId, type: 'order_update', title: 'Payment received', message: `Your payment for order ${existing.orderId} has been confirmed.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
-                    const order = await storage.getOrder(existing.orderId);
-                    if (order) {
-                      await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Payment received', message: `A payment for order ${order.id} has been confirmed.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
-                    }
-                  }
-                } catch (nerr) { console.error('Failed to create post-webhook notifications', nerr); }
-              } catch (err) { console.error('Failed to update payment on webhook', err); }
-            }
-            return res.json({ ok: true });
-          }
-
-          if (eventType.includes('charge.failed') || eventType.includes('transaction.failed') || eventType.includes('payment.failed')) {
-            // Update transaction status
-            await storage.updateTransactionStatus(transaction.id, 'failed');
-
-            // Update all payments linked to this transaction
-            const payments = await storage.getPaymentsByTransactionId(transaction.id);
-            for (const p of payments) {
-              try {
-                const existing = await storage.getPayment(p.id);
-                if (!existing) continue;
-                await storage.updatePaymentStatus(p.id, 'failed');
-                // Notify users about failure (no change to order automatic state)
-                try {
-                  if (io) {
-                    await sendNotificationToUser(existing.payerId, { userId: existing.payerId, type: 'order_update', title: 'Payment failed', message: `Your payment for order ${existing.orderId} failed. Please retry or contact support.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
-                  }
-                } catch (nerr) { console.error('Failed to create post-webhook failure notification', nerr); }
-              } catch (err) { console.error('Failed to mark payment failed on webhook', err); }
-            }
-            return res.json({ ok: true });
-          }
-
-          // Default ack
-          res.json({ ok: true });
-        } catch (err: any) {
-          console.error('Paystack webhook error:', err);
-          res.status(500).json({ message: 'Webhook handling failed' });
+            } catch (nerr) { console.error('Failed to create post-webhook notifications', nerr); }
+          } catch (err) { console.error('Failed to update payment on webhook', err); }
         }
-      });
+        return res.json({ ok: true });
+      }
 
-    // ==================== ESCROW ROUTES ====================
+      if (eventType.includes('charge.failed') || eventType.includes('transaction.failed') || eventType.includes('payment.failed')) {
+        // Update transaction status
+        await storage.updateTransactionStatus(transaction.id, 'failed');
+
+        // Update all payments linked to this transaction
+        const payments = await storage.getPaymentsByTransactionId(transaction.id);
+        for (const p of payments) {
+          try {
+            const existing = await storage.getPayment(p.id);
+            if (!existing) continue;
+            await storage.updatePaymentStatus(p.id, 'failed');
+            // Notify users about failure (no change to order automatic state)
+            try {
+              if (io) {
+                await sendNotificationToUser(existing.payerId, { userId: existing.payerId, type: 'order_update', title: 'Payment failed', message: `Your payment for order ${existing.orderId} failed. Please retry or contact support.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
+              }
+            } catch (nerr) { console.error('Failed to create post-webhook failure notification', nerr); }
+          } catch (err) { console.error('Failed to mark payment failed on webhook', err); }
+        }
+        return res.json({ ok: true });
+      }
+
+      // Default ack
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error('Paystack webhook error:', err);
+      res.status(500).json({ message: 'Webhook handling failed' });
+    }
+  });
+
+  // ==================== ESCROW ROUTES ====================
 
   // Get escrow by order ID (buyer or farmer)
   app.get('/api/escrow/order/:orderId', requireAuth, async (req, res) => {
@@ -3352,54 +3355,54 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
 
-    // Farmer requests a payout
-    app.post('/api/payouts/request', requireRole('farmer'), async (req, res) => {
-      try {
-        const farmerId = req.session.user!.id;
-        const { amount, mobileNumber, mobileNetwork } = req.body;
-        if (!amount) return res.status(400).json({ message: 'Amount required' });
-        if (mobileNumber && !isValidGhanaMobileNumber(mobileNumber)) {
-          return res.status(400).json({ message: 'mobileNumber must be a valid Ghana mobile number (E.164 or local 0XXXXXXXXX)' });
-        }
-        const normalizedMobileNumber = mobileNumber ? normalizeGhanaMobileToE164(mobileNumber) : null;
-
-        // In a real implementation validate farmer balance and bank details
-        const payout = await storage.createPayout({ farmerId, amount: String(amount), status: 'pending', mobileNumber: normalizedMobileNumber ?? null, mobileNetwork: mobileNetwork ?? null, scheduledDate: null } as any);
-        // If auto payouts enabled via env or recipient exists, enqueue if recipient exists
-        const farmer = await storage.getUser(farmerId);
-        const recipient = (farmer as any)?.paystackRecipientCode;
-        const autoEnabled = process.env.PAYSTACK_AUTO_PAYOUTS === 'true' || Boolean(recipient);
-        if (autoEnabled) {
-          if (!recipient) {
-            await storage.updatePayout(payout.id, { status: 'needs_recipient' } as any);
-            try {
-              await sendNotificationToUser(farmerId, {
-                userId: farmerId,
-                type: 'payout_update',
-                title: 'Payout Pending - Recipient Required',
-                message: `Your payout request for ${amount} is pending because no payout recipient has been set. Please add your mobile money details to receive payouts.`,
-                relatedId: payout.id,
-                relatedType: 'payout'
-              }, io);
-            } catch (err) { console.error('Failed to notify farmer about recipient requirement', err); }
-            return res.json({ payout: await storage.getPayout(payout.id), queued: false, message: 'Payout pending recipient' });
-          }
-          try { enqueuePayout(payout.id); } catch (err) { console.error('Failed to enqueue payout', err); }
-        }
-        return res.json({ payout });
-      } catch (err: any) {
-        console.error('Payout request error:', err);
-        res.status(500).json({ message: 'Failed to create payout request' });
+  // Farmer requests a payout
+  app.post('/api/payouts/request', requireRole('farmer'), async (req, res) => {
+    try {
+      const farmerId = req.session.user!.id;
+      const { amount, mobileNumber, mobileNetwork } = req.body;
+      if (!amount) return res.status(400).json({ message: 'Amount required' });
+      if (mobileNumber && !isValidGhanaMobileNumber(mobileNumber)) {
+        return res.status(400).json({ message: 'mobileNumber must be a valid Ghana mobile number (E.164 or local 0XXXXXXXXX)' });
       }
-    });
+      const normalizedMobileNumber = mobileNumber ? normalizeGhanaMobileToE164(mobileNumber) : null;
+
+      // In a real implementation validate farmer balance and bank details
+      const payout = await storage.createPayout({ farmerId, amount: String(amount), status: 'pending', mobileNumber: normalizedMobileNumber ?? null, mobileNetwork: mobileNetwork ?? null, scheduledDate: null } as any);
+      // If auto payouts enabled via env or recipient exists, enqueue if recipient exists
+      const farmer = await storage.getUser(farmerId);
+      const recipient = (farmer as any)?.paystackRecipientCode;
+      const autoEnabled = process.env.PAYSTACK_AUTO_PAYOUTS === 'true' || Boolean(recipient);
+      if (autoEnabled) {
+        if (!recipient) {
+          await storage.updatePayout(payout.id, { status: 'needs_recipient' } as any);
+          try {
+            await sendNotificationToUser(farmerId, {
+              userId: farmerId,
+              type: 'payout_update',
+              title: 'Payout Pending - Recipient Required',
+              message: `Your payout request for ${amount} is pending because no payout recipient has been set. Please add your mobile money details to receive payouts.`,
+              relatedId: payout.id,
+              relatedType: 'payout'
+            }, io);
+          } catch (err) { console.error('Failed to notify farmer about recipient requirement', err); }
+          return res.json({ payout: await storage.getPayout(payout.id), queued: false, message: 'Payout pending recipient' });
+        }
+        try { enqueuePayout(payout.id); } catch (err) { console.error('Failed to enqueue payout', err); }
+      }
+      return res.json({ payout });
+    } catch (err: any) {
+      console.error('Payout request error:', err);
+      res.status(500).json({ message: 'Failed to create payout request' });
+    }
+  });
 
   // Admin: process payout (MVP stub) - enqueue job to process payout
   app.post('/api/payouts/process', requireRole('admin'), async (req, res) => {
-      try {
-        const { payoutId, reason } = req.body;
-        if (!payoutId) return res.status(400).json({ message: 'payoutId required' });
-        const payout = await storage.getPayout(payoutId);
-        if (!payout) return res.status(404).json({ message: 'Payout not found' });
+    try {
+      const { payoutId, reason } = req.body;
+      if (!payoutId) return res.status(400).json({ message: 'payoutId required' });
+      const payout = await storage.getPayout(payoutId);
+      if (!payout) return res.status(404).json({ message: 'Payout not found' });
 
       // Enqueue job to process payout (transfer or completion)
       try {
@@ -3418,374 +3421,374 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         console.error('Failed to enqueue payout:', err);
         res.status(500).json({ message: 'Failed to queue payout' });
       }
-      } catch (err: any) {
-        console.error('Payout process error:', err);
-        res.status(500).json({ message: 'Failed to process payout' });
+    } catch (err: any) {
+      console.error('Payout process error:', err);
+      res.status(500).json({ message: 'Failed to process payout' });
+    }
+  });
+
+  // Admin: list all payouts
+  app.get('/api/admin/payouts', requireRole('admin'), async (req, res) => {
+    try {
+      const payouts = await storage.getAllPayouts?.();
+      res.json(payouts);
+    } catch (err: any) {
+      console.error('Failed to fetch payouts', err);
+      res.status(500).json({ message: 'Failed to fetch payouts' });
+    }
+  });
+
+  // Farmer: create or update Paystack transfer recipient in profile
+  app.post('/api/payouts/recipient', requireRole('farmer'), async (req, res) => {
+    try {
+      const farmerId = req.session.user!.id;
+      const { mobileNumber, mobileNetwork, name, currency } = req.body;
+      if (!mobileNumber || !mobileNetwork) return res.status(400).json({ message: 'mobileNumber and mobileNetwork are required' });
+      if (!isValidGhanaMobileNumber(mobileNumber)) {
+        return res.status(400).json({ message: 'mobileNumber must be a valid Ghana mobile number (E.164 or local 0XXXXXXXXX)' });
       }
-    });
+      const normalizedMobile = normalizeGhanaMobileToE164(mobileNumber);
+      const paystackKey = process.env.PAYSTACK_SECRET_KEY;
+      if (!paystackKey) return res.status(400).json({ message: 'Paystack not configured' });
 
-    // Admin: list all payouts
-    app.get('/api/admin/payouts', requireRole('admin'), async (req, res) => {
-      try {
-        const payouts = await storage.getAllPayouts?.();
-        res.json(payouts);
-      } catch (err: any) {
-        console.error('Failed to fetch payouts', err);
-        res.status(500).json({ message: 'Failed to fetch payouts' });
+      const farmer = await storage.getUser(farmerId);
+      if (!farmer) return res.status(404).json({ message: 'Farmer not found' });
+
+      // Create mobile money recipient
+      const recipientRes = await fetch('https://api.paystack.co/transferrecipient', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${paystackKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'mobile_money', name: name || farmer.fullName, currency: currency || 'GHS', mobile_money: { phone: normalizedMobile, provider: mobileNetwork } }),
+      });
+
+      if (!recipientRes.ok) {
+        const text = await recipientRes.text().catch(() => '');
+        console.error('Paystack recipient creation failed', recipientRes.status, text);
+        return res.status(502).json({ message: 'Failed to create recipient at Paystack' });
       }
-    });
 
-    // Farmer: create or update Paystack transfer recipient in profile
-    app.post('/api/payouts/recipient', requireRole('farmer'), async (req, res) => {
-      try {
-        const farmerId = req.session.user!.id;
-        const { mobileNumber, mobileNetwork, name, currency } = req.body;
-        if (!mobileNumber || !mobileNetwork) return res.status(400).json({ message: 'mobileNumber and mobileNetwork are required' });
-        if (!isValidGhanaMobileNumber(mobileNumber)) {
-          return res.status(400).json({ message: 'mobileNumber must be a valid Ghana mobile number (E.164 or local 0XXXXXXXXX)' });
-        }
-        const normalizedMobile = normalizeGhanaMobileToE164(mobileNumber);
-        const paystackKey = process.env.PAYSTACK_SECRET_KEY;
-        if (!paystackKey) return res.status(400).json({ message: 'Paystack not configured' });
-
-        const farmer = await storage.getUser(farmerId);
-        if (!farmer) return res.status(404).json({ message: 'Farmer not found' });
-
-        // Create mobile money recipient
-        const recipientRes = await fetch('https://api.paystack.co/transferrecipient', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${paystackKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'mobile_money', name: name || farmer.fullName, currency: currency || 'GHS', mobile_money: { phone: normalizedMobile, provider: mobileNetwork } }),
-        });
-
-        if (!recipientRes.ok) {
-          const text = await recipientRes.text().catch(() => '');
-          console.error('Paystack recipient creation failed', recipientRes.status, text);
-          return res.status(502).json({ message: 'Failed to create recipient at Paystack' });
-        }
-
-        const body = await recipientRes.json();
-        const recipientCode = body.data?.recipient_code;
-        if (!recipientCode) {
-          return res.status(502).json({ message: 'Paystack responded without recipient code' });
-        }
-
-        await storage.updateUser(farmerId, { paystackRecipientCode: recipientCode, mobileNumber: normalizedMobile, mobileNetwork } as any);
-        res.json({ recipientCode });
-      } catch (err: any) {
-        console.error('Create recipient error:', err);
-        res.status(500).json({ message: 'Failed to create payout recipient' });
+      const body = await recipientRes.json();
+      const recipientCode = body.data?.recipient_code;
+      if (!recipientCode) {
+        return res.status(502).json({ message: 'Paystack responded without recipient code' });
       }
-    });
 
-    // Get farmer's saved recipient code
-    app.get('/api/payouts/recipient/me', requireRole('farmer'), async (req, res) => {
-      try {
-        const farmerId = req.session.user!.id;
-        const farmer = await storage.getUser(farmerId);
-        res.json({ paystackRecipientCode: (farmer as any)?.paystackRecipientCode, mobileNumber: (farmer as any)?.mobileNumber, mobileNetwork: (farmer as any)?.mobileNetwork });
-      } catch (err: any) {
-        console.error('Get recipient error:', err);
-        res.status(500).json({ message: 'Failed to fetch recipient' });
+      await storage.updateUser(farmerId, { paystackRecipientCode: recipientCode, mobileNumber: normalizedMobile, mobileNetwork } as any);
+      res.json({ recipientCode });
+    } catch (err: any) {
+      console.error('Create recipient error:', err);
+      res.status(500).json({ message: 'Failed to create payout recipient' });
+    }
+  });
+
+  // Get farmer's saved recipient code
+  app.get('/api/payouts/recipient/me', requireRole('farmer'), async (req, res) => {
+    try {
+      const farmerId = req.session.user!.id;
+      const farmer = await storage.getUser(farmerId);
+      res.json({ paystackRecipientCode: (farmer as any)?.paystackRecipientCode, mobileNumber: (farmer as any)?.mobileNumber, mobileNetwork: (farmer as any)?.mobileNetwork });
+    } catch (err: any) {
+      console.error('Get recipient error:', err);
+      res.status(500).json({ message: 'Failed to fetch recipient' });
+    }
+  });
+
+  // Admin: Verify Paystack payment by reference (calls Paystack verify endpoint)
+  app.post('/api/payments/paystack/verify', requireRole('admin'), async (req, res) => {
+    try {
+      const { reference } = req.body;
+      if (!reference) return res.status(400).json({ message: 'reference is required' });
+
+      const paystackKey = process.env.PAYSTACK_SECRET_KEY;
+      if (!paystackKey) return res.status(400).json({ message: 'Paystack not configured' });
+
+      const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${paystackKey}` },
+      });
+
+      if (!verifyRes.ok) {
+        const text = await verifyRes.text().catch(() => '');
+        console.error('Paystack verify failed', verifyRes.status, text);
+        return res.status(502).json({ message: 'Failed to verify with Paystack' });
       }
-    });
 
-    // Admin: Verify Paystack payment by reference (calls Paystack verify endpoint)
-    app.post('/api/payments/paystack/verify', requireRole('admin'), async (req, res) => {
-      try {
-        const { reference } = req.body;
-        if (!reference) return res.status(400).json({ message: 'reference is required' });
+      const data = await verifyRes.json();
+      const status = data.data?.status;
+      const transactionRef = data.data?.reference;
 
-        const paystackKey = process.env.PAYSTACK_SECRET_KEY;
-        if (!paystackKey) return res.status(400).json({ message: 'Paystack not configured' });
+      const payments = await storage.getPaymentsByTransactionId(transactionRef);
+      if (!payments || payments.length === 0) return res.status(404).json({ message: 'Payment not found' });
 
-        const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
-          method: 'GET',
-          headers: { 'Authorization': `Bearer ${paystackKey}` },
-        });
+      if (status === 'success' || status === 'completed') {
+        for (const payment of payments) {
+          await storage.updatePaymentStatus(payment.id, 'completed');
+          await storage.updateOrderStatus(payment.orderId, 'accepted');
+        }
+      }
+    } catch (err: any) {
+      console.error('Payment verification error:', err);
+      res.status(500).json({ message: 'Failed to verify payment' });
+    }
+  });
 
-        if (!verifyRes.ok) {
-          const text = await verifyRes.text().catch(() => '');
-          console.error('Paystack verify failed', verifyRes.status, text);
-          return res.status(502).json({ message: 'Failed to verify with Paystack' });
+  // ================= ADMIN USER MANAGEMENT =================
+
+  // Get all users with pagination and filtering
+  app.get("/api/admin/users", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const { page = "1", limit = "20", role, status, search } = req.query as { page?: string; limit?: string; role?: string; status?: string; search?: string };
+      const offset = (Number(page) - 1) * Number(limit);
+
+      let users;
+      if (pool) {
+        // Use database query with filtering
+        let query = `SELECT id, full_name, email, role, created_at, last_login, is_active FROM users WHERE 1=1`;
+        const params: any[] = [];
+        let paramIndex = 1;
+
+        if (role) {
+          query += ` AND role = $${paramIndex}`;
+          params.push(role);
+          paramIndex++;
         }
 
-        const data = await verifyRes.json();
-        const status = data.data?.status;
-        const transactionRef = data.data?.reference;
+        if (status) {
+          query += ` AND is_active = $${paramIndex}`;
+          params.push(status === "active");
+          paramIndex++;
+        }
 
-        const payments = await storage.getPaymentsByTransactionId(transactionRef);
-        if (!payments || payments.length === 0) return res.status(404).json({ message: 'Payment not found' });
+        if (search) {
+          query += ` AND (full_name ILIKE $${paramIndex} OR email ILIKE $${paramIndex})`;
+          params.push(`%${search}%`);
+          paramIndex++;
+        }
 
-        if (status === 'success' || status === 'completed') {
-          for (const payment of payments) {
-            await storage.updatePaymentStatus(payment.id, 'completed');
-            await storage.updateOrderStatus(payment.orderId, 'accepted');
+        query += ` ORDER BY created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+        params.push(Number(limit), offset);
+
+        const result = await pool.query(query, params);
+        users = result.rows.map((row: any) => ({
+          id: row.id,
+          fullName: row.full_name,
+          email: row.email,
+          role: row.role,
+          createdAt: row.created_at,
+          lastLogin: row.last_login,
+          isActive: row.is_active,
+        }));
+      } else {
+        // Fallback to in-memory storage
+        let allUsers = await storage.getAllUsers();
+
+        if (role) {
+          allUsers = allUsers.filter((u: any) => u.role === role);
+        }
+
+        if (status) {
+          allUsers = allUsers.filter((u: any) => u.isActive === (status === "active"));
+        }
+
+        if (search) {
+          const searchLower = search.toLowerCase();
+          allUsers = allUsers.filter((u: any) =>
+            u.fullName.toLowerCase().includes(searchLower) ||
+            u.email.toLowerCase().includes(searchLower)
+          );
+        }
+
+        users = allUsers
+          .sort((a: any, b: any) => (new Date(b.createdAt || 0).getTime()) - (new Date(a.createdAt || 0).getTime()))
+          .slice(offset, offset + Number(limit));
+      }
+
+      res.json({
+        users,
+        pagination: {
+          page: Number(page),
+          limit: Number(limit),
+          total: users.length,
+        }
+      });
+    } catch (err: any) {
+      console.error("Admin get users error:", err);
+      res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
+  // Get user details by ID
+  app.get("/api/admin/users/:id", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const user = await storage.getUser(id);
+
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Get additional user stats
+      const userStats = {
+        totalOrders: 0,
+        totalRevenue: 0,
+        totalListings: 0,
+        averageRating: 0,
+      };
+
+      if (pool) {
+        // Get order stats
+        if (user.role === "farmer") {
+          const orderStats = await pool.query(
+            `SELECT COUNT(*) as total_orders, COALESCE(SUM(total_price::numeric), 0) as total_revenue FROM orders WHERE farmer_id = $1 AND status = 'completed'`,
+            [id]
+          );
+          userStats.totalOrders = Number(orderStats.rows[0].total_orders);
+          userStats.totalRevenue = Number(orderStats.rows[0].total_revenue);
+
+          const listingStats = await pool.query(
+            `SELECT COUNT(*) as total_listings FROM listings WHERE farmer_id = $1 AND status = 'active'`,
+            [id]
+          );
+          userStats.totalListings = Number(listingStats.rows[0].total_listings);
+        } else if (user.role === "buyer") {
+          const orderStats = await pool.query(
+            `SELECT COUNT(*) as total_orders, COALESCE(SUM(total_price::numeric), 0) as total_revenue FROM orders WHERE buyer_id = $1 AND status = 'completed'`,
+            [id]
+          );
+          userStats.totalOrders = Number(orderStats.rows[0].total_orders);
+          userStats.totalRevenue = Number(orderStats.rows[0].total_revenue);
+        }
+
+        // Get average rating
+        const ratingStats = await pool.query(
+          `SELECT AVG(rating) as avg_rating FROM reviews WHERE reviewee_id = $1`,
+          [id]
+        );
+        userStats.averageRating = Number(ratingStats.rows[0].avg_rating) || 0;
+      }
+
+      res.json({
+        user,
+        stats: userStats,
+      });
+    } catch (err: any) {
+      console.error("Admin get user details error:", err);
+      res.status(500).json({ message: "Failed to fetch user details" });
+    }
+  });
+
+  // Update user status (activate/deactivate)
+  app.patch("/api/admin/users/:id/status", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { isActive, reason } = req.body;
+
+      if (typeof isActive !== "boolean") {
+        return res.status(400).json({ message: "isActive must be a boolean" });
+      }
+
+      const user = await storage.getUser(id);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Prevent admin from deactivating themselves
+      if (id === req.session.user!.id && !isActive) {
+        return res.status(400).json({ message: "Cannot deactivate your own account" });
+      }
+
+      await storage.updateUser(id, { isActive });
+
+      // Create notification for the user
+      const statusMessage = isActive ? "activated" : "deactivated";
+      await sendNotificationToUser(id, {
+        userId: id,
+        type: "account_update",
+        title: `Account ${statusMessage}`,
+        message: `Your account has been ${statusMessage}${reason ? `: ${reason}` : "."}`,
+        relatedId: id,
+        relatedType: "user",
+      }, io);
+
+      res.json({
+        user: await storage.getUser(id),
+        message: `User ${statusMessage} successfully`
+      });
+    } catch (err: any) {
+      console.error("Admin update user status error:", err);
+      res.status(500).json({ message: "Failed to update user status" });
+    }
+  });
+
+  // Bulk user operations
+  app.post("/api/admin/users/bulk", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const { operation, userIds, reason } = req.body;
+
+      if (!operation || !userIds || !Array.isArray(userIds)) {
+        return res.status(400).json({ message: "operation and userIds array are required" });
+      }
+
+      const results = [];
+      const errors = [];
+
+      for (const userId of userIds) {
+        try {
+          const user = await storage.getUser(userId);
+          if (!user) {
+            errors.push({ userId, error: "User not found" });
+            continue;
           }
+
+          // Prevent admin from affecting themselves in bulk operations
+          if (userId === req.session.user!.id) {
+            errors.push({ userId, error: "Cannot modify your own account in bulk operations" });
+            continue;
+          }
+
+          switch (operation) {
+            case "activate":
+              await storage.updateUser(userId, { isActive: true });
+              await sendNotificationToUser(userId, {
+                userId,
+                type: "account_update",
+                title: "Account Activated",
+                message: `Your account has been activated${reason ? `: ${reason}` : "."}`,
+                relatedId: userId,
+                relatedType: "user",
+              }, io);
+              results.push({ userId, operation: "activated" });
+              break;
+
+            case "deactivate":
+              await storage.updateUser(userId, { isActive: false });
+              await sendNotificationToUser(userId, {
+                userId,
+                type: "account_update",
+                title: "Account Deactivated",
+                message: `Your account has been deactivated${reason ? `: ${reason}` : "."}`,
+                relatedId: userId,
+                relatedType: "user",
+              }, io);
+              results.push({ userId, operation: "deactivated" });
+              break;
+
+            default:
+              errors.push({ userId, error: "Invalid operation" });
+          }
+        } catch (err: any) {
+          errors.push({ userId, error: err.message || "Operation failed" });
         }
-      } catch (err: any) {
-        console.error('Payment verification error:', err);
-        res.status(500).json({ message: 'Failed to verify payment' });
-      }
-    });
-
-// ================= ADMIN USER MANAGEMENT =================
-
-// Get all users with pagination and filtering
-app.get("/api/admin/users", requireRole("admin"), async (req: Request, res: Response) => {
-  try {
-    const { page = "1", limit = "20", role, status, search } = req.query as { page?: string; limit?: string; role?: string; status?: string; search?: string };
-    const offset = (Number(page) - 1) * Number(limit);
-
-    let users;
-    if (pool) {
-      // Use database query with filtering
-      let query = `SELECT id, full_name, email, role, created_at, last_login, is_active FROM users WHERE 1=1`;
-      const params: any[] = [];
-      let paramIndex = 1;
-
-      if (role) {
-        query += ` AND role = $${paramIndex}`;
-        params.push(role);
-        paramIndex++;
       }
 
-      if (status) {
-        query += ` AND is_active = $${paramIndex}`;
-        params.push(status === "active");
-        paramIndex++;
-      }
-
-      if (search) {
-        query += ` AND (full_name ILIKE $${paramIndex} OR email ILIKE $${paramIndex})`;
-        params.push(`%${search}%`);
-        paramIndex++;
-      }
-
-      query += ` ORDER BY created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-      params.push(Number(limit), offset);
-
-      const result = await pool.query(query, params);
-      users = result.rows.map((row: any) => ({
-        id: row.id,
-        fullName: row.full_name,
-        email: row.email,
-        role: row.role,
-        createdAt: row.created_at,
-        lastLogin: row.last_login,
-        isActive: row.is_active,
-      }));
-    } else {
-      // Fallback to in-memory storage
-      let allUsers = await storage.getAllUsers();
-
-      if (role) {
-        allUsers = allUsers.filter((u: any) => u.role === role);
-      }
-
-      if (status) {
-        allUsers = allUsers.filter((u: any) => u.isActive === (status === "active"));
-      }
-
-      if (search) {
-        const searchLower = search.toLowerCase();
-        allUsers = allUsers.filter((u: any) =>
-          u.fullName.toLowerCase().includes(searchLower) ||
-          u.email.toLowerCase().includes(searchLower)
-        );
-      }
-
-      users = allUsers
-        .sort((a: any, b: any) => (new Date(b.createdAt || 0).getTime()) - (new Date(a.createdAt || 0).getTime()))
-        .slice(offset, offset + Number(limit));
+      res.json({
+        results,
+        errors,
+        message: `Bulk operation completed: ${results.length} successful, ${errors.length} failed`
+      });
+    } catch (err: any) {
+      console.error("Admin bulk user operation error:", err);
+      res.status(500).json({ message: "Bulk operation failed" });
     }
-
-    res.json({
-      users,
-      pagination: {
-        page: Number(page),
-        limit: Number(limit),
-        total: users.length,
-      }
-    });
-  } catch (err: any) {
-    console.error("Admin get users error:", err);
-    res.status(500).json({ message: "Failed to fetch users" });
-  }
-});
-
-// Get user details by ID
-app.get("/api/admin/users/:id", requireRole("admin"), async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const user = await storage.getUser(id);
-
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    // Get additional user stats
-    const userStats = {
-      totalOrders: 0,
-      totalRevenue: 0,
-      totalListings: 0,
-      averageRating: 0,
-    };
-
-    if (pool) {
-      // Get order stats
-      if (user.role === "farmer") {
-        const orderStats = await pool.query(
-          `SELECT COUNT(*) as total_orders, COALESCE(SUM(total_price::numeric), 0) as total_revenue FROM orders WHERE farmer_id = $1 AND status = 'completed'`,
-          [id]
-        );
-        userStats.totalOrders = Number(orderStats.rows[0].total_orders);
-        userStats.totalRevenue = Number(orderStats.rows[0].total_revenue);
-
-        const listingStats = await pool.query(
-          `SELECT COUNT(*) as total_listings FROM listings WHERE farmer_id = $1 AND status = 'active'`,
-          [id]
-        );
-        userStats.totalListings = Number(listingStats.rows[0].total_listings);
-      } else if (user.role === "buyer") {
-        const orderStats = await pool.query(
-          `SELECT COUNT(*) as total_orders, COALESCE(SUM(total_price::numeric), 0) as total_revenue FROM orders WHERE buyer_id = $1 AND status = 'completed'`,
-          [id]
-        );
-        userStats.totalOrders = Number(orderStats.rows[0].total_orders);
-        userStats.totalRevenue = Number(orderStats.rows[0].total_revenue);
-      }
-
-      // Get average rating
-      const ratingStats = await pool.query(
-        `SELECT AVG(rating) as avg_rating FROM reviews WHERE reviewee_id = $1`,
-        [id]
-      );
-      userStats.averageRating = Number(ratingStats.rows[0].avg_rating) || 0;
-    }
-
-    res.json({
-      user,
-      stats: userStats,
-    });
-  } catch (err: any) {
-    console.error("Admin get user details error:", err);
-    res.status(500).json({ message: "Failed to fetch user details" });
-  }
-});
-
-// Update user status (activate/deactivate)
-app.patch("/api/admin/users/:id/status", requireRole("admin"), async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { isActive, reason } = req.body;
-
-    if (typeof isActive !== "boolean") {
-      return res.status(400).json({ message: "isActive must be a boolean" });
-    }
-
-    const user = await storage.getUser(id);
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    // Prevent admin from deactivating themselves
-    if (id === req.session.user!.id && !isActive) {
-      return res.status(400).json({ message: "Cannot deactivate your own account" });
-    }
-
-    await storage.updateUser(id, { isActive });
-
-    // Create notification for the user
-    const statusMessage = isActive ? "activated" : "deactivated";
-    await sendNotificationToUser(id, {
-      userId: id,
-      type: "account_update",
-      title: `Account ${statusMessage}`,
-      message: `Your account has been ${statusMessage}${reason ? `: ${reason}` : "."}`,
-      relatedId: id,
-      relatedType: "user",
-    }, io);
-
-    res.json({
-      user: await storage.getUser(id),
-      message: `User ${statusMessage} successfully`
-    });
-  } catch (err: any) {
-    console.error("Admin update user status error:", err);
-    res.status(500).json({ message: "Failed to update user status" });
-  }
-});
-
-// Bulk user operations
-app.post("/api/admin/users/bulk", requireRole("admin"), async (req: Request, res: Response) => {
-  try {
-    const { operation, userIds, reason } = req.body;
-
-    if (!operation || !userIds || !Array.isArray(userIds)) {
-      return res.status(400).json({ message: "operation and userIds array are required" });
-    }
-
-    const results = [];
-    const errors = [];
-
-    for (const userId of userIds) {
-      try {
-        const user = await storage.getUser(userId);
-        if (!user) {
-          errors.push({ userId, error: "User not found" });
-          continue;
-        }
-
-        // Prevent admin from affecting themselves in bulk operations
-        if (userId === req.session.user!.id) {
-          errors.push({ userId, error: "Cannot modify your own account in bulk operations" });
-          continue;
-        }
-
-        switch (operation) {
-          case "activate":
-            await storage.updateUser(userId, { isActive: true });
-            await sendNotificationToUser(userId, {
-              userId,
-              type: "account_update",
-              title: "Account Activated",
-              message: `Your account has been activated${reason ? `: ${reason}` : "."}`,
-              relatedId: userId,
-              relatedType: "user",
-            }, io);
-            results.push({ userId, operation: "activated" });
-            break;
-
-          case "deactivate":
-            await storage.updateUser(userId, { isActive: false });
-            await sendNotificationToUser(userId, {
-              userId,
-              type: "account_update",
-              title: "Account Deactivated",
-              message: `Your account has been deactivated${reason ? `: ${reason}` : "."}`,
-              relatedId: userId,
-              relatedType: "user",
-            }, io);
-            results.push({ userId, operation: "deactivated" });
-            break;
-
-          default:
-            errors.push({ userId, error: "Invalid operation" });
-        }
-      } catch (err: any) {
-        errors.push({ userId, error: err.message || "Operation failed" });
-      }
-    }
-
-    res.json({
-      results,
-      errors,
-      message: `Bulk operation completed: ${results.length} successful, ${errors.length} failed`
-    });
-  } catch (err: any) {
-    console.error("Admin bulk user operation error:", err);
-    res.status(500).json({ message: "Bulk operation failed" });
-  }
-});
+  });
 }

@@ -404,7 +404,7 @@ export class PostgresStorage {
     }
     const conversations: Conversation[] = [];
     for (const [other, msgs] of map.entries()) {
-      msgs.sort((a: any, b: any)=> new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      msgs.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       const lastMessage = msgs[0];
       const otherUser = await this.getUser(other);
       if (!otherUser) continue;
@@ -594,6 +594,13 @@ export class PostgresStorage {
   async getAllPayments(): Promise<Payment[]> {
     if (!db) throw new Error('Database client not initialized');
     const res = await db.select().from(payments);
+    return res as any;
+  }
+
+  // Transactions
+  async createTransaction(transaction: InsertTransaction): Promise<Transaction> {
+    if (!db) throw new Error('Database client not initialized');
+    const [res] = await db.insert(transactions).values(transaction).returning();
     return res as any;
   }
 

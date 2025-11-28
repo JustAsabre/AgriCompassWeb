@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { io, Socket } from "socket.io-client";
 import { useAuth } from "@/lib/auth";
+import { apiRequest } from "@/lib/queryClient";
 import type { Notification } from "@shared/schema";
 
 interface NotificationContextType {
@@ -90,7 +91,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     newSocket.on("new_notification", async (notification: Notification) => {
       queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
       queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
-      
+
       // Auto-refresh relevant data based on notification type
       if (notification.type === "order_update") {
         queryClient.invalidateQueries({ queryKey: ["/api/buyer/orders"] });
@@ -99,21 +100,21 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         queryClient.invalidateQueries({ queryKey: ["/api/messages/conversations"] });
       } else if (notification.type === "verification_update") {
         queryClient.invalidateQueries({ queryKey: ["/api/farmer/verification"] });
-          // Refresh the current user so UI reflects changes to `user.verified` (e.g., profile banner, dashboard)
-          if (queryClient && typeof (queryClient as any).client?.refresh === 'undefined') {
-            // not all queryClient instances expose refresh; instead call AuthProvider refresh hook
-          }
-          // Best-effort: if useAuth().refreshUser exists, call it (it will update local user state)
-          try {
-            if (typeof refreshUser === 'function') {
-              await refreshUser();
-            } else {
-              queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-            }
-          } catch (err) {
-            console.warn('refreshUser failed on verification_update notification', err);
+        // Refresh the current user so UI reflects changes to `user.verified` (e.g., profile banner, dashboard)
+        if (queryClient && typeof (queryClient as any).client?.refresh === 'undefined') {
+          // not all queryClient instances expose refresh; instead call AuthProvider refresh hook
+        }
+        // Best-effort: if useAuth().refreshUser exists, call it (it will update local user state)
+        try {
+          if (typeof refreshUser === 'function') {
+            await refreshUser();
+          } else {
             queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
           }
+        } catch (err) {
+          console.warn('refreshUser failed on verification_update notification', err);
+          queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+        }
       } else if (notification.type === "new_listing") {
         queryClient.invalidateQueries({ queryKey: ["/api/listings"] });
       }
@@ -138,10 +139,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   const markAsRead = async (id: string) => {
     try {
-      await fetch(`/api/notifications/${id}/read`, {
-        method: "PATCH",
-        credentials: "include",
-      });
+      await apiRequest("PATCH", `/api/notifications/${id}/read`);
       queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
       queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
     } catch (error) {
@@ -151,15 +149,8 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   const markAllAsRead = async () => {
     try {
-      const response = await fetch("/api/notifications/mark-all-read", {
-        method: "PATCH",
-        credentials: "include",
-      });
-      
-      if (!response.ok) {
-        throw new Error("Failed to mark notifications as read");
-      }
-      
+      await apiRequest("PATCH", "/api/notifications/mark-all-read");
+
       await queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
     } catch (error) {
@@ -169,15 +160,8 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   const deleteNotification = async (id: string) => {
     try {
-      const response = await fetch(`/api/notifications/${id}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-      
-      if (!response.ok) {
-        throw new Error("Failed to delete notification");
-      }
-      
+      await apiRequest("DELETE", `/api/notifications/${id}`);
+
       await queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
     } catch (error) {
