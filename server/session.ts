@@ -98,8 +98,10 @@ export const sessionMiddleware = session({
     // For cross-site requests (frontend on Vercel talking to API on Fly),
     // browsers require SameSite=None and Secure to send cookies on XHR/fetch.
     // Use 'none' only in production where secure is true.
+    // Use 'none' only in production where secure is true.
     sameSite: process.env.NODE_ENV === "production" ? "none" as const : "lax",
-  }
+  },
+  proxy: true // Trust the reverse proxy when setting secure cookies
 });
 
 export default sessionMiddleware;

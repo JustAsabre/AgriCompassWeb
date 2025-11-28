@@ -17,10 +17,10 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { 
-  Plus, 
-  Package, 
-  TrendingUp, 
+import {
+  Plus,
+  Package,
+  TrendingUp,
   ShoppingBag,
   Edit,
   Trash,
@@ -94,8 +94,15 @@ export default function FarmerDashboard() {
         body: JSON.stringify({ status }),
       });
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to update order");
+        let errorMessage = "Failed to update order";
+        try {
+          const error = await response.json();
+          errorMessage = error.message || errorMessage;
+        } catch (e) {
+          // If response is not JSON (e.g. 404 HTML), use status text
+          errorMessage = `Error: ${response.status} ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
       }
       return response.json();
     },
@@ -343,8 +350,8 @@ export default function FarmerDashboard() {
                   <Card key={listing.id} className="hover-elevate" data-testid={`card-listing-${listing.id}`}>
                     <div className="aspect-square bg-muted flex items-center justify-center">
                       {listing.imageUrl ? (
-                        <img 
-                          src={listing.imageUrl} 
+                        <img
+                          src={listing.imageUrl}
                           alt={listing.productName}
                           className="w-full h-full object-cover"
                         />
@@ -361,7 +368,7 @@ export default function FarmerDashboard() {
                           {listing.status}
                         </Badge>
                       </div>
-                      
+
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="text-sm text-muted-foreground">Price</span>
@@ -382,9 +389,9 @@ export default function FarmerDashboard() {
                       </div>
 
                       <div className="flex gap-2">
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
+                        <Button
+                          variant="outline"
+                          size="sm"
                           className="flex-1"
                           onClick={() => setLocation(`/farmer/edit-listing/${listing.id}`)}
                           data-testid={`button-edit-${listing.id}`}
@@ -392,11 +399,11 @@ export default function FarmerDashboard() {
                           <Edit className="h-4 w-4 mr-2" />
                           Edit
                         </Button>
-                        
+
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button 
-                              variant="outline" 
+                            <Button
+                              variant="outline"
                               size="sm"
                               className="flex-1"
                               data-testid={`button-delete-${listing.id}`}
@@ -486,9 +493,9 @@ export default function FarmerDashboard() {
                           </div>
                           {order.status === "pending" && (
                             <div className="flex gap-2">
-                              <Button 
-                                size="sm" 
-                                variant="default" 
+                              <Button
+                                size="sm"
+                                variant="default"
                                 onClick={() => updateOrderMutation.mutate({ orderId: order.id, status: "accepted" })}
                                 disabled={updateOrderMutation.isPending}
                                 data-testid={`button-accept-${order.id}`}
@@ -496,9 +503,9 @@ export default function FarmerDashboard() {
                                 <CheckCircle className="h-4 w-4 mr-1" />
                                 Accept
                               </Button>
-                              <Button 
-                                size="sm" 
-                                variant="destructive" 
+                              <Button
+                                size="sm"
+                                variant="destructive"
                                 onClick={() => updateOrderMutation.mutate({ orderId: order.id, status: "rejected" })}
                                 disabled={updateOrderMutation.isPending}
                                 data-testid={`button-reject-${order.id}`}
@@ -509,9 +516,9 @@ export default function FarmerDashboard() {
                             </div>
                           )}
                           {order.status === "accepted" && (
-                            <Button 
-                              size="sm" 
-                              variant="default" 
+                            <Button
+                              size="sm"
+                              variant="default"
                               onClick={() => updateOrderMutation.mutate({ orderId: order.id, status: "delivered" })}
                               disabled={updateOrderMutation.isPending}
                               data-testid={`button-deliver-${order.id}`}
@@ -548,7 +555,7 @@ export default function FarmerDashboard() {
             )}
           </TabsContent>
         </Tabs>
-        { !user?.paystackRecipientCode && (
+        {!user?.paystackRecipientCode && (
           <div className="mb-4">
             <Alert>
               <AlertDescription className="flex items-center justify-between">
@@ -564,7 +571,7 @@ export default function FarmerDashboard() {
             <CardTitle>Request Payout</CardTitle>
           </CardHeader>
           <CardContent>
-              <div className="flex flex-col md:flex-row md:items-center gap-3">
+            <div className="flex flex-col md:flex-row md:items-center gap-3">
               <Input className="w-40" placeholder="Amount (GHS)" value={payoutAmount} onChange={(e: any) => setPayoutAmount(e.target.value)} />
               <Input className="w-48" placeholder="Mobile number (e.g. +233...)" value={mobileNumber} onChange={(e: any) => setMobileNumber(e.target.value)} />
               <Button onClick={() => {
@@ -589,7 +596,7 @@ export default function FarmerDashboard() {
             <CardTitle>Manage Payout Recipient</CardTitle>
           </CardHeader>
           <CardContent>
-              <div className="flex flex-col md:flex-row items-center gap-3">
+            <div className="flex flex-col md:flex-row items-center gap-3">
               <div className="w-36">
                 <Select value={recipientMobileNetwork} onValueChange={(v) => setRecipientMobileNetwork(v)}>
                   <SelectTrigger className="w-full"><SelectValue placeholder="Network" /></SelectTrigger>

@@ -40,11 +40,13 @@ import AdminReviews from "@/pages/admin-reviews";
 import AdminDashboard from "@/pages/admin-dashboard";
 import NotFound from "@/pages/not-found";
 
+import { FullPageLoader } from "@/components/ui/loader";
+
 function ProtectedRoute({ component: Component, allowedRoles }: { component: any; allowedRoles?: string[] }) {
   const { user, isLoading } = useAuth();
 
   if (isLoading) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+    return <FullPageLoader />;
   }
 
   if (!user) {
@@ -76,7 +78,7 @@ function Router() {
           <Route path="/contact" component={Contact} />
           <Route path="/marketplace" component={Marketplace} />
           <Route path="/marketplace/:id" component={ProductDetail} />
-          
+
           {/* Farmer Routes */}
           <Route path="/farmer/dashboard">
             {() => <ProtectedRoute component={FarmerDashboard} allowedRoles={["farmer"]} />}
@@ -93,7 +95,7 @@ function Router() {
           <Route path="/farmer/analytics">
             {() => <ProtectedRoute component={FarmerAnalytics} allowedRoles={["farmer"]} />}
           </Route>
-          
+
           {/* Buyer Routes */}
           <Route path="/buyer/dashboard">
             {() => <ProtectedRoute component={BuyerDashboard} allowedRoles={["buyer"]} />}
@@ -104,7 +106,7 @@ function Router() {
           <Route path="/buyer/analytics">
             {() => <ProtectedRoute component={BuyerAnalytics} allowedRoles={["buyer"]} />}
           </Route>
-          
+
           {/* Order Routes */}
           <Route path="/order-success">
             {() => <ProtectedRoute component={OrderSuccess} allowedRoles={["buyer"]} />}
@@ -112,7 +114,7 @@ function Router() {
           <Route path="/orders/:id">
             {() => <ProtectedRoute component={OrderDetail} allowedRoles={["buyer", "farmer"]} />}
           </Route>
-          
+
           {/* Field Officer Routes */}
           <Route path="/officer/dashboard">
             {() => <ProtectedRoute component={OfficerDashboard} allowedRoles={["field_officer"]} />}
@@ -126,7 +128,7 @@ function Router() {
           <Route path="/officer/reviews">
             {() => <ProtectedRoute component={AdminReviews} allowedRoles={["field_officer"]} />}
           </Route>
-          
+
           {/* Profile */}
           <Route path="/profile">
             {() => <ProtectedRoute component={Profile} />}
@@ -136,7 +138,7 @@ function Router() {
           <Route path="/messages">
             {() => <ProtectedRoute component={Messages} />}
           </Route>
-          
+
           {/* Admin Dashboard */}
           <Route path="/admin/dashboard">
             {() => <ProtectedRoute component={AdminDashboard} allowedRoles={["admin"]} />}

@@ -881,23 +881,6 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         }, io);
       }
 
-      // Create escrow records for each order
-      for (const order of orders) {
-        const upfrontAmount = Number((Number(order.totalPrice) * 0.3).toFixed(2)); // 30% upfront
-        const remainingAmount = Number((Number(order.totalPrice) * 0.7).toFixed(2)); // 70% remaining
-
-        await storage.createEscrow({
-          orderId: order.id,
-          buyerId: buyerId,
-          farmerId: order.farmerId,
-          totalAmount: String(Number(order.totalPrice)),
-          upfrontAmount: String(upfrontAmount),
-          remainingAmount: String(remainingAmount),
-        });
-      }
-
-      // Clear cart
-      await storage.clearCart(buyerId);
 
       // If autoPay requested, initiate payment for the entire transaction
       if (autoPay && orders.length > 0) {
@@ -948,9 +931,12 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           // Update transaction with Paystack reference
           await storage.updateTransaction(transaction.id, { paystackReference: reference });
 
+          console.log(`[Checkout] Transaction created: ${transaction.id}`);
+
           // Create a payment record for each order linked to the transaction
           const payments = [] as any[];
           for (const o of orders) {
+            console.log(`[Checkout] Creating payment for order ${o.id}`);
             const p = await storage.createPayment({
               orderId: o.id,
               payerId: buyerId,
