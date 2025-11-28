@@ -94,14 +94,7 @@ app.use('/api/auth/register', authLimiter);
 // Session configuration (centralized)
 app.use(sessionMiddleware);
 
-// DEBUG: Diagnose session/CSRF issues
-app.use((req, res, next) => {
-  if (req.path.startsWith('/api')) {
-    const proto = req.headers['x-forwarded-proto'];
-    console.log(`[DEBUG] ${req.method} ${req.path} | Secure: ${req.secure} | Proto: ${req.protocol} (Header: ${proto}) | Session: ${!!req.session} | ID: ${req.session?.id}`);
-  }
-  next();
-});
+
 
 // CSRF protection - ensure it sits after session middleware
 // We use a dynamic import here to avoid static import resolution failing when `csurf` is not installed.
