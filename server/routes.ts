@@ -12,7 +12,6 @@ import { sendNotificationToUser, broadcastNewListing } from "./socket";
 import { enqueuePayout } from './jobs/payoutQueue';
 import { pool } from "./db";
 import crypto from "crypto";
-import fs from "fs";
 
 // Helper: Validate Ghana mobile number E.164 format (e.g., +233XXXXXXXXX)
 function isValidGhanaMobileNumber(mobile?: string) {
@@ -966,7 +965,6 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       res.json({ orders, transaction });
     } catch (error: any) {
       console.error("Checkout error:", error);
-      try { fs.appendFileSync('checkout_debug.log', `[${new Date().toISOString()}] Checkout Error: ${error.message}\nStack: ${error.stack}\n`); } catch (e) { }
       res.status(400).json({ message: error.message || "Checkout failed" });
     }
   });
@@ -2050,7 +2048,6 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       res.json(tiers);
     } catch (error: any) {
       console.error("Get pricing tiers error:", error);
-      try { fs.appendFileSync('checkout_debug.log', `[${new Date().toISOString()}] Pricing Tiers Error: ${error.message}\nStack: ${error.stack}\n`); } catch (e) { }
       res.status(500).json({ message: "Failed to fetch pricing tiers" });
     }
   });
