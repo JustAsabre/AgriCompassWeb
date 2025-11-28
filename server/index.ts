@@ -34,28 +34,15 @@ const httpServer = createServer(app);
 // `io` will be exported from `server/socket.ts` after initialization completes
 
 // CORS configuration
+// CORS configuration
 const corsOptions = {
-  origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
+  origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean | string) => void) {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
 
-    // Allow localhost for development
-    if (origin.includes('localhost')) return callback(null, true);
-
-    // Allow Vercel deployments (any subdomain)
-    if (origin.endsWith('.vercel.app')) return callback(null, true);
-
-    // Allow Fly.io deployments (any subdomain)
-    if (origin.endsWith('.fly.dev')) return callback(null, true);
-
-    // In production, you might want to restrict to specific domains
-    // For now, allow all origins in development
-    if (process.env.NODE_ENV !== 'production') {
-      return callback(null, true);
-    }
-
-    // Reject other origins in production
-    return callback(new Error('Not allowed by CORS'));
+    // To allow "anyone from anywhere" with credentials, we must reflect the origin
+    // instead of using '*' which is incompatible with credentials: true.
+    return callback(null, true);
   },
   credentials: true, // Allow cookies and authentication headers
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
