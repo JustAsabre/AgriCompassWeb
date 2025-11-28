@@ -42,11 +42,11 @@ const corsOptions = {
     // Allow localhost for development
     if (origin.includes('localhost')) return callback(null, true);
 
-    // Allow Vercel deployment
-    if (origin.includes('vercel.app')) return callback(null, true);
+    // Allow Vercel deployments (any subdomain)
+    if (origin.endsWith('.vercel.app')) return callback(null, true);
 
-    // Allow Fly.io domain
-    if (origin.includes('agricompassweb.fly.dev')) return callback(null, true);
+    // Allow Fly.io deployments (any subdomain)
+    if (origin.endsWith('.fly.dev')) return callback(null, true);
 
     // In production, you might want to restrict to specific domains
     // For now, allow all origins in development
@@ -58,7 +58,7 @@ const corsOptions = {
     return callback(new Error('Not allowed by CORS'));
   },
   credentials: true, // Allow cookies and authentication headers
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Requested-With']
 };
 

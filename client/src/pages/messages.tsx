@@ -210,7 +210,7 @@ export default function Messages() {
           </p>
         </div>
 
-        <div className="grid lg:grid-cols-3 gap-6 h-[calc(100vh-200px)]">
+        <div className="grid lg:grid-cols-3 gap-6 h-[calc(100vh-12rem)] min-h-[500px]">
           {/* Conversations List */}
           <Card className="lg:col-span-1">
             <CardHeader>
@@ -219,8 +219,8 @@ export default function Messages() {
                 Conversations
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-0">
-              <ScrollArea className="h-[calc(100vh-300px)]">
+            <CardContent className="p-0 flex flex-col h-full">
+              <ScrollArea className="flex-1">
                 {conversationsLoading ? (
                   <div className="space-y-2 p-4">
                     {[...Array(5)].map((_, i) => (
@@ -297,7 +297,7 @@ export default function Messages() {
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent className="p-0 flex flex-col h-[calc(100vh-370px)]">
+                <CardContent className="p-0 flex flex-col h-[calc(100%-5rem)]">
                   {/* Messages */}
                   <ScrollArea className="flex-1 p-4">
                     {messagesLoading ? (
