@@ -404,6 +404,19 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
 
+  // Get pricing tiers for a listing (Must be before generic :id route)
+  app.get("/api/listings/:id/pricing-tiers", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      console.log(`[PricingTiers] Fetching tiers for listing ${id}`);
+      const tiers = await storage.getPricingTiersByListing(id);
+      res.json(tiers);
+    } catch (error: any) {
+      console.error("Get pricing tiers error:", error);
+      res.status(500).json({ message: "Failed to fetch pricing tiers" });
+    }
+  });
+
   app.get("/api/listings/:id", async (req, res) => {
     try {
       const listing = await storage.getListingWithFarmer(req.params.id);
@@ -504,8 +517,6 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       }
 
       const updated = await storage.updateListing(req.params.id, req.body);
-      // After marking as completed, create a payout record for the farmer
-      await maybeCreatePayoutForOrder(req.params.id);
 
       res.json(updated);
     } catch (error: any) {
@@ -1210,6 +1221,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       const total = Number(order.totalPrice || 0);
       const payoutAmount = Number((total * (1 - platformCommissionPercent / 100)).toFixed(2));
       console.log('maybeCreatePayoutForOrder', 'total', total, 'payoutAmount', payoutAmount);
+
+      // Release escrow
+      const escrow = await storage.getEscrowByOrder(orderId);
+      if (escrow) {
+        await storage.updateEscrowStatus(escrow.id, 'released');
+        console.log(`[Escrow] Released funds for order ${orderId}`);
+      }
+
       // Create a payout record for farmer; admin or automatic process will transfer later
       const payoutRecord = await storage.createPayout({ farmerId: order.farmerId, amount: String(payoutAmount), status: 'pending', mobileNumber: null, mobileNetwork: null } as any);
       // Auto payouts are enabled either via global setting OR if we detect a recipient for the farmer
@@ -2040,17 +2059,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
   // ==================== PRICING TIERS ROUTES ====================
 
   // Get pricing tiers for a listing
-  app.get("/api/listings/:id/pricing-tiers", async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      console.log(`[PricingTiers] Fetching tiers for listing ${id}`);
-      const tiers = await storage.getPricingTiersByListing(id);
-      res.json(tiers);
-    } catch (error: any) {
-      console.error("Get pricing tiers error:", error);
-      res.status(500).json({ message: "Failed to fetch pricing tiers" });
-    }
-  });
+
 
   // Admin - revenue metrics
   app.get('/api/admin/revenue', requireRole('admin'), async (req: Request, res: Response) => {
