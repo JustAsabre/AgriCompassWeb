@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from '@/hooks/use-toast';
 import { Search, Filter, Calendar, BarChart3, CheckSquare, XSquare, Shield, AlertTriangle } from 'lucide-react';
+import { Loader } from "@/components/ui/loader";
 
 interface AdminStats {
   totalUsers: number;
@@ -562,83 +563,80 @@ function AdminDashboardContent() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {pendingLoading ? (
-import {Loader} from "@/components/ui/loader";
-
-                // ... inside component ...
-                <div className="flex justify-center p-8"><Loader /></div>
+                  <div className="flex justify-center p-8"><Loader /></div>
                 ) : filteredListings.length > 0 ? (
                   filteredListings.map((listing: any) => (
-                <div key={listing.id} className="border rounded-lg p-4 space-y-2">
-                  <div className="flex items-start gap-3">
-                    <Checkbox
-                      checked={selectedItems.some(item => item.id === listing.id && item.type === 'listing')}
-                      onCheckedChange={() => handleSelectItem(listing.id, 'listing')}
-                    />
-                    <div className="flex-1">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="font-medium">{listing.productName}</h4>
-                          <p className="text-sm text-gray-600">{listing.description}</p>
-                          <div className="flex gap-2 mt-1">
-                            <Badge variant="secondary">{listing.category}</Badge>
-                            {listing.subcategory && <Badge variant="outline">{listing.subcategory}</Badge>}
+                    <div key={listing.id} className="border rounded-lg p-4 space-y-2">
+                      <div className="flex items-start gap-3">
+                        <Checkbox
+                          checked={selectedItems.some(item => item.id === listing.id && item.type === 'listing')}
+                          onCheckedChange={() => handleSelectItem(listing.id, 'listing')}
+                        />
+                        <div className="flex-1">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <h4 className="font-medium">{listing.productName}</h4>
+                              <p className="text-sm text-gray-600">{listing.description}</p>
+                              <div className="flex gap-2 mt-1">
+                                <Badge variant="secondary">{listing.category}</Badge>
+                                {listing.subcategory && <Badge variant="outline">{listing.subcategory}</Badge>}
+                              </div>
+                              <p className="text-xs text-gray-500 mt-1">By: {listing.farmer?.fullName}</p>
+                            </div>
+                            <Badge variant="secondary">Pending</Badge>
                           </div>
-                          <p className="text-xs text-gray-500 mt-1">By: {listing.farmer?.fullName}</p>
-                        </div>
-                        <Badge variant="secondary">Pending</Badge>
-                      </div>
-                      <div className="flex gap-2 mt-3">
-                        <Button
-                          size="sm"
-                          onClick={() => handleModerate(listing.id, 'approve', 'listing')}
-                          disabled={moderateMutation.isPending}
-                        >
-                          Approve
-                        </Button>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
+                          <div className="flex gap-2 mt-3">
                             <Button
                               size="sm"
-                              variant="destructive"
-                              onClick={() => setModerationAction({ type: 'reject', id: listing.id, contentType: 'listing' })}
+                              onClick={() => handleModerate(listing.id, 'approve', 'listing')}
+                              disabled={moderateMutation.isPending}
                             >
-                              Reject
+                              Approve
                             </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Reject Listing</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Please provide a reason for rejecting this listing. The farmer will be notified.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <div className="py-4">
-                              <Label htmlFor="reason">Reason</Label>
-                              <Textarea
-                                id="reason"
-                                value={moderationReason}
-                                onChange={(e) => setModerationReason(e.target.value)}
-                                placeholder="Enter rejection reason..."
-                              />
-                            </div>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel onClick={() => setModerationAction(null)}>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => handleModerate(listing.id, 'reject', 'listing')}
-                                disabled={!moderationReason.trim() || moderateMutation.isPending}
-                              >
-                                Reject Listing
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => setModerationAction({ type: 'reject', id: listing.id, contentType: 'listing' })}
+                                >
+                                  Reject
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Reject Listing</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Please provide a reason for rejecting this listing. The farmer will be notified.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <div className="py-4">
+                                  <Label htmlFor="reason">Reason</Label>
+                                  <Textarea
+                                    id="reason"
+                                    value={moderationReason}
+                                    onChange={(e) => setModerationReason(e.target.value)}
+                                    placeholder="Enter rejection reason..."
+                                  />
+                                </div>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel onClick={() => setModerationAction(null)}>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => handleModerate(listing.id, 'reject', 'listing')}
+                                    disabled={!moderationReason.trim() || moderateMutation.isPending}
+                                  >
+                                    Reject Listing
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </div>
-                ))
+                  ))
                 ) : (
-                <p className="text-gray-500 text-center py-4">No pending listings match your filters</p>
+                  <p className="text-gray-500 text-center py-4">No pending listings match your filters</p>
                 )}
               </CardContent>
             </Card>
