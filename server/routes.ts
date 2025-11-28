@@ -743,6 +743,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     try {
       const buyerId = req.session.user!.id;
       const { deliveryAddress, notes, autoPay } = req.body;
+      console.log(`[Checkout] Request from buyer ${buyerId}`, { deliveryAddress, notes, autoPay });
 
       // Validate required fields
       if (!deliveryAddress || typeof deliveryAddress !== 'string' || deliveryAddress.trim().length === 0) {
@@ -751,6 +752,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
       // Get cart items
       const cartItems = await storage.getCartItemsByBuyer(buyerId);
+      console.log(`[Checkout] Cart items for buyer ${buyerId}:`, cartItems.length);
       if (cartItems.length === 0) {
         return res.status(400).json({ message: "Cart is empty" });
       }
@@ -1991,6 +1993,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
   app.get("/api/listings/:id/pricing-tiers", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
+      console.log(`[PricingTiers] Fetching tiers for listing ${id}`);
       const tiers = await storage.getPricingTiersByListing(id);
       res.json(tiers);
     } catch (error: any) {
