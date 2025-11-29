@@ -111,6 +111,7 @@ export interface IStorage {
   // Review operations
   getReviewsByListing(listingId: string): Promise<ReviewWithUsers[]>;
   getReviewsByFarmer(farmerId: string): Promise<ReviewWithUsers[]>;
+  getReviewsByOrder(orderId: string): Promise<ReviewWithUsers[]>;
   createReview(review: InsertReview): Promise<Review>;
   getFarmerRating(farmerId: string): Promise<{ average: number; count: number }>;
 
@@ -265,6 +266,7 @@ export class MemStorage implements IStorage {
 
   async getReviewsByListing(listingId: string): Promise<ReviewWithUsers[]> { return []; }
   async getReviewsByFarmer(farmerId: string): Promise<ReviewWithUsers[]> { return []; }
+  async getReviewsByOrder(orderId: string): Promise<ReviewWithUsers[]> { return []; }
   async createReview(review: InsertReview): Promise<Review> { const id = randomUUID(); const newReview = { ...review, id, createdAt: new Date() } as Review; this.reviews.set(id, newReview); return newReview; }
   async getFarmerRating(farmerId: string): Promise<{ average: number; count: number }> { return { average: 0, count: 0 }; }
   // Wallet methods

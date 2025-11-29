@@ -516,8 +516,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         quantity,
         totalPrice,
         deliveryAddress,
-        notes,
-        status: "pending"
+        notes
       });
 
       // Create notification for farmer
@@ -907,6 +906,233 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     } catch (err: any) {
       console.error("Order payment verification error:", err);
       res.status(500).json({ message: "Verification failed" });
+    }
+  });
+
+  // Get single listing details
+  app.get("/api/listings/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const listing = await storage.getListingWithFarmer(id);
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+      res.json(listing);
+    } catch (error: any) {
+      console.error("Get listing details error:", error);
+      res.status(500).json({ message: "Failed to fetch listing details" });
+    }
+  });
+
+  // ==================== CART ROUTES ====================
+
+  app.get("/api/cart", requireRole("buyer"), async (req, res) => {
+    try {
+      const buyerId = req.session.user!.id;
+      const items = await storage.getCartItemsByBuyer(buyerId);
+      res.json(items);
+    } catch (error: any) {
+      console.error("Get cart error:", error);
+      res.status(500).json({ message: "Failed to fetch cart" });
+    }
+  });
+
+  app.post("/api/cart", requireRole("buyer"), async (req, res) => {
+    try {
+      const buyerId = req.session.user!.id;
+      const { listingId, quantity } = req.body;
+
+      const item = await storage.addToCart({
+        buyerId,
+        listingId,
+        quantity
+      });
+      res.status(201).json(item);
+    } catch (error: any) {
+      console.error("Add to cart error:", error);
+      res.status(500).json({ message: "Failed to add to cart" });
+    }
+  });
+
+  app.patch("/api/cart/:id", requireRole("buyer"), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { quantity } = req.body;
+      const item = await storage.updateCartQuantity(id, quantity);
+      res.json(item);
+    } catch (error: any) {
+      console.error("Update cart error:", error);
+      res.status(500).json({ message: "Failed to update cart" });
+    }
+  });
+
+  app.delete("/api/cart/:id", requireRole("buyer"), async (req, res) => {
+    try {
+      const { id } = req.params;
+      await storage.removeFromCart(id);
+      res.sendStatus(204);
+    } catch (error: any) {
+      console.error("Remove from cart error:", error);
+      res.status(500).json({ message: "Failed to remove from cart" });
+    }
+  });
+
+  app.post("/api/cart/clear", requireRole("buyer"), async (req, res) => {
+    try {
+      const buyerId = req.session.user!.id;
+      await storage.clearCart(buyerId);
+      res.sendStatus(204);
+    } catch (error: any) {
+      console.error("Clear cart error:", error);
+      res.status(500).json({ message: "Failed to clear cart" });
+    }
+  });
+
+  // ==================== NOTIFICATION ROUTES ====================
+
+  app.get("/api/notifications", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.user!.id;
+      const notifications = await storage.getNotificationsByUser(userId);
+      res.json(notifications);
+    } catch (error: any) {
+      console.error("Get notifications error:", error);
+      res.status(500).json({ message: "Failed to fetch notifications" });
+    }
+  });
+
+  app.get("/api/notifications/unread-count", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.user!.id;
+      const count = await storage.getUnreadNotificationCount(userId);
+      res.json({ count });
+    } catch (error: any) {
+      console.error("Get unread notifications count error:", error);
+      res.status(500).json({ message: "Failed to fetch unread count" });
+    }
+  });
+
+  app.patch("/api/notifications/:id/read", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const notification = await storage.markNotificationRead(id);
+      res.json(notification);
+    } catch (error: any) {
+      console.error("Mark notification read error:", error);
+      res.status(500).json({ message: "Failed to mark notification as read" });
+    }
+  });
+
+  app.post("/api/notifications/mark-all-read", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.user!.id;
+      await storage.markAllNotificationsRead(userId);
+      res.sendStatus(200);
+    } catch (error: any) {
+      console.error("Mark all notifications read error:", error);
+      res.status(500).json({ message: "Failed to mark all notifications as read" });
+    }
+  });
+
+  // ==================== MESSAGE ROUTES ====================
+
+  app.get("/api/messages/conversations", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.user!.id;
+      const conversations = await storage.getConversations(userId);
+      res.json(conversations);
+    } catch (error: any) {
+      console.error("Get conversations error:", error);
+      res.status(500).json({ message: "Failed to fetch conversations" });
+    }
+  });
+
+  app.get("/api/messages/unread/count", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.user!.id;
+      const count = await storage.getUnreadMessageCount(userId);
+      res.json({ count });
+    } catch (error: any) {
+      console.error("Get unread messages count error:", error);
+      res.status(500).json({ message: "Failed to fetch unread count" });
+    }
+  });
+
+  app.get("/api/messages/:userId", requireAuth, async (req, res) => {
+    try {
+      const currentUserId = req.session.user!.id;
+      const { userId: otherUserId } = req.params;
+      const messages = await storage.getMessagesBetweenUsers(currentUserId, otherUserId);
+      res.json(messages);
+    } catch (error: any) {
+      console.error("Get messages error:", error);
+      res.status(500).json({ message: "Failed to fetch messages" });
+    }
+  });
+
+  app.post("/api/messages", requireAuth, async (req, res) => {
+    try {
+      const senderId = req.session.user!.id;
+      const { receiverId, content, listingId } = req.body;
+
+      const message = await storage.createMessage({
+        senderId,
+        receiverId,
+        content,
+        listingId
+      });
+
+      // Notify receiver via socket
+      if (io) {
+        io.to(receiverId).emit("new_message", message);
+      }
+
+      res.status(201).json(message);
+    } catch (error: any) {
+      console.error("Send message error:", error);
+      res.status(500).json({ message: "Failed to send message" });
+    }
+  });
+
+  // ==================== REVIEW ROUTES ====================
+
+  app.get("/api/reviews/order/:orderId", async (req, res) => {
+    try {
+      const { orderId } = req.params;
+      const reviews = await storage.getReviewsByOrder(orderId);
+      res.json(reviews[0] || null);
+    } catch (error: any) {
+      console.error("Get review error:", error);
+      res.status(500).json({ message: "Failed to fetch review" });
+    }
+  });
+
+  app.post("/api/reviews", requireRole("buyer"), async (req, res) => {
+    try {
+      const buyerId = req.session.user!.id;
+      const { orderId, rating, comment } = req.body;
+
+      const order = await storage.getOrder(orderId);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      if (order.buyerId !== buyerId) {
+        return res.status(403).json({ message: "Not authorized to review this order" });
+      }
+
+      const review = await storage.createReview({
+        orderId,
+        reviewerId: buyerId,
+        revieweeId: order.farmerId,
+        rating,
+        comment
+      });
+
+      res.status(201).json(review);
+    } catch (error: any) {
+      console.error("Create review error:", error);
+      res.status(500).json({ message: "Failed to create review" });
     }
   });
 
