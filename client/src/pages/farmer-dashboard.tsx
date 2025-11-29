@@ -92,6 +92,7 @@ export default function FarmerDashboard() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/farmer/orders", user?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/escrow"] });
       toast({
         title: "Order Updated",
         description: `Order ${variables.status === "accepted" ? "accepted" : "rejected"} successfully`,

@@ -1,5 +1,5 @@
 import { db } from './drizzleClient';
-import { eq, inArray, and } from 'drizzle-orm';
+import { eq, inArray, and, desc } from 'drizzle-orm';
 import {
   users,
   listings,
@@ -15,9 +15,10 @@ import {
   transactions,
   escrow,
   moderationStats,
+  walletTransactions,
+  withdrawals,
 } from '@shared/schema';
 import type {
-  // IStorage, // Removed: not exported from @shared/schema
   User,
   InsertUser,
   Listing,
@@ -52,6 +53,10 @@ import type {
   Conversation,
   Escrow,
   InsertEscrow,
+  WalletTransaction,
+  InsertWalletTransaction,
+  Withdrawal,
+  InsertWithdrawal
 } from '@shared/schema';
 
 // Minimal Postgres-backed storage implementation using Drizzle
@@ -106,7 +111,7 @@ export class PostgresStorage {
   // Listings
   async getAllListings(): Promise<Listing[]> {
     if (!db) throw new Error('Database client not initialized');
-    const res = await db.select().from(listings).where(eq(listings.status, 'active'));
+    const res = await db.select().from(listings);
     return res as any;
   }
 
@@ -117,7 +122,6 @@ export class PostgresStorage {
   }
 
   async getListingWithFarmer(id: string): Promise<ListingWithFarmer | undefined> {
-    if (!db) throw new Error('Database client not initialized');
     const l = await this.getListing(id);
     if (!l) return undefined;
     const farmer = await this.getUser(l.farmerId);
@@ -135,7 +139,7 @@ export class PostgresStorage {
       if (!farmer) continue;
       const tiers = await db.select().from(pricingTiers).where(eq(pricingTiers.listingId, l.id));
       const reviewsList = await db.select().from(reviewsTable).where(eq(reviewsTable.revieweeId, farmer.id));
-      const averageRating = reviewsList.length > 0 ? (reviewsList.reduce((s: any, r: any) => s + (r.rating || 0), 0) / reviewsList.length) : undefined;
+      const averageRating = reviewsList.length > 0 ? ((reviewsList as any[]).reduce((s: any, r: any) => s + (r.rating || 0), 0) / reviewsList.length) : undefined;
       result.push({ ...l as any, farmer: { ...farmer as any, averageRating, reviewCount: reviewsList.length }, pricingTiers: tiers as any });
     }
     return result;
@@ -191,7 +195,7 @@ export class PostgresStorage {
 
   async getOrdersByBuyer(buyerId: string): Promise<OrderWithDetails[]> {
     if (!db) throw new Error('Database client not initialized');
-    const res = await db.select().from(orders).where(eq(orders.buyerId, buyerId));
+    const res = await db.select().from(orders).where(eq(orders.buyerId, buyerId)).orderBy(desc(orders.createdAt));
     const result: OrderWithDetails[] = [];
     for (const o of res as any[]) {
       const details = await this.getOrderWithDetails(o.id);
@@ -202,7 +206,7 @@ export class PostgresStorage {
 
   async getOrdersByFarmer(farmerId: string): Promise<OrderWithDetails[]> {
     if (!db) throw new Error('Database client not initialized');
-    const res = await db.select().from(orders).where(eq(orders.farmerId, farmerId));
+    const res = await db.select().from(orders).where(eq(orders.farmerId, farmerId)).orderBy(desc(orders.createdAt));
     const result: OrderWithDetails[] = [];
     for (const o of res as any[]) {
       const details = await this.getOrderWithDetails(o.id);
@@ -335,7 +339,7 @@ export class PostgresStorage {
   // Notifications
   async getNotificationsByUser(userId: string): Promise<Notification[]> {
     if (!db) throw new Error('Database client not initialized');
-    const res = await db.select().from(notifications).where(eq(notifications.userId, userId)).orderBy(notifications.createdAt);
+    const res = await db.select().from(notifications).where(eq(notifications.userId, userId)).orderBy(desc(notifications.createdAt));
     return res as any;
   }
 
@@ -458,6 +462,8 @@ export class PostgresStorage {
     return res as any;
   }
 
+
+
   // Reviews
   async getReviewsByReviewee(revieweeId: string): Promise<ReviewWithUsers[]> {
     if (!db) throw new Error('Database client not initialized');
@@ -513,15 +519,37 @@ export class PostgresStorage {
     return Array.isArray(res) ? res.length > 0 : !!res;
   }
 
-  async getAverageRating(userId: string): Promise<{ average: number; count: number }> {
+  async getFarmerRating(farmerId: string): Promise<{ average: number; count: number }> {
     if (!db) throw new Error('Database client not initialized');
     const res = await db.select().from(reviewsTable)
-      .where(and(eq(reviewsTable.revieweeId, userId), eq(reviewsTable.approved, true)));
+      .where(eq(reviewsTable.revieweeId, farmerId));
     const count = (res as any).length;
     if (count === 0) return { average: 0, count: 0 };
     const sum = (res as any[]).reduce((acc: number, r: any) => acc + (r.rating || 0), 0);
     const avg = Math.round((sum / count) * 10) / 10;
     return { average: avg, count };
+  }
+
+  async getReviewsByListing(listingId: string): Promise<ReviewWithUsers[]> {
+    if (!db) throw new Error('Database client not initialized');
+    const res = await db.select().from(reviewsTable).where(eq(reviewsTable.listingId, listingId));
+    const result: ReviewWithUsers[] = [];
+    for (const r of res as any[]) {
+      const reviewer = await this.getUser(r.reviewerId);
+      if (reviewer) result.push({ ...r, reviewer });
+    }
+    return result;
+  }
+
+  async getReviewsByFarmer(farmerId: string): Promise<ReviewWithUsers[]> {
+    if (!db) throw new Error('Database client not initialized');
+    const res = await db.select().from(reviewsTable).where(eq(reviewsTable.revieweeId, farmerId));
+    const result: ReviewWithUsers[] = [];
+    for (const r of res as any[]) {
+      const reviewer = await this.getUser(r.reviewerId);
+      if (reviewer) result.push({ ...r, reviewer });
+    }
+    return result;
   }
 
   // Payments & Payouts
@@ -604,7 +632,35 @@ export class PostgresStorage {
     return res as any;
   }
 
-  // Escrow
+  async updateTransaction(id: string, updates: Partial<Transaction>): Promise<Transaction | undefined> {
+    if (!db) throw new Error('Database client not initialized');
+    const [res] = await db.update(transactions).set(updates).where(eq(transactions.id, id)).returning();
+    return res as any;
+  }
+
+  async getTransaction(id: string): Promise<Transaction | undefined> {
+    if (!db) throw new Error('Database client not initialized');
+    const res = await db.select().from(transactions).where(eq(transactions.id, id));
+    return res[0] as any;
+  }
+
+  async getTransactionByPaystackReference(reference: string): Promise<Transaction | undefined> {
+    if (!db) throw new Error('Database client not initialized');
+    const res = await db.select().from(transactions).where(eq(transactions.reference, reference));
+    return res[0] as any;
+  }
+
+  async updateTransactionStatus(id: string, status: string): Promise<Transaction | undefined> {
+    if (!db) throw new Error('Database client not initialized');
+    const [res] = await db.update(transactions).set({ status }).where(eq(transactions.id, id)).returning();
+    return res as any;
+  }
+
+
+
+  // Reviews
+
+
   async createEscrow(esc: InsertEscrow): Promise<Escrow> {
     if (!db) throw new Error('Database client not initialized');
     const [res] = await db.insert(escrow).values(esc).returning();
@@ -669,17 +725,86 @@ export class PostgresStorage {
     });
   }
 
-  async getModerationStatsByContentType(contentType: string): Promise<ModerationStat[]> {
-    if (!db) throw new Error('Database client not initialized');
-    const res = await db.select().from(moderationStats).where(eq(moderationStats.contentType, contentType));
-    return res as any;
-  }
+
 
   async updateUserRole(userId: string, role: string): Promise<void> {
     if (!db) throw new Error('Database client not initialized');
     await db.update(users).set({ role } as any).where(eq(users.id, userId));
   }
 
+  // Wallet operations
+  async getWalletBalance(userId: string): Promise<string> {
+    if (!db) throw new Error('Database client not initialized');
+    const user = await this.getUser(userId);
+    return user?.walletBalance || "0.00";
+  }
+
+  async createWalletTransaction(transaction: InsertWalletTransaction): Promise<WalletTransaction> {
+    if (!db) throw new Error('Database client not initialized');
+
+    // Start a transaction to ensure atomicity
+    return await db.transaction(async (tx) => {
+      // 1. Create the transaction record
+      const [newTx] = await tx.insert(walletTransactions).values(transaction).returning();
+
+      // 2. Update user wallet balance
+      const [user] = await tx.select().from(users).where(eq(users.id, transaction.userId));
+
+      if (!user) throw new Error('User not found');
+
+      const currentBalance = parseFloat(user.walletBalance || "0");
+      const txAmount = parseFloat(transaction.amount.toString());
+
+      let newBalance = currentBalance;
+      if (transaction.type === 'credit') {
+        newBalance += txAmount;
+      } else if (transaction.type === 'debit') {
+        newBalance -= txAmount;
+      }
+
+      await tx.update(users)
+        .set({ walletBalance: newBalance.toFixed(2) })
+        .where(eq(users.id, transaction.userId));
+
+      return newTx as any;
+    });
+  }
+
+  async getWalletTransactions(userId: string): Promise<WalletTransaction[]> {
+    if (!db) throw new Error('Database client not initialized');
+    const res = await db.select()
+      .from(walletTransactions)
+      .where(eq(walletTransactions.userId, userId))
+      .orderBy(desc(walletTransactions.createdAt));
+    return res as any;
+  }
+
+  async requestWithdrawal(withdrawal: InsertWithdrawal): Promise<Withdrawal> {
+    if (!db) throw new Error('Database client not initialized');
+    const [res] = await db.insert(withdrawals).values(withdrawal).returning();
+    return res as any;
+  }
+
+  async getWithdrawals(userId: string): Promise<Withdrawal[]> {
+    if (!db) throw new Error('Database client not initialized');
+    const res = await db.select()
+      .from(withdrawals)
+      .where(eq(withdrawals.userId, userId))
+      .orderBy(desc(withdrawals.createdAt));
+    return res as any;
+  }
+
+  async updateWithdrawalStatus(id: string, status: string, transactionId?: string): Promise<Withdrawal | undefined> {
+    if (!db) throw new Error('Database client not initialized');
+    const updates: any = { status, processedAt: new Date() };
+    if (transactionId) updates.transactionId = transactionId;
+
+    const [res] = await db.update(withdrawals)
+      .set(updates)
+      .where(eq(withdrawals.id, id))
+      .returning();
+    return res as any;
+  }
 }
 
 export default PostgresStorage;

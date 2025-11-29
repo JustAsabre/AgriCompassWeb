@@ -61,7 +61,7 @@ app.use(helmet({
 // Rate limiting to prevent brute force attacks
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: 2000, // Increased limit for SPA polling
   message: "Too many requests from this IP, please try again later.",
   standardHeaders: true,
   legacyHeaders: false,
@@ -69,7 +69,7 @@ const limiter = rateLimit({
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'test' ? 1000 : 5, // Allow more requests in test mode
+  max: process.env.NODE_ENV === 'test' ? 1000 : 50, // Allow more login attempts
   message: "Too many login attempts, please try again later.",
   skipSuccessfulRequests: true,
 });

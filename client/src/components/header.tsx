@@ -50,11 +50,18 @@ export function Header() {
             </span>
           </Link>
           {user?.role === "farmer" && (
-            <Link href="/farmer/dashboard">
-              <span className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer" data-testid="link-farmer-dashboard">
-                My Dashboard
-              </span>
-            </Link>
+            <>
+              <Link href="/farmer/dashboard">
+                <span className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer" data-testid="link-farmer-dashboard">
+                  My Dashboard
+                </span>
+              </Link>
+              <Link href="/farmer/wallet">
+                <span className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer" data-testid="link-farmer-wallet">
+                  Wallet
+                </span>
+              </Link>
+            </>
           )}
           {user?.role === "buyer" && (
             <Link href="/buyer/dashboard">

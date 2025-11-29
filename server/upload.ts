@@ -7,24 +7,13 @@ import crypto from 'crypto';
 const uploadDir = path.join(process.cwd(), 'server', 'uploads');
 fs.mkdir(uploadDir, { recursive: true }).catch(console.error);
 
-// Configure storage
-const storage = multer.diskStorage({
-  destination: async (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    // Generate unique filename: timestamp-random-originalname
-    const uniqueSuffix = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
-    const ext = path.extname(file.originalname);
-    const nameWithoutExt = path.basename(file.originalname, ext);
-    cb(null, `${nameWithoutExt}-${uniqueSuffix}${ext}`);
-  }
-});
+// Configure storage - use memory storage for serverless compatibility
+const storage = multer.memoryStorage();
 
 // File filter - images and PDFs
 const fileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
   const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'application/pdf'];
-  
+
   if (allowedMimes.includes(file.mimetype)) {
     cb(null, true);
   } else {

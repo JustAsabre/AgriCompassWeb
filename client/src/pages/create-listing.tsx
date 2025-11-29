@@ -44,14 +44,16 @@ export default function CreateListing() {
   const isEditMode = !!match && !!params?.id;
   const { toast } = useToast();
   useEffect(() => {
-    // Clear any previously autofilled image url or values on mount
-    form.setValue('imageUrl', '');
-  }, []);
+    // Clear any previously autofilled image url or values on mount only if creating new
+    if (!isEditMode) {
+      form.setValue('imageUrl', '');
+    }
+  }, [isEditMode]);
   const [isUploading, setIsUploading] = useState(false);
-  
+
   // Track if any pricing tier mutations are in progress
-  const pricingTierMutating = useIsMutating({ 
-    predicate: (mutation) => 
+  const pricingTierMutating = useIsMutating({
+    predicate: (mutation) =>
       mutation.options.mutationKey?.[0]?.toString().includes('pricing-tiers') ?? false
   });
 
@@ -85,7 +87,7 @@ export default function CreateListing() {
         productName: existingListing.productName,
         category: existingListing.category,
         description: existingListing.description || "",
-        price: existingListing.price.toString(),
+        price: existingListing.price ? String(existingListing.price) : "",
         unit: existingListing.unit,
         quantityAvailable: Number(existingListing.quantityAvailable),
         minOrderQuantity: Number(existingListing.minOrderQuantity),
@@ -115,7 +117,7 @@ export default function CreateListing() {
     onSuccess: () => {
       toast({
         title: "Success!",
-        description: isEditMode 
+        description: isEditMode
           ? "Your listing has been updated successfully."
           : "Your listing has been created successfully.",
       });
@@ -160,7 +162,7 @@ export default function CreateListing() {
 
       const data = await response.json();
       const url = data.files[0].url;
-      
+
       // Set the uploaded image URL directly in the form
       form.setValue('imageUrl', url, { shouldValidate: true, shouldDirty: true });
 
@@ -180,7 +182,7 @@ export default function CreateListing() {
     }
   };
 
-    const onSubmit = async (data: FormValues) => {
+  const onSubmit = async (data: FormValues) => {
     // Check if pricing tier operations are in progress
     if (pricingTierMutating > 0) {
       toast({
@@ -190,7 +192,7 @@ export default function CreateListing() {
       });
       return;
     }
-    
+
     // Validate that numeric fields are not empty
     if (!data.price || !data.quantityAvailable || !data.minOrderQuantity) {
       toast({
@@ -234,12 +236,12 @@ export default function CreateListing() {
         </Button>
 
         <Card>
-                    <CardHeader>
+          <CardHeader>
             <CardTitle className="text-3xl font-bold">
               {isEditMode ? "Edit Listing" : "Create New Listing"}
             </CardTitle>
             <CardDescription>
-              {isEditMode 
+              {isEditMode
                 ? "Update your product information"
                 : "List your agricultural products for buyers"}
             </CardDescription>
@@ -293,7 +295,7 @@ export default function CreateListing() {
                     <FormItem>
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <Textarea 
+                        <Textarea
                           placeholder="Describe your product, quality, growing methods, etc."
                           className="min-h-32"
                           {...field}
@@ -317,10 +319,10 @@ export default function CreateListing() {
                       <FormItem>
                         <FormLabel>Price</FormLabel>
                         <FormControl>
-                          <Input 
-                            type="number" 
+                          <Input
+                            type="number"
                             step="0.01"
-                            placeholder="0.00" 
+                            placeholder="0.00"
                             {...field}
                             data-testid="input-price"
                             autoComplete="off"
@@ -365,9 +367,9 @@ export default function CreateListing() {
                       <FormItem>
                         <FormLabel>Quantity Available</FormLabel>
                         <FormControl>
-                          <Input 
-                            type="number" 
-                            placeholder="100" 
+                          <Input
+                            type="number"
+                            placeholder="100"
                             {...field}
                             data-testid="input-quantity"
                             autoComplete="off"
@@ -385,9 +387,9 @@ export default function CreateListing() {
                       <FormItem>
                         <FormLabel>Minimum Order Quantity</FormLabel>
                         <FormControl>
-                          <Input 
-                            type="number" 
-                            placeholder="10" 
+                          <Input
+                            type="number"
+                            placeholder="10"
                             {...field}
                             data-testid="input-moq"
                             autoComplete="off"
@@ -407,8 +409,8 @@ export default function CreateListing() {
                       <FormItem>
                         <FormLabel>Harvest Date (Optional)</FormLabel>
                         <FormControl>
-                          <Input 
-                            placeholder="e.g., January 2024" 
+                          <Input
+                            placeholder="e.g., January 2024"
                             {...field}
                             value={field.value ?? ""}
                             data-testid="input-harvest-date"
@@ -427,8 +429,8 @@ export default function CreateListing() {
                       <FormItem>
                         <FormLabel>Location</FormLabel>
                         <FormControl>
-                          <Input 
-                            placeholder="e.g., North Region" 
+                          <Input
+                            placeholder="e.g., North Region"
                             {...field}
                             data-testid="input-location"
                             autoComplete="off"
@@ -457,16 +459,16 @@ export default function CreateListing() {
                       <span className="text-sm text-muted-foreground">Uploading image...</span>
                     </div>
                   )}
-                  
+
                   {/* Image Preview */}
                   {imageUrlValue && !isUploading && (
                     <div className="space-y-2">
                       <p className="text-sm font-medium">Uploaded Image:</p>
                       <div className="relative group aspect-video max-w-md rounded-lg overflow-hidden border">
-                        <img 
-                          src={Array.isArray(imageUrlValue) ? imageUrlValue[0] : imageUrlValue ?? undefined} 
-                          alt="Product preview" 
-                          className="w-full h-full object-cover" 
+                        <img
+                          src={Array.isArray(imageUrlValue) ? imageUrlValue[0] : imageUrlValue ?? undefined}
+                          alt="Product preview"
+                          className="w-full h-full object-cover"
                         />
                         <div className="absolute top-2 right-2 flex gap-2">
                           <Button
@@ -493,8 +495,8 @@ export default function CreateListing() {
                     <FormItem>
                       <FormLabel>Image URL (Alternative)</FormLabel>
                       <FormControl>
-                          <Input 
-                          placeholder="https://example.com/image.jpg" 
+                        <Input
+                          placeholder="https://example.com/image.jpg"
                           {...field}
                           value={field.value || ''}
                           data-testid="input-image-url"
@@ -525,11 +527,11 @@ export default function CreateListing() {
                     disabled={createListingMutation.isPending || pricingTierMutating > 0}
                     data-testid="button-submit"
                   >
-                    {createListingMutation.isPending 
-                      ? (isEditMode ? "Updating..." : "Creating...") 
+                    {createListingMutation.isPending
+                      ? (isEditMode ? "Updating..." : "Creating...")
                       : pricingTierMutating > 0
-                      ? "Wait for tier operations..."
-                      : (isEditMode ? "Update Listing" : "Create Listing")}
+                        ? "Wait for tier operations..."
+                        : (isEditMode ? "Update Listing" : "Create Listing")}
                   </Button>
                 </div>
               </form>
@@ -547,7 +549,7 @@ export default function CreateListing() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <PricingTierForm 
+              <PricingTierForm
                 listingId={params.id}
                 basePrice={Number(form.watch('price') ?? 0)}
               />

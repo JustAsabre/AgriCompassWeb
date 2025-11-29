@@ -9,10 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { 
-  MapPin, 
-  ShieldCheck, 
-  Package, 
+import {
+  MapPin,
+  ShieldCheck,
+  Package,
   Calendar,
   User,
   Phone,
@@ -46,15 +46,15 @@ export default function ProductDetail() {
     enabled: !!id,
   });
 
-    const addToCartMutation = useMutation({
+  const addToCartMutation = useMutation({
     mutationFn: async (data: { listingId: string; quantity: number }) => {
       // Validate quantity
       if (!listing) return;
-      
+
       if (data.quantity > listing.quantityAvailable) {
         throw new Error(`Only ${listing.quantityAvailable} ${listing.unit} available`);
       }
-      
+
       if (data.quantity < listing.minOrderQuantity) {
         throw new Error(`Minimum order is ${listing.minOrderQuantity} ${listing.unit}`);
       }
@@ -160,8 +160,8 @@ export default function ProductDetail() {
           <div>
             <div className="aspect-square bg-muted rounded-lg flex items-center justify-center overflow-hidden">
               {listing.imageUrl ? (
-                <img 
-                  src={listing.imageUrl} 
+                <img
+                  src={listing.imageUrl}
                   alt={listing.productName}
                   className="w-full h-full object-cover"
                 />
@@ -232,7 +232,7 @@ export default function ProductDetail() {
 
             {/* Pricing Tiers Display */}
             {pricingTiers.length > 0 && (
-              <PricingTierDisplay 
+              <PricingTierDisplay
                 basePrice={parseFloat(listing.price)}
                 tiers={pricingTiers}
                 unit={listing.unit}
@@ -244,7 +244,7 @@ export default function ProductDetail() {
 
             {user?.role === "buyer" && (
               <div className="space-y-4">
-                                <div>
+                <div>
                   <label className="text-sm font-medium mb-2 block">Quantity</label>
                   <Input
                     type="number"
@@ -263,9 +263,9 @@ export default function ProductDetail() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                  <Button 
-                    size="lg" 
-                    className="w-full" 
+                  <Button
+                    size="lg"
+                    className="w-full"
                     onClick={handleAddToCart}
                     disabled={addToCartMutation.isPending || quantity < listing.minOrderQuantity}
                     data-testid="button-add-to-cart"
@@ -333,18 +333,18 @@ export default function ProductDetail() {
                         </Badge>
                       )}
                     </div>
-                    
+
                     {/* Farmer Rating */}
-                    {listing.farmer.averageRating && listing.farmer.reviewCount && listing.farmer.reviewCount > 0 && (
+                    {(listing.farmer as any).averageRating && (listing.farmer as any).reviewCount && (listing.farmer as any).reviewCount > 0 && (
                       <div className="mb-2">
-                        <RatingStars 
-                          rating={listing.farmer.averageRating} 
-                          reviewCount={listing.farmer.reviewCount}
+                        <RatingStars
+                          rating={(listing.farmer as any).averageRating}
+                          reviewCount={(listing.farmer as any).reviewCount}
                           size="md"
                         />
                       </div>
                     )}
-                    
+
                     <p className="text-sm text-muted-foreground">
                       {listing.farmer.region}
                     </p>

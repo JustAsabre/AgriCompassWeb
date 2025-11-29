@@ -100,12 +100,12 @@ export default function Messages() {
 
       if (isRelevantConversation && selectedConversation) {
         queryClient.setQueryData<MessageWithUsers[]>(
-          ["/api/messages", selectedConversation],
+          [`/api/messages/${selectedConversation}`, user?.id],
           (old = []) => [...old, message]
         );
 
         // Force invalidate the specific conversation query to ensure we have the latest state
-        queryClient.invalidateQueries({ queryKey: ["/api/messages", selectedConversation] });
+        queryClient.invalidateQueries({ queryKey: [`/api/messages/${selectedConversation}`, user?.id] });
 
         // Mark as read if message is from the other person
         if (message.senderId === selectedConversation) {
@@ -114,7 +114,7 @@ export default function Messages() {
       }
 
       // Always update conversations list and unread counts
-      queryClient.invalidateQueries({ queryKey: ["/api/messages/conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/messages/conversations", user?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/messages/unread/count"] });
     };
 

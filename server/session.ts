@@ -94,12 +94,11 @@ export const sessionMiddleware = session({
   cookie: {
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: process.env.NODE_ENV === "production" || !!process.env.FLY_APP_NAME,
     // For cross-site requests (frontend on Vercel talking to API on Fly),
     // browsers require SameSite=None and Secure to send cookies on XHR/fetch.
-    // Use 'none' only in production where secure is true.
-    // Use 'none' only in production where secure is true.
-    sameSite: process.env.NODE_ENV === "production" ? "none" as const : "lax",
+    // Use 'none' only in production or cloud environments where secure is true.
+    sameSite: (process.env.NODE_ENV === "production" || !!process.env.FLY_APP_NAME) ? "none" as const : "lax",
   },
   proxy: true // Trust the reverse proxy when setting secure cookies
 });

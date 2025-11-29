@@ -12,6 +12,8 @@ import { sendNotificationToUser, broadcastNewListing } from "./socket";
 import { enqueuePayout } from './jobs/payoutQueue';
 import { pool } from "./db";
 import crypto from "crypto";
+import path from "path";
+import fs from "fs";
 
 // Helper: Validate Ghana mobile number E.164 format (e.g., +233XXXXXXXXX)
 function isValidGhanaMobileNumber(mobile?: string) {
@@ -430,6 +432,25 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
 
+  app.patch("/api/listings/:id", requireRole("farmer"), async (req, res) => {
+    try {
+      const listing = await storage.getListing(req.params.id);
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+
+      if (listing.farmerId !== req.session.user!.id) {
+        return res.status(403).json({ message: "You can only edit your own listings" });
+      }
+
+      const updatedListing = await storage.updateListing(req.params.id, req.body);
+      res.json(updatedListing);
+    } catch (error: any) {
+      console.error("Update listing error:", error);
+      res.status(400).json({ message: "Failed to update listing" });
+    }
+  });
+
   // File upload endpoint
   app.post("/api/upload", requireAuth, upload.array('images', 5), async (req, res) => {
     try {
@@ -437,16 +458,21 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         return res.status(400).json({ message: "No files uploaded" });
       }
 
-      const fileUrls = req.files.map(file => getFileUrl(file.filename, req));
+      const uploadedFiles = (req.files as Express.Multer.File[]).map(file => {
+        const b64 = Buffer.from(file.buffer).toString('base64');
+        const mimeType = file.mimetype;
+        const url = `data:${mimeType};base64,${b64}`;
+        return {
+          filename: file.originalname,
+          originalName: file.originalname,
+          size: file.size,
+          url
+        };
+      });
 
       res.json({
         message: "Files uploaded successfully",
-        files: req.files.map((file, index) => ({
-          filename: file.filename,
-          originalName: file.originalname,
-          size: file.size,
-          url: fileUrls[index]
-        }))
+        files: uploadedFiles
       });
     } catch (error: any) {
       console.error("File upload error:", error);
@@ -802,10 +828,10 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
       // Create transaction record first
       const transaction = await storage.createTransaction({
-        buyerId,
-        totalAmount: totalTransactionAmount.toFixed(2),
-        paymentMethod: autoPay ? 'paystack' : 'manual',
+        reference: `TX-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        amount: totalTransactionAmount.toFixed(2),
         status: 'pending',
+        metadata: JSON.stringify({ buyerId, paymentMethod: autoPay ? 'paystack' : 'manual' }),
       });
 
       // Create orders (one per cart item) linked to the transaction
@@ -939,7 +965,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           const { authorization_url, reference } = body.data || {};
 
           // Update transaction with Paystack reference
-          await storage.updateTransaction(transaction.id, { paystackReference: reference });
+          await storage.updateTransaction(transaction.id, { metadata: JSON.stringify({ ...JSON.parse(transaction.metadata || '{}'), paystackReference: reference }) });
 
           console.log(`[Checkout] Transaction created: ${transaction.id}`);
 
@@ -1067,11 +1093,12 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
                 }
 
                 // Notify buyer
+                const orderDetails = await storage.getOrderWithDetails(order.id);
                 await sendNotificationToUser(order.buyerId, {
                   userId: order.buyerId,
                   type: 'order_update',
                   title: 'Order Refunded',
-                  message: `Your order for ${order.listing.productName} was rejected and a refund has been initiated.`,
+                  message: `Your order for ${orderDetails?.listing.productName || 'product'} was rejected and a refund has been initiated.`,
                   relatedId: order.id,
                   relatedType: 'order',
                 }, io);
@@ -1229,33 +1256,103 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         console.log(`[Escrow] Released funds for order ${orderId}`);
       }
 
-      // Create a payout record for farmer; admin or automatic process will transfer later
-      const payoutRecord = await storage.createPayout({ farmerId: order.farmerId, amount: String(payoutAmount), status: 'pending', mobileNumber: null, mobileNetwork: null } as any);
-      // Auto payouts are enabled either via global setting OR if we detect a recipient for the farmer
-      const farmer = await storage.getUser(order.farmerId);
-      const recipient = (farmer as any)?.paystackRecipientCode;
-      const autoEnabled = process.env.PAYSTACK_AUTO_PAYOUTS === 'true' || Boolean(recipient);
-      if (autoEnabled) {
-        if (!recipient) {
-          // mark payout as waiting for a recipient
-          await storage.updatePayout(payoutRecord.id, { status: 'needs_recipient' } as any);
-          try {
-            await sendNotificationToUser(order.farmerId, {
-              userId: order.farmerId,
-              type: 'payout_update',
-              title: 'Payout Pending - Recipient Required',
-              message: `A new payout of ${payoutAmount} was created but requires a paystack recipient. Please add your mobile money details to receive payouts.`,
-              relatedId: payoutRecord.id,
-              relatedType: 'payout'
-            }, io);
-          } catch (err) { console.error('Failed to notify farmer about recipient requirement', err); }
-          console.log(`Auto payout skipped: farmer ${order.farmerId} has no recipient. Marked payout ${payoutRecord.id} as needs_recipient.`);
-        } else {
-          try { enqueuePayout(payoutRecord.id); } catch (err) { console.error('Failed to enqueue payout', err); }
-        }
-      }
+      // Credit farmer's wallet
+      await storage.createWalletTransaction({
+        userId: order.farmerId,
+        amount: String(payoutAmount),
+        type: 'credit',
+        description: `Payout for order #${order.id.slice(0, 8)}`,
+        referenceId: order.id,
+        referenceType: 'order'
+      });
+
+      // Notify farmer
+      try {
+        await sendNotificationToUser(order.farmerId, {
+          userId: order.farmerId,
+          type: 'wallet_update',
+          title: 'Wallet Credited',
+          message: `Your wallet has been credited with GHS ${payoutAmount} for order #${order.id.slice(0, 8)}`,
+          relatedId: order.id,
+          relatedType: 'order'
+        }, io);
+      } catch (err) { console.error('Failed to notify farmer about wallet credit', err); }
+
     } catch (err) {
-      console.error('Failed to auto-create payout for order', orderId, err);
+      console.error('Failed to process wallet credit for order', orderId, err);
+    }
+  }
+
+  async function enqueuePayout(payoutId: string) {
+    try {
+      const payout = await storage.getPayout(payoutId);
+      if (!payout) return;
+      if (payout.status !== 'pending') return;
+
+      const farmer = await storage.getUser(payout.farmerId);
+      const recipientCode = (farmer as any)?.paystackRecipientCode;
+
+      if (!recipientCode) {
+        console.error(`Cannot process payout ${payoutId}: Farmer ${payout.farmerId} has no recipient code`);
+        await storage.updatePayout(payoutId, { status: 'failed' } as any);
+        return;
+      }
+
+      const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
+      if (!paystackSecret) {
+        console.error('PAYSTACK_SECRET_KEY not configured');
+        return;
+      }
+
+      console.log(`Processing payout ${payoutId} for farmer ${payout.farmerId} amount ${payout.amount}`);
+
+      // Initiate Transfer
+      const res = await fetch('https://api.paystack.co/transfer', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${paystackSecret}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          source: 'balance',
+          amount: Math.round(Number(payout.amount) * 100), // kobo
+          recipient: recipientCode,
+          reason: `Payout for AgriCompass Sales`,
+        }),
+      });
+
+      if (!res.ok) {
+        const errorBody = await res.text();
+        console.error('Paystack transfer failed', res.status, errorBody);
+        await storage.updatePayout(payoutId, { status: 'failed' } as any);
+        return;
+      }
+
+      const body = await res.json();
+      if (body.status === false) {
+        console.error('Paystack transfer API returned false status', body);
+        await storage.updatePayout(payoutId, { status: 'failed' } as any);
+        return;
+      }
+
+      const transferCode = body.data.transfer_code;
+      await storage.updatePayout(payoutId, { status: 'processing', transactionId: transferCode } as any);
+      console.log(`Payout ${payoutId} initiated. Transfer code: ${transferCode}`);
+
+      // Notify farmer
+      try {
+        await sendNotificationToUser(payout.farmerId, {
+          userId: payout.farmerId,
+          type: 'payout_update',
+          title: 'Payout Processing',
+          message: `Your payout of GHS ${payout.amount} is being processed.`,
+          relatedId: payout.id,
+          relatedType: 'payout'
+        }, io);
+      } catch (err) { console.error('Failed to notify farmer about payout', err); }
+
+    } catch (err) {
+      console.error('enqueuePayout error:', err);
     }
   }
 
@@ -1267,7 +1364,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
   app.get("/api/verifications", requireRole("field_officer"), async (req: Request, res: Response) => {
     try {
       // Get ALL verifications, not just ones assigned to this officer
-      const allVerifications = Array.from((storage as any).verifications.values());
+      const allVerifications = await storage.getAllVerifications();
 
       // Fetch farmer details for each verification
       const verificationsWithFarmers = await Promise.all(
@@ -1292,7 +1389,6 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     try {
       const farmerId = req.session.user!.id;
       const verification = await storage.getVerificationByFarmer(farmerId);
-      res.json(verification);
     } catch (error: any) {
       console.error("Get verification error:", error);
       res.status(500).json({ message: "Failed to fetch verification status" });
@@ -1345,6 +1441,33 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     } catch (error: any) {
       console.error("Create verification request error:", error);
       res.status(400).json({ message: error.message || "Failed to create verification request" });
+    }
+  });
+
+  // Get all verifications (for field officers and admins)
+  app.get("/api/verifications", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userRole = req.session.user!.role;
+
+      // Only field officers and admins can view all verifications
+      if (userRole !== "field_officer" && userRole !== "admin") {
+        return res.status(403).json({ message: "Forbidden - Insufficient permissions" });
+      }
+
+      const allVerifications = await storage.getAllVerifications();
+
+      // Enrich with farmer details
+      const verificationsWithFarmer = await Promise.all(
+        allVerifications.map(async (v) => {
+          const farmer = await storage.getUser(v.farmerId);
+          return { ...v, farmer };
+        })
+      );
+
+      res.json(verificationsWithFarmer);
+    } catch (error: any) {
+      console.error("Get verifications error:", error);
+      res.status(500).json({ message: "Failed to fetch verifications" });
     }
   });
 
@@ -1576,6 +1699,80 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     } catch (error: any) {
       console.error("Verify farmer error:", error);
       res.status(400).json({ message: error.message || "Verification failed" });
+    }
+  });
+
+  // Review verification (approve/reject) - used by officer dashboard
+  app.patch("/api/verifications/:id/review", requireRole("field_officer"), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { status, notes } = req.body;
+
+      if (!["approved", "rejected"].includes(status)) {
+        return res.status(400).json({ message: "Invalid status" });
+      }
+
+      const updated = await storage.updateVerificationStatus(id, status, notes);
+
+      if (!updated) {
+        return res.status(404).json({ message: "Verification not found" });
+      }
+
+      // If approved, notify farmer
+      if (status === "approved") {
+        const verification = await storage.getVerificationByFarmer(updated.farmerId); // Re-fetch to get details if needed, or just use updated
+        // Actually updated contains farmerId
+        await sendNotificationToUser(updated.farmerId, {
+          userId: updated.farmerId,
+          type: "verification_update",
+          title: "Verification Approved",
+          message: "Your account has been verified by a field officer.",
+          relatedId: updated.id,
+          relatedType: "verification",
+        }, io as any);
+      } else if (status === "rejected") {
+        await sendNotificationToUser(updated.farmerId, {
+          userId: updated.farmerId,
+          type: "verification_update",
+          title: "Verification Rejected",
+          message: `Your verification was rejected. ${notes ? `Reason: ${notes}` : ""}`,
+          relatedId: updated.id,
+          relatedType: "verification",
+        }, io as any);
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Review verification error:", error);
+      res.status(500).json({ message: "Failed to review verification" });
+    }
+  });
+
+  // File upload endpoint - for listing images and verification documents
+  app.post("/api/upload", requireAuth, upload.single('file'), async (req: Request, res: Response) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      // Generate unique filename
+      const ext = path.extname(req.file.originalname);
+      const filename = `${crypto.randomUUID()}${ext}`;
+      const filePath = path.join(process.cwd(), 'public', 'uploads', filename);
+
+      // Ensure upload directory exists
+      const uploadDir = path.dirname(filePath);
+      await fs.promises.mkdir(uploadDir, { recursive: true });
+
+      // Write file from memory buffer
+      await fs.promises.writeFile(filePath, req.file.buffer);
+
+      // Return public URL
+      const url = `/uploads/${filename}`;
+      res.json({ url, filename });
+    } catch (error: any) {
+      console.error("File upload error:", error);
+      res.status(500).json({ message: "Failed to upload file" });
     }
   });
 
@@ -2146,7 +2343,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     try {
       const { userId } = req.params;
       const reviews = await storage.getReviewsByReviewee(userId);
-      const rating = await storage.getAverageRating(userId);
+      const rating = await storage.getFarmerRating(userId);
 
       res.json({
         reviews,
@@ -2906,6 +3103,8 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
 
+  // Duplicate removed - see line 3368 for the complete implementation
+
   // Verify a payment (admin or provider webhook) - admin-only endpoint for simulating verification
   app.post('/api/payments/verify', requireRole('admin'), async (req, res) => {
     try {
@@ -2970,6 +3169,57 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     } catch (err: any) {
       console.error('Get payment error:', err);
       res.status(500).json({ message: 'Failed to fetch payment' });
+    }
+  });
+
+  // Create payout recipient (Paystack)
+  app.post('/api/payouts/recipient', requireRole('farmer'), async (req, res) => {
+    try {
+      const userId = req.session.user!.id;
+      const { type, name, account_number, bank_code, currency } = req.body;
+
+      if (!account_number || !bank_code) {
+        return res.status(400).json({ message: "Account number and bank code are required" });
+      }
+
+      const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
+      if (!paystackSecret) {
+        return res.status(503).json({ message: "Payment service unavailable" });
+      }
+
+      const response = await fetch('https://api.paystack.co/transferrecipient', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${paystackSecret}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          type: type || "nuban",
+          name: name,
+          account_number: account_number,
+          bank_code: bank_code,
+          currency: currency || "GHS"
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.error("Paystack recipient error:", error);
+        return res.status(response.status).json({ message: "Failed to create payout recipient" });
+      }
+
+      const data = await response.json();
+      if (data.status && data.data.recipient_code) {
+        // Update user with recipient code
+        await storage.updateUser(userId, { paystackRecipientCode: data.data.recipient_code });
+        return res.json({ message: "Payout recipient saved successfully", recipient_code: data.data.recipient_code });
+      } else {
+        return res.status(400).json({ message: "Invalid response from payment provider" });
+      }
+
+    } catch (error) {
+      console.error("Create payout recipient error:", error);
+      res.status(500).json({ message: "Internal server error" });
     }
   });
 
@@ -3042,7 +3292,16 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
 
       // Ensure the transaction belongs to this user
-      if (transaction.buyerId !== userId && req.session.user!.role !== 'admin') {
+      const payments = await storage.getPaymentsByTransactionId(transaction.id);
+      const isPayer = payments.some(p => p.payerId === userId);
+
+      let isBuyer = false;
+      try {
+        const meta = JSON.parse(transaction.metadata || '{}');
+        if (meta.buyerId === userId) isBuyer = true;
+      } catch (e) { }
+
+      if (!isPayer && !isBuyer && req.session.user!.role !== 'admin') {
         return res.status(403).json({ message: 'Forbidden' });
       }
 
@@ -3090,7 +3349,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
         // Notify buyer and farmers
         try {
-          await sendNotificationToUser(transaction.buyerId, { userId: transaction.buyerId, type: 'order_update', title: 'Payment received', message: `Your payment for transaction ${transaction.id} has been confirmed.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
+          await sendNotificationToUser(transaction.buyerId, { userId: transaction.buyerId, type: 'order_update', title: 'Payment received', message: `Your payment for transaction ${transaction.id} has been confirmed.`, relatedId: transaction.id, relatedType: 'transaction' }, io as any);
 
           // Get all unique farmers from the payments
           const farmerIds = Array.from(new Set((await Promise.all(payments.map(async (p: any) => {
@@ -3100,7 +3359,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
           for (const farmerId of farmerIds) {
             if (farmerId) {
-              await sendNotificationToUser(farmerId, { userId: farmerId, type: 'order_update', title: 'Payment received', message: `A payment for transaction ${transaction.id} has been confirmed.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
+              await sendNotificationToUser(farmerId, { userId: farmerId, type: 'order_update', title: 'Payment received', message: `A payment for transaction ${transaction.id} has been confirmed.`, relatedId: transaction.id, relatedType: 'transaction' }, io as any);
             }
           }
         } catch (err) { console.error('Failed to create notifications after verification', err); }
@@ -3882,6 +4141,85 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     } catch (err: any) {
       console.error("Admin bulk user operation error:", err);
       res.status(500).json({ message: "Bulk operation failed" });
+    }
+  });
+  // ==================== WALLET ROUTES ====================
+
+  // Get wallet balance
+  app.get("/api/wallet/balance", requireRole("farmer"), async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.user!.id;
+      const balance = await storage.getWalletBalance(userId);
+      res.json({ balance });
+    } catch (error: any) {
+      console.error("Get wallet balance error:", error);
+      res.status(500).json({ message: "Failed to fetch wallet balance" });
+    }
+  });
+
+  // Get wallet transactions
+  app.get("/api/wallet/transactions", requireRole("farmer"), async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.user!.id;
+      const transactions = await storage.getWalletTransactions(userId);
+      res.json(transactions);
+    } catch (error: any) {
+      console.error("Get wallet transactions error:", error);
+      res.status(500).json({ message: "Failed to fetch wallet transactions" });
+    }
+  });
+
+  // Request withdrawal
+  app.post("/api/wallet/withdraw", requireRole("farmer"), async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.user!.id;
+      const { amount, mobileNumber, mobileNetwork, recipientCode } = req.body;
+
+      if (!amount || Number(amount) <= 0) {
+        return res.status(400).json({ message: "Invalid amount" });
+      }
+
+      const balance = await storage.getWalletBalance(userId);
+      if (Number(balance) < Number(amount)) {
+        return res.status(400).json({ message: "Insufficient funds" });
+      }
+
+      // Create withdrawal request
+      const withdrawal = await storage.requestWithdrawal({
+        userId,
+        amount: String(amount),
+        status: 'pending',
+        mobileNumber,
+        mobileNetwork,
+        recipientCode
+      });
+
+      // Debit wallet immediately
+      await storage.createWalletTransaction({
+        userId,
+        amount: String(amount),
+        type: 'debit',
+        description: `Withdrawal request`,
+        referenceId: withdrawal.id,
+        referenceType: 'withdrawal'
+      });
+
+      res.json(withdrawal);
+    } catch (error: any) {
+      console.error("Request withdrawal error:", error);
+      res.status(500).json({ message: "Failed to request withdrawal" });
+    }
+  });
+
+  // Get withdrawals
+  app.get("/api/wallet/withdrawals", requireRole("farmer"), async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.user!.id;
+      const withdrawals = await storage.getWithdrawals(userId);
+      res.json(withdrawals);
+    } catch (error: any) {
+      console.error("Get withdrawals error:", error);
+      res.status(500).json({ message: "Failed to fetch withdrawals" });
     }
   });
 }

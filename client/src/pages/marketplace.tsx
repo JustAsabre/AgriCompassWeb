@@ -9,10 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import { 
-  Search, 
-  Filter, 
-  MapPin, 
+import {
+  Search,
+  Filter,
+  MapPin,
   ShieldCheck,
   Package,
   X,
@@ -71,20 +71,20 @@ export default function Marketplace() {
     }
   }, [maxPrice]);
 
-  const regions = listings 
+  const regions = listings
     ? ["All Regions", ...Array.from(new Set(listings.map(l => l.location).filter(Boolean)))]
     : ["All Regions"];
 
   const filteredListings = listings?.filter(listing => {
     const matchesSearch = listing.productName.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-                         listing.description.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-                         listing.category.toLowerCase().includes(debouncedSearch.toLowerCase());
+      listing.description.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+      listing.category.toLowerCase().includes(debouncedSearch.toLowerCase());
     const matchesCategory = selectedCategory === "All Categories" || listing.category === selectedCategory;
     const matchesRegion = selectedRegion === "All Regions" || listing.location === selectedRegion;
     const matchesVerified = !verifiedOnly || listing.farmer.verified;
     const matchesPrice = Number(listing.price) >= priceRange[0] && Number(listing.price) <= priceRange[1];
     const matchesQuantity = listing.quantityAvailable >= minQuantity;
-    
+
     return matchesSearch && matchesCategory && matchesRegion && matchesVerified && matchesPrice && matchesQuantity;
   })?.sort((a, b) => {
     if (sortBy === "price-low") return Number(a.price) - Number(b.price);
@@ -127,7 +127,7 @@ export default function Marketplace() {
             onValueChange={(value) => setPriceRange(value as [number, number])}
             className="mb-2"
           />
-            <div className="flex items-center justify-between text-sm">
+          <div className="flex items-center justify-between text-sm">
             <div className="flex items-center gap-1">
               <DollarSign className="h-3 w-3" />
               <span>{formatCurrency(priceRange[0])}</span>
@@ -193,32 +193,32 @@ export default function Marketplace() {
         </label>
       </div>
 
-      {(selectedCategory !== "All Categories" || 
-        selectedRegion !== "All Regions" || 
-        verifiedOnly || 
-        priceRange[0] !== 0 || 
+      {(selectedCategory !== "All Categories" ||
+        selectedRegion !== "All Regions" ||
+        verifiedOnly ||
+        priceRange[0] !== 0 ||
         priceRange[1] !== maxPrice ||
         minQuantity > 0) && (
-        <>
-          <Separator />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setSelectedCategory("All Categories");
-              setSelectedRegion("All Regions");
-              setVerifiedOnly(false);
-              setPriceRange([0, maxPrice]);
-              setMinQuantity(0);
-            }}
-            className="w-full"
-            data-testid="button-clear-filters"
-          >
-            <X className="h-4 w-4 mr-2" />
-            Clear Filters
-          </Button>
-        </>
-      )}
+          <>
+            <Separator />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSelectedCategory("All Categories");
+                setSelectedRegion("All Regions");
+                setVerifiedOnly(false);
+                setPriceRange([0, maxPrice]);
+                setMinQuantity(0);
+              }}
+              className="w-full"
+              data-testid="button-clear-filters"
+            >
+              <X className="h-4 w-4 mr-2" />
+              Clear Filters
+            </Button>
+          </>
+        )}
     </div>
   );
 
@@ -280,79 +280,79 @@ export default function Marketplace() {
         </div>
 
         {/* Active Filter Chips */}
-        {(selectedCategory !== "All Categories" || 
-          selectedRegion !== "All Regions" || 
-          verifiedOnly || 
-          priceRange[0] !== 0 || 
+        {(selectedCategory !== "All Categories" ||
+          selectedRegion !== "All Regions" ||
+          verifiedOnly ||
+          priceRange[0] !== 0 ||
           priceRange[1] !== maxPrice ||
           minQuantity > 0) && (
-          <div className="mb-6 flex flex-wrap gap-2 items-center">
-            <span className="text-sm text-muted-foreground">Active filters:</span>
-            {selectedCategory !== "All Categories" && (
-              <Badge variant="secondary" className="gap-1">
-                {selectedCategory}
-                <X 
-                  className="h-3 w-3 cursor-pointer" 
-                  onClick={() => setSelectedCategory("All Categories")}
-                />
-              </Badge>
-            )}
-            {selectedRegion !== "All Regions" && (
-              <Badge variant="secondary" className="gap-1">
-                <MapPin className="h-3 w-3" />
-                {selectedRegion}
-                <X 
-                  className="h-3 w-3 cursor-pointer" 
-                  onClick={() => setSelectedRegion("All Regions")}
-                />
-              </Badge>
-            )}
-            {verifiedOnly && (
-              <Badge variant="secondary" className="gap-1">
-                <ShieldCheck className="h-3 w-3" />
-                Verified Only
-                <X 
-                  className="h-3 w-3 cursor-pointer" 
-                  onClick={() => setVerifiedOnly(false)}
-                />
-              </Badge>
-            )}
-            {(priceRange[0] !== 0 || priceRange[1] !== maxPrice) && (
-              <Badge variant="secondary" className="gap-1">
-                <DollarSign className="h-3 w-3" />
-                ${priceRange[0]} - ${priceRange[1]}
-                <X 
-                  className="h-3 w-3 cursor-pointer" 
-                  onClick={() => setPriceRange([0, maxPrice])}
-                />
-              </Badge>
-            )}
-            {minQuantity > 0 && (
-              <Badge variant="secondary" className="gap-1">
-                <Package className="h-3 w-3" />
-                Min {minQuantity} {minQuantity === 1 ? 'unit' : 'units'}
-                <X 
-                  className="h-3 w-3 cursor-pointer" 
-                  onClick={() => setMinQuantity(0)}
-                />
-              </Badge>
-            )}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setSelectedCategory("All Categories");
-                setSelectedRegion("All Regions");
-                setVerifiedOnly(false);
-                setPriceRange([0, maxPrice]);
-                setMinQuantity(0);
-              }}
-              className="h-6 text-xs"
-            >
-              Clear all
-            </Button>
-          </div>
-        )}
+            <div className="mb-6 flex flex-wrap gap-2 items-center">
+              <span className="text-sm text-muted-foreground">Active filters:</span>
+              {selectedCategory !== "All Categories" && (
+                <Badge variant="secondary" className="gap-1">
+                  {selectedCategory}
+                  <X
+                    className="h-3 w-3 cursor-pointer"
+                    onClick={() => setSelectedCategory("All Categories")}
+                  />
+                </Badge>
+              )}
+              {selectedRegion !== "All Regions" && (
+                <Badge variant="secondary" className="gap-1">
+                  <MapPin className="h-3 w-3" />
+                  {selectedRegion}
+                  <X
+                    className="h-3 w-3 cursor-pointer"
+                    onClick={() => setSelectedRegion("All Regions")}
+                  />
+                </Badge>
+              )}
+              {verifiedOnly && (
+                <Badge variant="secondary" className="gap-1">
+                  <ShieldCheck className="h-3 w-3" />
+                  Verified Only
+                  <X
+                    className="h-3 w-3 cursor-pointer"
+                    onClick={() => setVerifiedOnly(false)}
+                  />
+                </Badge>
+              )}
+              {(priceRange[0] !== 0 || priceRange[1] !== maxPrice) && (
+                <Badge variant="secondary" className="gap-1">
+                  <DollarSign className="h-3 w-3" />
+                  ${priceRange[0]} - ${priceRange[1]}
+                  <X
+                    className="h-3 w-3 cursor-pointer"
+                    onClick={() => setPriceRange([0, maxPrice])}
+                  />
+                </Badge>
+              )}
+              {minQuantity > 0 && (
+                <Badge variant="secondary" className="gap-1">
+                  <Package className="h-3 w-3" />
+                  Min {minQuantity} {minQuantity === 1 ? 'unit' : 'units'}
+                  <X
+                    className="h-3 w-3 cursor-pointer"
+                    onClick={() => setMinQuantity(0)}
+                  />
+                </Badge>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setSelectedCategory("All Categories");
+                  setSelectedRegion("All Regions");
+                  setVerifiedOnly(false);
+                  setPriceRange([0, maxPrice]);
+                  setMinQuantity(0);
+                }}
+                className="h-6 text-xs"
+              >
+                Clear all
+              </Button>
+            </div>
+          )}
 
         <div className="flex gap-8">
           {/* Desktop Filters Sidebar */}
@@ -392,8 +392,8 @@ export default function Marketplace() {
                         <div className="relative">
                           <div className="aspect-square bg-muted flex items-center justify-center">
                             {listing.imageUrl ? (
-                              <img 
-                                src={listing.imageUrl} 
+                              <img
+                                src={listing.imageUrl}
                                 alt={listing.productName}
                                 className="w-full h-full object-cover"
                               />
@@ -402,8 +402,8 @@ export default function Marketplace() {
                             )}
                           </div>
                           {listing.farmer.verified && (
-                            <Badge 
-                              variant="secondary" 
+                            <Badge
+                              variant="secondary"
                               className="absolute top-2 right-2 gap-1"
                               data-testid={`badge-verified-${listing.id}`}
                             >
@@ -416,16 +416,16 @@ export default function Marketplace() {
                           <h3 className="font-semibold text-lg text-foreground line-clamp-1" data-testid={`text-product-name-${listing.id}`}>
                             {listing.productName}
                           </h3>
-                          
+
                           {/* Farmer Rating */}
-                          {listing.farmer.averageRating !== undefined && listing.farmer.averageRating > 0 && (
-                            <RatingStars 
-                              rating={listing.farmer.averageRating} 
-                              reviewCount={listing.farmer.reviewCount || 0}
+                          {(listing.farmer as any).averageRating !== undefined && (listing.farmer as any).averageRating > 0 && (
+                            <RatingStars
+                              rating={(listing.farmer as any).averageRating}
+                              reviewCount={(listing.farmer as any).reviewCount || 0}
                               size="sm"
                             />
                           )}
-                          
+
                           <div className="flex items-center gap-1 text-sm text-muted-foreground">
                             <MapPin className="h-3 w-3" />
                             <span className="line-clamp-1">{listing.location}</span>

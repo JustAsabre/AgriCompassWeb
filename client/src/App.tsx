@@ -31,6 +31,7 @@ import Profile from "@/pages/profile";
 import VerificationRequest from "@/pages/verification-request";
 import VerificationsList from "@/pages/verifications-list";
 import Messages from "@/pages/messages";
+import FarmerWallet from "@/pages/farmer-wallet";
 import FarmerAnalytics from "@/pages/farmer-analytics";
 import BuyerAnalytics from "@/pages/buyer-analytics";
 import OfficerAnalytics from "@/pages/officer-analytics";
@@ -94,6 +95,9 @@ function Router() {
           </Route>
           <Route path="/farmer/analytics">
             {() => <ProtectedRoute component={FarmerAnalytics} allowedRoles={["farmer"]} />}
+          </Route>
+          <Route path="/farmer/wallet">
+            {() => <ProtectedRoute component={FarmerWallet} allowedRoles={["farmer"]} />}
           </Route>
 
           {/* Buyer Routes */}

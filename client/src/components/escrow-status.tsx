@@ -67,29 +67,21 @@ export function EscrowStatus({ escrow, onReportDispute, showActions = true }: Es
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="text-muted-foreground">Total Amount:</span>
-                <span className="font-medium ml-1">{formatCurrency(escrow.totalAmount)}</span>
+                <span className="font-medium ml-1">{formatCurrency(escrow.amount)}</span>
               </div>
               <div>
                 <span className="text-muted-foreground">Upfront (30%):</span>
-                <span className="font-medium ml-1">{formatCurrency(escrow.upfrontAmount)}</span>
+                <span className="font-medium ml-1">{formatCurrency((Number(escrow.amount) * 0.3).toString())}</span>
               </div>
               <div>
                 <span className="text-muted-foreground">Remaining (70%):</span>
-                <span className="font-medium ml-1">{formatCurrency(escrow.remainingAmount)}</span>
+                <span className="font-medium ml-1">{formatCurrency((Number(escrow.amount) * 0.7).toString())}</span>
               </div>
               <div>
                 <span className="text-muted-foreground">Status:</span>
                 <span className="font-medium ml-1 capitalize">{(escrow.status || "pending").replace("_", " ")}</span>
               </div>
             </div>
-            {escrow.disputeReason && (
-              <div className="mt-2 p-2 bg-destructive/10 rounded border border-destructive/20">
-                <p className="text-sm text-destructive">
-                  <AlertTriangle className="h-4 w-4 inline mr-1" />
-                  Dispute: {escrow.disputeReason}
-                </p>
-              </div>
-            )}
           </div>
           {showActions && escrow.status === "upfront_held" && onReportDispute && (
             <div className="flex-shrink-0">
