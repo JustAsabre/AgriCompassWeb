@@ -829,6 +829,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       // Create transaction record first
       const transaction = await storage.createTransaction({
         reference: `TX-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        buyerId, // Added to satisfy DB constraint
         amount: totalTransactionAmount.toFixed(2),
         status: 'pending',
         metadata: JSON.stringify({ buyerId, paymentMethod: autoPay ? 'paystack' : 'manual' }),
