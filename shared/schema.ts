@@ -118,7 +118,7 @@ export const transactions = pgTable("transactions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   reference: text("reference").notNull().unique(),
   buyerId: varchar("buyer_id").references(() => users.id), // Added to match DB constraint
-  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  amount: decimal("total_amount", { precision: 10, scale: 2 }).notNull(),
   status: text("status").default("pending"), // pending, success, failed
   metadata: text("metadata"), // JSON string
   createdAt: timestamp("created_at").defaultNow(),
