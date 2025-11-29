@@ -301,7 +301,8 @@ export class PostgresStorage {
     if (!db) throw new Error('Database client not initialized');
     const updates: any = { status };
     if (notes) updates.notes = notes;
-    if (status === 'approved') updates.verifiedAt = new Date();
+    if (notes) updates.notes = notes;
+    updates.reviewedAt = new Date();
     const [res] = await db.update(verifications).set(updates).where(eq(verifications.id, id)).returning();
     // Update farmer's verified status if approved
     if (res && status === 'approved') {

@@ -148,7 +148,8 @@ export default function CreateListing() {
       const headers: Record<string, string> = {};
       if (token) headers['X-CSRF-Token'] = token;
 
-      const response = await fetch('/api/upload', {
+      const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://agricompassweb.fly.dev';
+      const response = await fetch(`${API_BASE_URL}/api/upload`, {
         method: 'POST',
         body: formData,
         headers,

@@ -79,9 +79,7 @@ export default function FarmerDashboard() {
   const { data: recipient } = useQuery({
     queryKey: ['/api/payouts/recipient/me', user?.id],
     queryFn: async () => {
-      const res = await fetch('/api/payouts/recipient/me', { credentials: 'include' });
-      if (!res.ok) throw new Error('Failed to fetch recipient');
-      return res.json();
+      return apiRequest('GET', '/api/payouts/recipient/me');
     },
     enabled: !!user,
   });
@@ -95,7 +93,7 @@ export default function FarmerDashboard() {
       queryClient.invalidateQueries({ queryKey: ["/api/escrow"] });
       toast({
         title: "Order Updated",
-        description: `Order ${variables.status === "accepted" ? "accepted" : "rejected"} successfully`,
+        description: `Order status updated to ${variables.status} successfully`,
       });
     },
     onError: (error: Error) => {
@@ -109,15 +107,7 @@ export default function FarmerDashboard() {
 
   const deleteListingMutation = useMutation({
     mutationFn: async (listingId: string) => {
-      const response = await fetch(`/api/listings/${listingId}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to delete listing");
-      }
-      return response.json();
+      return apiRequest("DELETE", `/api/listings/${listingId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/farmer/listings", user?.id] });
@@ -137,17 +127,7 @@ export default function FarmerDashboard() {
 
   const requestPayoutMutation = useMutation({
     mutationFn: async ({ amount, mobileNumber }: { amount: string; mobileNumber?: string }) => {
-      const response = await fetch('/api/payouts/request', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount, mobileNumber }),
-      });
-      if (!response.ok) {
-        const body = await response.json();
-        throw new Error(body.message || 'Failed to request payout');
-      }
-      return response.json();
+      return apiRequest("POST", '/api/payouts/request', { amount, mobileNumber });
     },
     onSuccess: (data) => {
       toast({ title: 'Payout Requested', description: 'Your payout request has been submitted.' });
@@ -159,17 +139,7 @@ export default function FarmerDashboard() {
 
   const createRecipientMutation = useMutation({
     mutationFn: async ({ mobileNumber, mobileNetwork }: { mobileNumber: string; mobileNetwork: string }) => {
-      const response = await fetch('/api/payouts/recipient', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mobileNumber, mobileNetwork }),
-      });
-      if (!response.ok) {
-        const body = await response.json();
-        throw new Error(body.message || 'Failed to create recipient');
-      }
-      return response.json();
+      return apiRequest("POST", '/api/payouts/recipient', { mobileNumber, mobileNetwork });
     },
     onSuccess: (data) => {
       toast({ title: 'Recipient Created', description: 'Paystack recipient created and saved.' });

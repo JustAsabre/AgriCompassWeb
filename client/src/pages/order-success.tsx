@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -62,25 +63,20 @@ export default function OrderSuccess() {
     (async () => {
       try {
         // Optionally attempt client verify first
-        await fetch('/api/payments/paystack/verify-client', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reference }) });
+        await apiRequest('POST', '/api/payments/paystack/verify-client', { reference });
       } catch (err) {
         // ignore
       }
 
       try {
-        const res = await fetch(`/api/payments/transaction/${encodeURIComponent(reference)}`, { credentials: 'include' });
-        if (!res.ok) {
-          setLocation('/buyer/dashboard');
-          return;
-        }
-        const body = await res.json();
+        const body = await apiRequest('GET', `/api/payments/transaction/${encodeURIComponent(reference)}`);
         const payments: any[] = body.payments || [];
         if (payments.length === 0) {
           setLocation('/buyer/dashboard');
           return;
         }
-        const idsFromPayments = Array.from(new Set(payments.map(p => p.orderId)));
-        setOrderIds(idsFromPayments);
+        const idsFromPayments = Array.from(new Set(payments.map((p: any) => p.orderId)));
+        setOrderIds(idsFromPayments as string[]);
       } catch (err) {
         setLocation('/buyer/dashboard');
       }
@@ -94,7 +90,7 @@ export default function OrderSuccess() {
     if (!reference) return;
     (async () => {
       try {
-        await fetch('/api/payments/paystack/verify-client', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reference }) });
+        await apiRequest('POST', '/api/payments/paystack/verify-client', { reference });
         // refresh queries
         await queryClient.invalidateQueries({ queryKey: ['/api/buyer/orders', user?.id] });
         await queryClient.invalidateQueries({ queryKey: ['/api/payments/order'] });
@@ -189,8 +185,8 @@ export default function OrderSuccess() {
                   <div className="flex gap-4">
                     <div className="w-20 h-20 bg-muted rounded flex items-center justify-center flex-shrink-0">
                       {order.listing.imageUrl ? (
-                        <img 
-                          src={order.listing.imageUrl} 
+                        <img
+                          src={order.listing.imageUrl}
                           alt={order.listing.productName}
                           className="w-full h-full object-cover rounded"
                         />
@@ -217,8 +213,8 @@ export default function OrderSuccess() {
                       <p className="text-xs text-muted-foreground mt-1">
                         Order ID: {order.id}
                       </p>
-                      <Button 
-                        variant="outline" 
+                      <Button
+                        variant="outline"
                         size="sm"
                         className="mt-2 w-full"
                         onClick={() => setLocation(`/messages?user=${order.farmer.id}&name=${encodeURIComponent(order.farmer.fullName)}&role=farmer`)}
@@ -301,7 +297,7 @@ export default function OrderSuccess() {
 
         {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row gap-4 print:hidden">
-          <Button 
+          <Button
             onClick={handlePrintReceipt}
             variant="outline"
             size="lg"
@@ -310,7 +306,7 @@ export default function OrderSuccess() {
             <Download className="h-4 w-4 mr-2" />
             Download Receipt
           </Button>
-          <Button 
+          <Button
             onClick={() => setLocation('/buyer/dashboard')}
             size="lg"
             className="flex-1"

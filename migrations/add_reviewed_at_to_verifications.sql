@@ -1,0 +1,1 @@
+ALTER TABLE verifications ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;

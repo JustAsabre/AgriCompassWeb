@@ -1,12 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { 
-  ShieldCheck, 
-  Clock, 
+import {
+  ShieldCheck,
+  Clock,
   CheckCircle,
   XCircle,
   User,
@@ -18,12 +18,14 @@ import {
   Star
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { apiRequest } from "@/lib/queryClient";
 import { User as UserType } from "@shared/schema";
 import { Link, useLocation } from "wouter";
 
 export default function OfficerDashboard() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
 
   const { data: farmers, isLoading } = useQuery<UserType[]>({
     queryKey: ["/api/officer/farmers", user?.id],
@@ -176,20 +178,9 @@ export default function OfficerDashboard() {
                             variant="default"
                             onClick={async () => {
                               try {
-                                const response = await fetch(`/api/verifications/${v.id}/review`, {
-                                  method: 'PATCH',
-                                  headers: {
-                                    'Content-Type': 'application/json',
-                                  },
-                                  body: JSON.stringify({ status: 'approved' }),
-                                  credentials: 'include',
-                                });
-                                if (response.ok) {
-                                  // Refresh the page or update state
-                                  window.location.reload();
-                                } else {
-                                  alert('Failed to approve verification');
-                                }
+                                await apiRequest('PATCH', `/api/verifications/${v.id}/review`, { status: 'approved' });
+                                queryClient.invalidateQueries({ queryKey: ['/api/verifications'] });
+                                queryClient.invalidateQueries({ queryKey: ['/api/officer/farmers'] });
                               } catch (error) {
                                 console.error('Error approving verification:', error);
                                 alert('Error approving verification');
@@ -205,20 +196,9 @@ export default function OfficerDashboard() {
                             variant="destructive"
                             onClick={async () => {
                               try {
-                                const response = await fetch(`/api/verifications/${v.id}/review`, {
-                                  method: 'PATCH',
-                                  headers: {
-                                    'Content-Type': 'application/json',
-                                  },
-                                  body: JSON.stringify({ status: 'rejected' }),
-                                  credentials: 'include',
-                                });
-                                if (response.ok) {
-                                  // Refresh the page or update state
-                                  window.location.reload();
-                                } else {
-                                  alert('Failed to reject verification');
-                                }
+                                await apiRequest('PATCH', `/api/verifications/${v.id}/review`, { status: 'rejected' });
+                                queryClient.invalidateQueries({ queryKey: ['/api/verifications'] });
+                                queryClient.invalidateQueries({ queryKey: ['/api/officer/farmers'] });
                               } catch (error) {
                                 console.error('Error rejecting verification:', error);
                                 alert('Error rejecting verification');

@@ -7,10 +7,10 @@ import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { 
-  ShoppingCart, 
-  Trash2, 
-  Plus, 
+import {
+  ShoppingCart,
+  Trash2,
+  Plus,
   Minus,
   TrendingDown,
   ChevronLeft,
@@ -43,17 +43,14 @@ export default function Cart() {
 
     const fetchPricingTiers = async () => {
       const tiersMap: Record<string, PricingTier[]> = {};
-      
+
       await Promise.all(
         cartItems.map(async (item) => {
           try {
-            const response = await fetch(`/api/listings/${item.listing.id}/pricing-tiers`, {
-              credentials: 'include'
-            });
-            if (response.ok) {
-              const tiers = await response.json();
+            try {
+              const tiers = await apiRequest('GET', `/api/listings/${item.listing.id}/pricing-tiers`);
               tiersMap[item.listing.id] = tiers || [];
-            } else {
+            } catch (error) {
               tiersMap[item.listing.id] = [];
             }
           } catch (error) {
@@ -62,7 +59,7 @@ export default function Cart() {
           }
         })
       );
-      
+
       setPricingTiersMap(tiersMap);
     };
 
@@ -100,16 +97,7 @@ export default function Cart() {
 
   const updateQuantityMutation = useMutation({
     mutationFn: async ({ id, quantity }: { id: string; quantity: number }) => {
-      const response = await fetch(`/api/cart/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ quantity }),
-      });
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-      return response.json();
+      return apiRequest("PATCH", `/api/cart/${id}`, { quantity });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/cart"] });
@@ -133,13 +121,13 @@ export default function Cart() {
       return response;
     },
     onSuccess: async (data: any) => {
-      
+
       // Invalidate queries and wait for them to complete
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["/api/cart"] }),
         queryClient.invalidateQueries({ queryKey: ["/api/buyer/orders"] }),
       ]);
-      
+
       // Redirect to order success page with order IDs
       if (data && data.orders && data.orders.length > 0) {
         const orderIds = data.orders.map((order: any) => order.id).join(',');
@@ -264,112 +252,112 @@ export default function Cart() {
                         const savings = applicableTier ? (basePrice - tieredPrice) * item.quantity : 0;
 
                         return (
-                        <div key={item.id} className="flex gap-4" data-testid={`cart-item-${item.id}`}>
-                          <div className="w-20 h-20 bg-muted rounded flex items-center justify-center flex-shrink-0">
-                            {item.listing.imageUrl ? (
-                              <img 
-                                src={item.listing.imageUrl} 
-                                alt={item.listing.productName}
-                                className="w-full h-full object-cover rounded"
-                              />
-                            ) : (
-                              <Package className="h-8 w-8 text-muted-foreground" />
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-semibold truncate">{item.listing.productName}</h4>
-                            <p className="text-sm text-muted-foreground">
-                              {formatCurrency(item.listing.price)} / {item.listing.unit}
-                              {applicableTier && (
-                                <span className="ml-2 text-primary font-medium">
-                                  → {formatCurrency(tieredPrice)} / {item.listing.unit}
-                                </span>
-                              )}
-                            </p>
-                            <div className="flex items-center gap-2 mt-1">
-                              <span className="text-sm text-muted-foreground">Quantity:</span>
-                              <div className="flex items-center gap-1">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7 w-7 p-0"
-                                  onClick={() => {
-                                    if (item.quantity > 1) {
-                                      updateQuantityMutation.mutate({ 
-                                        id: item.id, 
-                                        quantity: item.quantity - 1 
-                                      });
-                                    }
-                                  }}
-                                  disabled={updateQuantityMutation.isPending || item.quantity <= 1}
-                                >
-                                  <Minus className="h-3 w-3" />
-                                </Button>
-                                <Input
-                                  type="number"
-                                  min="1"
-                                  max={item.listing.quantityAvailable}
-                                  value={item.quantity}
-                                  onChange={(e) => {
-                                    const newQty = parseInt(e.target.value);
-                                    if (newQty > 0 && newQty <= item.listing.quantityAvailable) {
-                                      updateQuantityMutation.mutate({ 
-                                        id: item.id, 
-                                        quantity: newQty 
-                                      });
-                                    }
-                                  }}
-                                  className="w-16 h-7 text-center"
-                                  disabled={updateQuantityMutation.isPending}
+                          <div key={item.id} className="flex gap-4" data-testid={`cart-item-${item.id}`}>
+                            <div className="w-20 h-20 bg-muted rounded flex items-center justify-center flex-shrink-0">
+                              {item.listing.imageUrl ? (
+                                <img
+                                  src={item.listing.imageUrl}
+                                  alt={item.listing.productName}
+                                  className="w-full h-full object-cover rounded"
                                 />
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7 w-7 p-0"
-                                  onClick={() => {
-                                    if (item.quantity < item.listing.quantityAvailable) {
-                                      updateQuantityMutation.mutate({ 
-                                        id: item.id, 
-                                        quantity: item.quantity + 1 
-                                      });
-                                    }
-                                  }}
-                                  disabled={updateQuantityMutation.isPending || item.quantity >= item.listing.quantityAvailable}
-                                >
-                                  <Plus className="h-3 w-3" />
-                                </Button>
-                              </div>
-                              <span className="text-xs text-muted-foreground">{item.listing.unit}</span>
-                            </div>
-                            {savings > 0 && (
-                                <Badge variant="secondary" className="mt-1 gap-1">
-                                <TrendingDown className="h-3 w-3" />
-                                Save {formatCurrency(savings)}
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="flex flex-col items-end gap-2">
-                            <div className="text-right">
-                              {savings > 0 && (
-                                <p className="text-xs text-muted-foreground line-through">
-                                  {formatCurrency((basePrice * item.quantity).toFixed(2))}
-                                </p>
+                              ) : (
+                                <Package className="h-8 w-8 text-muted-foreground" />
                               )}
-                              <p className="font-semibold text-primary">
-                                {formatCurrency(itemTotal)}
-                              </p>
                             </div>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => removeItemMutation.mutate(item.id)}
-                              disabled={removeItemMutation.isPending}
-                              data-testid={`button-remove-${item.id}`}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-semibold truncate">{item.listing.productName}</h4>
+                              <p className="text-sm text-muted-foreground">
+                                {formatCurrency(item.listing.price)} / {item.listing.unit}
+                                {applicableTier && (
+                                  <span className="ml-2 text-primary font-medium">
+                                    → {formatCurrency(tieredPrice)} / {item.listing.unit}
+                                  </span>
+                                )}
+                              </p>
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="text-sm text-muted-foreground">Quantity:</span>
+                                <div className="flex items-center gap-1">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 w-7 p-0"
+                                    onClick={() => {
+                                      if (item.quantity > 1) {
+                                        updateQuantityMutation.mutate({
+                                          id: item.id,
+                                          quantity: item.quantity - 1
+                                        });
+                                      }
+                                    }}
+                                    disabled={updateQuantityMutation.isPending || item.quantity <= 1}
+                                  >
+                                    <Minus className="h-3 w-3" />
+                                  </Button>
+                                  <Input
+                                    type="number"
+                                    min="1"
+                                    max={item.listing.quantityAvailable}
+                                    value={item.quantity}
+                                    onChange={(e) => {
+                                      const newQty = parseInt(e.target.value);
+                                      if (newQty > 0 && newQty <= item.listing.quantityAvailable) {
+                                        updateQuantityMutation.mutate({
+                                          id: item.id,
+                                          quantity: newQty
+                                        });
+                                      }
+                                    }}
+                                    className="w-16 h-7 text-center"
+                                    disabled={updateQuantityMutation.isPending}
+                                  />
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 w-7 p-0"
+                                    onClick={() => {
+                                      if (item.quantity < item.listing.quantityAvailable) {
+                                        updateQuantityMutation.mutate({
+                                          id: item.id,
+                                          quantity: item.quantity + 1
+                                        });
+                                      }
+                                    }}
+                                    disabled={updateQuantityMutation.isPending || item.quantity >= item.listing.quantityAvailable}
+                                  >
+                                    <Plus className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                                <span className="text-xs text-muted-foreground">{item.listing.unit}</span>
+                              </div>
+                              {savings > 0 && (
+                                <Badge variant="secondary" className="mt-1 gap-1">
+                                  <TrendingDown className="h-3 w-3" />
+                                  Save {formatCurrency(savings)}
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="flex flex-col items-end gap-2">
+                              <div className="text-right">
+                                {savings > 0 && (
+                                  <p className="text-xs text-muted-foreground line-through">
+                                    {formatCurrency((basePrice * item.quantity).toFixed(2))}
+                                  </p>
+                                )}
+                                <p className="font-semibold text-primary">
+                                  {formatCurrency(itemTotal)}
+                                </p>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeItemMutation.mutate(item.id)}
+                                disabled={removeItemMutation.isPending}
+                                data-testid={`button-remove-${item.id}`}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </div>
-                        </div>
                         );
                       })}
                     </div>
@@ -390,7 +378,7 @@ export default function Cart() {
                 <CardContent className="p-6 space-y-4">
                   <h3 className="font-semibold text-lg">Order Summary</h3>
                   <Separator />
-                  
+
                   <div>
                     <label className="text-sm font-medium mb-2 block">Delivery Address</label>
                     <Textarea
@@ -426,8 +414,8 @@ export default function Cart() {
                     </div>
                   </div>
 
-                  <Button 
-                    className="w-full" 
+                  <Button
+                    className="w-full"
                     size="lg"
                     onClick={handleCheckout}
                     disabled={checkoutMutation.isPending}

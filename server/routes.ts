@@ -904,18 +904,18 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
               totalPrice: Number(totalPrice),
               buyerName: buyer?.fullName || 'Buyer',
             }
-          ).catch(err => console.error('Failed to send farmer notification email:', err));
-        }
+          ).catch(err => console.error('Failed to send new order email:', err));
 
-        // Notify farmer about new order
-        await sendNotificationToUser(item.listing.farmerId, {
-          userId: item.listing.farmerId,
-          type: "order_update",
-          title: "New Order Received",
-          message: `You have a new order for ${item.listing.productName} (${item.quantity} ${item.listing.unit})`,
-          relatedId: order.id,
-          relatedType: "order",
-        }, io);
+          // Send in-app notification
+          sendNotificationToUser(item.listing.farmerId, {
+            userId: item.listing.farmerId,
+            type: 'order_update',
+            title: 'New Order Received',
+            message: `You have received a new order for ${item.quantity} ${item.listing.unit} of ${item.listing.productName}.`,
+            relatedId: order.id,
+            relatedType: 'order'
+          }, io).catch(err => console.error('Failed to send notification:', err));
+        }
       }
 
 
@@ -999,6 +999,9 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           return res.json({ orders, transaction, autoPay: { payments, authorization_url, reference, missingRecipients } });
         }
       }
+
+      // Clear cart after successful order creation
+      await storage.clearCart(buyerId);
 
       res.json({ orders, transaction });
     } catch (error: any) {
@@ -3592,17 +3595,6 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       const escrows = await storage.getAllEscrows();
       res.json(escrows);
     } catch (err: any) {
-      console.error('Get all escrows error:', err);
-      res.status(500).json({ message: 'Failed to fetch escrows' });
-    }
-  });
-
-  // Admin: Resolve escrow dispute
-  app.patch('/api/admin/escrow/:id/resolve', requireRole('admin'), async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { resolution, reason } = req.body;
-
       if (!resolution || !['buyer', 'farmer', 'split'].includes(resolution)) {
         return res.status(400).json({ message: 'Resolution must be buyer, farmer, or split' });
       }
