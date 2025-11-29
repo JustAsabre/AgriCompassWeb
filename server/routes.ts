@@ -3595,6 +3595,17 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       const escrows = await storage.getAllEscrows();
       res.json(escrows);
     } catch (err: any) {
+      console.error('Get admin escrows error:', err);
+      res.status(500).json({ message: 'Failed to fetch escrows' });
+    }
+  });
+
+  // Admin: Resolve escrow dispute
+  app.post('/api/admin/escrow/:id/resolve', requireRole('admin'), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { resolution } = req.body;
+
       if (!resolution || !['buyer', 'farmer', 'split'].includes(resolution)) {
         return res.status(400).json({ message: 'Resolution must be buyer, farmer, or split' });
       }
