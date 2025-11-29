@@ -476,2887 +476,345 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
 
-  app.get("/api/listings/:id", async (req, res) => {
-    try {
-      const listing = await storage.getListingWithFarmer(req.params.id);
-      if (!listing) {
-        return res.status(404).json({ message: "Listing not found" });
-      }
-      res.json(listing);
-    } catch (error: any) {
-      console.error("Get listing error:", error);
-      res.status(500).json({ message: "Failed to fetch listing" });
-    }
-  });
 
-  app.patch("/api/listings/:id", requireRole("farmer"), async (req, res) => {
+  // ==================== ORDER ROUTES ====================
+
+  // Create new order
+  app.post("/api/orders", requireAuth, async (req: Request, res: Response) => {
     try {
-      const listing = await storage.getListing(req.params.id);
+      const { listingId, quantity, deliveryAddress, notes } = req.body;
+      const buyerId = req.session.user!.id;
+
+      const listing = await storage.getListing(listingId);
       if (!listing) {
         return res.status(404).json({ message: "Listing not found" });
       }
 
-      if (listing.farmerId !== req.session.user!.id) {
-        return res.status(403).json({ message: "You can only edit your own listings" });
+      if (listing.quantityAvailable < quantity) {
+        return res.status(400).json({ message: "Insufficient quantity available" });
       }
 
-      const updatedListing = await storage.updateListing(req.params.id, req.body);
-      res.json(updatedListing);
-    } catch (error: any) {
-      console.error("Update listing error:", error);
-      res.status(400).json({ message: "Failed to update listing" });
-    }
-  });
+      // Calculate total price based on pricing tiers
+      const tiers = await storage.getPricingTiersByListing(listingId);
+      let unitPrice = Number(listing.price);
 
-  // File upload endpoint
-  app.post("/api/upload", requireAuth, upload.array('images', 5), async (req, res) => {
-    try {
-      if (!req.files || !Array.isArray(req.files) || req.files.length === 0) {
-        return res.status(400).json({ message: "No files uploaded" });
-      }
-
-      const uploadedFiles = (req.files as Express.Multer.File[]).map(file => {
-        const b64 = Buffer.from(file.buffer).toString('base64');
-        const mimeType = file.mimetype;
-        const url = `data:${mimeType};base64,${b64}`;
-        return {
-          filename: file.originalname,
-          originalName: file.originalname,
-          size: file.size,
-          url
-        };
-      });
-
-      res.json({
-        message: "Files uploaded successfully",
-        files: uploadedFiles
-      });
-    } catch (error: any) {
-      console.error("File upload error:", error);
-      res.status(400).json({ message: error.message || "Failed to upload files" });
-    }
-  });
-
-  // Delete uploaded file endpoint
-  app.delete("/api/upload/:filename", requireAuth, async (req, res) => {
-    try {
-      const filename = req.params.filename;
-
-      // Validate filename to prevent path traversal or malformed requests
-      if (!filename || !isValidFilename(filename)) {
-        return res.status(400).json({ message: "Invalid filename" });
-      }
-
-      try {
-        await deleteUploadedFile(filename);
-        return res.json({ message: "File deleted successfully" });
-      } catch (err: any) {
-        if (err && err.code === 'ENOENT') {
-          return res.status(404).json({ message: 'File not found' });
+      // Sort tiers by minQuantity desc
+      tiers.sort((a, b) => b.minQuantity - a.minQuantity);
+      for (const tier of tiers) {
+        if (quantity >= tier.minQuantity) {
+          unitPrice = Number(tier.price);
+          break;
         }
-        console.error('File deletion error:', err);
-        return res.status(500).json({ message: 'Failed to delete file' });
-      }
-    } catch (error: any) {
-      console.error("File deletion error:", error);
-      res.status(400).json({ message: "Failed to delete file" });
-    }
-  });
-
-  app.post("/api/listings", requireRole("farmer"), async (req, res) => {
-    try {
-      // Get farmer ID from authenticated session
-      const farmerId = req.session.user!.id;
-
-      // Enforce verification
-      const user = await storage.getUser(farmerId);
-      if (!user?.verified) {
-        return res.status(403).json({ message: "You must be verified to create listings" });
       }
 
-      const data = insertListingSchema.parse({
-        ...req.body,
-        farmerId,
+      const totalPrice = (unitPrice * quantity).toFixed(2);
+
+      const order = await storage.createOrder({
+        buyerId,
+        farmerId: listing.farmerId,
+        listingId,
+        quantity,
+        totalPrice,
+        deliveryAddress,
+        notes,
+        status: "pending"
       });
 
-      const listing = await storage.createListing(data);
+      // Create notification for farmer
+      await sendNotificationToUser(listing.farmerId, {
+        userId: listing.farmerId,
+        type: "new_order",
+        title: "New Order Received",
+        message: `You have a new order for ${quantity} ${listing.unit} of ${listing.productName}`,
+        relatedId: order.id,
+        relatedType: "order"
+      }, io);
 
-      // Broadcast new listing to all connected users
-      const listingWithFarmer = await storage.getListingWithFarmer(listing.id);
-      if (listingWithFarmer) {
-        broadcastNewListing(listingWithFarmer, io);
-      }
-
-      res.json(listing);
-    } catch (error: any) {
-      console.error("Create listing error:", error);
-      res.status(400).json({ message: error.message || "Failed to create listing" });
+      res.status(201).json(order);
+    } catch (err: any) {
+      console.error("Create order error:", err);
+      res.status(500).json({ message: "Failed to create order" });
     }
   });
 
-  app.patch("/api/listings/:id", requireRole("farmer"), async (req, res) => {
-    try {
-      // Verify ownership
-      const listing = await storage.getListing(req.params.id);
-      if (!listing) {
-        return res.status(404).json({ message: "Listing not found" });
-      }
-      if (listing.farmerId !== req.session.user!.id) {
-        return res.status(403).json({ message: "Forbidden - Not your listing" });
-      }
-
-      const updated = await storage.updateListing(req.params.id, req.body);
-
-      res.json(updated);
-    } catch (error: any) {
-      console.error("Update listing error:", error);
-      res.status(400).json({ message: "Failed to update listing" });
-    }
-  });
-
-  app.delete("/api/listings/:id", requireRole("farmer"), async (req, res) => {
-    try {
-      // Verify ownership
-      const listing = await storage.getListing(req.params.id);
-      if (!listing) {
-        return res.status(404).json({ message: "Listing not found" });
-      }
-      if (listing.farmerId !== req.session.user!.id) {
-        return res.status(403).json({ message: "Forbidden - Not your listing" });
-      }
-
-      const success = await storage.deleteListing(req.params.id);
-      res.json({ success });
-    } catch (error: any) {
-      console.error("Delete listing error:", error);
-      res.status(500).json({ message: "Failed to delete listing" });
-    }
-  });
-
-  // Farmer-specific routes
-  app.get("/api/farmer/listings", requireRole("farmer"), async (req, res) => {
-    try {
-      const farmerId = req.session.user!.id;
-      const listings = await storage.getListingsByFarmer(farmerId);
-      res.json(listings);
-    } catch (error: any) {
-      console.error("Get farmer listings error:", error);
-      res.status(500).json({ message: "Failed to fetch listings" });
-    }
-  });
-
-  app.get("/api/farmer/orders", requireRole("farmer"), async (req, res) => {
-    try {
-      const farmerId = req.session.user!.id;
-      const orders = await storage.getOrdersByFarmer(farmerId);
-      res.json(orders);
-    } catch (error: any) {
-      console.error("Get farmer orders error:", error);
-      res.status(500).json({ message: "Failed to fetch orders" });
-    }
-  });
-
-  // Buyer-specific routes
-  app.get("/api/buyer/orders", requireRole("buyer"), async (req, res) => {
+  // Get buyer orders
+  app.get("/api/buyer/orders", requireRole("buyer"), async (req: Request, res: Response) => {
     try {
       const buyerId = req.session.user!.id;
       const orders = await storage.getOrdersByBuyer(buyerId);
       res.json(orders);
-    } catch (error: any) {
-      console.error("Get buyer orders error:", error);
+    } catch (err: any) {
+      console.error("Get buyer orders error:", err);
       res.status(500).json({ message: "Failed to fetch orders" });
     }
   });
 
-  // Get individual order details
-  app.get("/api/orders/:id", async (req, res) => {
+  // Get farmer orders
+  app.get("/api/farmer/orders", requireRole("farmer"), async (req: Request, res: Response) => {
     try {
-      if (!req.session.user) {
-        return res.status(401).json({ message: "Unauthorized" });
-      }
+      const farmerId = req.session.user!.id;
+      const orders = await storage.getOrdersByFarmer(farmerId);
+      res.json(orders);
+    } catch (err: any) {
+      console.error("Get farmer orders error:", err);
+      res.status(500).json({ message: "Failed to fetch orders" });
+    }
+  });
 
-      const order = await storage.getOrderWithDetails(req.params.id);
+  // Get order details
+  app.get("/api/orders/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const userId = req.session.user!.id;
+      const userRole = req.session.user!.role;
+
+      const order = await storage.getOrderWithDetails(id);
       if (!order) {
-        console.warn(`Order not found: ${req.params.id} requested by user: ${req.session.user?.id} role: ${req.session.user?.role}`);
         return res.status(404).json({ message: "Order not found" });
       }
 
-      // Check if user is buyer or farmer of this order
-      const userId = req.session.user.id;
-      // If user is admin, allow access. Otherwise, ensure the user is the buyer or farmer.
-      if (req.session.user.role !== 'admin' && order.buyerId !== userId && order.farmerId !== userId) {
-        return res.status(403).json({ message: "Forbidden - Not your order" });
+      // Authorization check
+      if (userRole !== "admin" && order.buyerId !== userId && order.farmerId !== userId) {
+        return res.status(403).json({ message: "Not authorized to view this order" });
       }
 
       res.json(order);
-    } catch (error: any) {
-      console.error("Get order error:", error);
-      res.status(500).json({ message: "Failed to fetch order" });
+    } catch (err: any) {
+      console.error("Get order details error:", err);
+      res.status(500).json({ message: "Failed to fetch order details" });
     }
   });
 
-  // Update order status (cancel by buyer)
-  app.patch("/api/orders/:id", async (req, res) => {
+  // Update order status (Farmer: Mark as Delivered)
+  app.patch("/api/orders/:id/status", requireRole("farmer"), async (req: Request, res: Response) => {
     try {
-      if (!req.session.user) {
-        return res.status(401).json({ message: "Unauthorized" });
-      }
-
-      const { status } = req.body;
-      const userId = req.session.user.id;
-
-      // Get order
-      const order = await storage.getOrder(req.params.id);
-      if (!order) {
-        console.warn(`Order not found: ${req.params.id} requested by user: ${req.session.user?.id} role: ${req.session.user?.role}`);
-        return res.status(404).json({ message: "Order not found" });
-      }
-
-      // Buyers can only cancel their own pending orders
-      if (order.buyerId === userId && status === "cancelled" && order.status === "pending") {
-        const updated = await storage.updateOrderStatus(req.params.id, "cancelled");
-
-        // Notify farmer
-        await sendNotificationToUser(order.farmerId, {
-          userId: order.farmerId,
-          type: "order_update",
-          title: "Order Cancelled",
-          message: `A buyer has cancelled their order`,
-          relatedId: order.id,
-          relatedType: "order",
-        }, io);
-
-        return res.json(updated);
-      }
-
-      return res.status(403).json({ message: "Cannot update this order" });
-    } catch (error: any) {
-      console.error("Update order error:", error);
-      res.status(400).json({ message: error.message || "Update failed" });
-    }
-  });
-
-  // Cart routes
-  app.get("/api/cart", requireRole("buyer"), async (req, res) => {
-    try {
-      const buyerId = req.session.user!.id;
-      const cartItems = await storage.getCartItemsByBuyer(buyerId);
-      res.json(cartItems);
-    } catch (error: any) {
-      console.error("Get cart error:", error);
-      res.status(500).json({ message: "Failed to fetch cart" });
-    }
-  });
-
-  app.post("/api/cart", requireRole("buyer"), async (req, res) => {
-    try {
-      const buyerId = req.session.user!.id;
-
-      const data = insertCartItemSchema.parse({
-        ...req.body,
-        buyerId,
-      });
-
-      // Validate against listing availability
-      const listing = await storage.getListing(data.listingId);
-      if (!listing) {
-        return res.status(404).json({ message: "Listing not found" });
-      }
-
-      if (data.quantity > listing.quantityAvailable) {
-        return res.status(400).json({
-          message: `Only ${listing.quantityAvailable} ${listing.unit} available`
-        });
-      }
-
-      if (data.quantity < listing.minOrderQuantity) {
-        return res.status(400).json({
-          message: `Minimum order is ${listing.minOrderQuantity} ${listing.unit}`
-        });
-      }
-
-      const cartItem = await storage.addToCart(data);
-      res.json(cartItem);
-    } catch (error: any) {
-      console.error("Add to cart error:", error);
-      res.status(400).json({ message: error.message || "Failed to add to cart" });
-    }
-  });
-
-  app.delete("/api/cart/:id", requireRole("buyer"), async (req, res) => {
-    try {
-      const buyerId = req.session.user!.id;
-
-      // Verify ownership
-      const item = await storage.getCartItem(req.params.id);
-      if (!item) {
-        return res.status(404).json({ message: "Cart item not found" });
-      }
-      if (item.buyerId !== buyerId) {
-        return res.status(403).json({ message: "Forbidden - Not your cart item" });
-      }
-
-      const success = await storage.removeFromCart(req.params.id);
-      res.json({ success });
-    } catch (error: any) {
-      console.error("Remove from cart error:", error);
-      res.status(500).json({ message: "Failed to remove from cart" });
-    }
-  });
-
-  app.patch("/api/cart/:id", requireRole("buyer"), async (req, res) => {
-    try {
-      const buyerId = req.session.user!.id;
-      const { quantity } = req.body;
-
-      // Verify ownership
-      const item = await storage.getCartItem(req.params.id);
-      if (!item) {
-        return res.status(404).json({ message: "Cart item not found" });
-      }
-      if (item.buyerId !== buyerId) {
-        return res.status(403).json({ message: "Forbidden - Not your cart item" });
-      }
-
-      // Check listing availability
-      const listing = await storage.getListing(item.listingId);
-      if (!listing) {
-        return res.status(400).json({ message: "Listing no longer available" });
-      }
-      if (quantity > listing.quantityAvailable) {
-        return res.status(400).json({
-          message: `Only ${listing.quantityAvailable} ${listing.unit} available`
-        });
-      }
-
-      const updated = await storage.updateCartQuantity(req.params.id, quantity);
-      res.json(updated);
-    } catch (error: any) {
-      console.error("Update cart quantity error:", error);
-      res.status(500).json({ message: "Failed to update cart quantity" });
-    }
-  });
-
-  // Order routes
-  app.post("/api/orders/checkout", requireRole("buyer"), async (req, res) => {
-    try {
-      const buyerId = req.session.user!.id;
-      const { deliveryAddress, notes, autoPay } = req.body;
-      console.log(`[Checkout] Request from buyer ${buyerId}`, { deliveryAddress, notes, autoPay });
-
-      // Validate required fields
-      if (!deliveryAddress || typeof deliveryAddress !== 'string' || deliveryAddress.trim().length === 0) {
-        return res.status(400).json({ message: "Delivery address is required" });
-      }
-
-      // Get cart items
-      const cartItems = await storage.getCartItemsByBuyer(buyerId);
-      console.log(`[Checkout] Cart items for buyer ${buyerId}:`, cartItems.length);
-      if (cartItems.length === 0) {
-        return res.status(400).json({ message: "Cart is empty" });
-      }
-
-      // Validate all cart items before creating orders
-      for (const item of cartItems) {
-        const listing = await storage.getListing(item.listingId);
-        if (!listing) {
-          return res.status(400).json({
-            message: `Listing ${item.listing.productName} no longer available`
-          });
-        }
-
-        if (item.quantity > listing.quantityAvailable) {
-          return res.status(400).json({
-            message: `Only ${listing.quantityAvailable} ${listing.unit} of ${listing.productName} available`
-          });
-        }
-      }
-
-      // Calculate total transaction amount
-      let totalTransactionAmount = 0;
-      for (const item of cartItems) {
-        const tiers = await storage.getPricingTiersByListing(item.listingId);
-        let pricePerUnit = Number(item.listing.price);
-
-        if (tiers && tiers.length > 0) {
-          const sortedTiers = [...tiers].sort((a, b) => b.minQuantity - a.minQuantity);
-          const applicableTier = sortedTiers.find(tier => item.quantity >= tier.minQuantity);
-          if (applicableTier && applicableTier.price) {
-            pricePerUnit = Number(applicableTier.price);
-          }
-        }
-
-        totalTransactionAmount += (pricePerUnit * item.quantity);
-      }
-
-      // Create transaction record first
-      const transaction = await storage.createTransaction({
-        reference: `TX-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        buyerId, // Added to satisfy DB constraint
-        amount: totalTransactionAmount.toFixed(2),
-        status: 'pending',
-        metadata: JSON.stringify({ buyerId, paymentMethod: autoPay ? 'paystack' : 'manual' }),
-      });
-
-      // Create orders (one per cart item) linked to the transaction
-      const orders = [];
-      for (const item of cartItems) {
-        // Calculate tier-based pricing
-        const tiers = await storage.getPricingTiersByListing(item.listingId);
-        let pricePerUnit = Number(item.listing.price);
-
-        // Validate base price
-        if (isNaN(pricePerUnit) || !item.listing.price) {
-          console.error(`Invalid base price for listing ${item.listingId}:`, item.listing.price);
-          return res.status(500).json({
-            message: `Invalid price for ${item.listing.productName}`
-          });
-        }
-
-        if (tiers && tiers.length > 0) {
-          // Sort tiers by minQuantity descending to find the highest applicable tier
-          const sortedTiers = [...tiers].sort((a, b) => b.minQuantity - a.minQuantity);
-          const applicableTier = sortedTiers.find(tier => item.quantity >= tier.minQuantity);
-          if (applicableTier && applicableTier.price) {
-            const tierPrice = Number(applicableTier.price);
-            if (!isNaN(tierPrice)) {
-              pricePerUnit = tierPrice;
-            }
-          }
-        }
-
-        const totalPrice = (pricePerUnit * item.quantity).toFixed(2);
-
-        const order = await storage.createOrder({
-          buyerId,
-          farmerId: item.listing.farmerId,
-          listingId: item.listingId,
-          quantity: item.quantity,
-          totalPrice,
-          deliveryAddress,
-          notes,
-        });
-        orders.push(order);
-
-        // Send email notifications (async, non-blocking)
-        const buyer = await storage.getUser(buyerId);
-        const farmer = await storage.getUser(item.listing.farmerId);
-
-        if (buyer) {
-          sendOrderConfirmationEmail(
-            buyer.email,
-            buyer.fullName,
-            {
-              orderId: order.id,
-              productName: item.listing.productName,
-              quantity: item.quantity,
-              totalPrice: Number(totalPrice),
-              farmerName: farmer?.fullName || 'Farmer',
-            }
-          ).catch(err => console.error('Failed to send order confirmation email:', err));
-        }
-
-        if (farmer) {
-          sendNewOrderNotificationToFarmer(
-            farmer.email,
-            farmer.fullName,
-            {
-              orderId: order.id,
-              productName: item.listing.productName,
-              quantity: item.quantity,
-              totalPrice: Number(totalPrice),
-              buyerName: buyer?.fullName || 'Buyer',
-            }
-          ).catch(err => console.error('Failed to send new order email:', err));
-
-          // Send in-app notification
-          sendNotificationToUser(item.listing.farmerId, {
-            userId: item.listing.farmerId,
-            type: 'order_update',
-            title: 'New Order Received',
-            message: `You have received a new order for ${item.quantity} ${item.listing.unit} of ${item.listing.productName}.`,
-            relatedId: order.id,
-            relatedType: 'order'
-          }, io).catch(err => console.error('Failed to send notification:', err));
-        }
-      }
-
-
-      // If autoPay requested, initiate payment for the entire transaction
-      if (autoPay && orders.length > 0) {
-        const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
-        if (paystackSecret) {
-          const amountInKobo = Math.round(totalTransactionAmount * 100);
-          const buyer = await storage.getUser(buyerId);
-
-          // NOTE: We are NOT using split payments (subaccounts) here.
-          // Funds are collected by the platform and held in escrow (wallet system).
-          // Payouts are handled via Transfers upon delivery confirmation.
-
-          const bodyPayload: any = {
-            email: buyer?.email,
-            amount: amountInKobo,
-            metadata: {
-              transactionId: transaction.id,
-              buyerId,
-              orderIds: orders.map(o => o.id)
-            }
-          };
-          // Use the frontend provided returnUrl for client verification
-          if (req.body.returnUrl) {
-            // Append order IDs to callback URL so that the client can determine which orders this payment maps to.
-            try {
-              const parsed = new URL(req.body.returnUrl);
-              // Append a query param 'orders' with csv of order ids
-              parsed.searchParams.set('orders', orders.map(o => o.id).join(','));
-              bodyPayload.callback_url = parsed.toString();
-            } catch (err) {
-              // If the returnUrl is not a full URL, default to original value provided
-              bodyPayload.callback_url = req.body.returnUrl;
-            }
-          }
-          const initRes = await fetch('https://api.paystack.co/transaction/initialize', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${paystackSecret}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(bodyPayload),
-          });
-          if (!initRes.ok) {
-            const text = await initRes.text().catch(() => '');
-            console.error('Paystack init failed', initRes.status, text);
-            // Return orders but indicate we could not initiate payment
-            return res.json({ orders, transaction, autoPay: { queued: false, message: 'Failed to initialize payment provider' } });
-          }
-          const body = await initRes.json();
-          const { authorization_url, reference } = body.data || {};
-
-          // Update transaction with Paystack reference
-          await storage.updateTransaction(transaction.id, { metadata: JSON.stringify({ ...JSON.parse(transaction.metadata || '{}'), paystackReference: reference }) });
-
-          console.log(`[Checkout] Transaction created: ${transaction.id}`);
-
-          // Create a payment record for each order linked to the transaction
-          const payments = [] as any[];
-          for (const o of orders) {
-            console.log(`[Checkout] Creating payment for order ${o.id}`);
-            const p = await storage.createPayment({
-              orderId: o.id,
-              payerId: buyerId,
-              transactionId: transaction.id,
-              amount: String(o.totalPrice),
-              paymentMethod: 'paystack',
-              paystackReference: reference,
-              status: 'pending'
-            } as any);
-            payments.push(p);
-          }
-          // Notify buyer and farmers
-          try {
-            await sendNotificationToUser(buyerId, { userId: buyerId, type: 'order_update', title: 'Payment initiated', message: `Payment initiated for ${orders.length} order(s).`, relatedId: transaction.id, relatedType: 'transaction' }, io);
-            // Notify all farmers involved
-            const farmerIds = Array.from(new Set(orders.map(o => o.farmerId)));
-            for (const fid of farmerIds) {
-              try {
-                await sendNotificationToUser(fid, { userId: fid, type: 'order_update', title: 'Buyer payment initiated', message: `A buyer has initiated payment for orders.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
-              } catch (err) { /* ignore individual notification errors */ }
-            }
-          } catch (err) { console.error('Failed to create payment notifications', err); }
-          return res.json({ orders, transaction, autoPay: { payments, authorization_url, reference } });
-        }
-      }
-
-      // Clear cart after successful order creation
-      await storage.clearCart(buyerId);
-
-      res.json({ orders, transaction });
-    } catch (error: any) {
-      console.error("Checkout error:", error);
-      res.status(400).json({ message: error.message || "Checkout failed" });
-    }
-  });
-
-  app.patch("/api/orders/:id/status", requireRole("farmer"), async (req, res) => {
-    try {
+      const { id } = req.params;
       const { status } = req.body;
       const farmerId = req.session.user!.id;
 
-      // Validate status
-      const validStatuses = ["pending", "accepted", "rejected", "completed", "cancelled", "delivered"];
-      if (!status || !validStatuses.includes(status)) {
-        return res.status(400).json({ message: `Invalid status. Must be one of: ${validStatuses.join(", ")}` });
-      }
-
-      // Verify ownership
-      const order = await storage.getOrder(req.params.id);
+      const order = await storage.getOrder(id);
       if (!order) {
-        console.warn(`Order not found: ${req.params.id} requested by user: ${req.session.user?.id} role: ${req.session.user?.role}`);
         return res.status(404).json({ message: "Order not found" });
       }
+
       if (order.farmerId !== farmerId) {
-        return res.status(403).json({ message: "Forbidden - Not your order" });
+        return res.status(403).json({ message: "Not authorized to update this order" });
       }
 
-      // If marking as delivered, ensure order has a completed payment
-      // Skip payment validation in test environments
-      if (status === 'delivered' && process.env.ENABLE_TEST_ENDPOINTS !== 'true') {
-        const payments = await storage.getPaymentsByOrder(req.params.id);
-        const hasCompletedPayment = payments.some((p: any) => p.status === 'completed');
-        if (!hasCompletedPayment) {
-          // Notify buyer to complete payment and inform farmer that delivery cannot be marked
-          try {
-            await sendNotificationToUser(order.buyerId, {
-              userId: order.buyerId,
-              type: 'order_update',
-              title: 'Payment Required',
-              message: `Cannot mark order ${order.id} as delivered because payment has not been confirmed. Please complete payment.`,
-              relatedId: order.id,
-              relatedType: 'order',
-            }, io);
-            await sendNotificationToUser(order.farmerId, {
-              userId: order.farmerId,
-              type: 'order_update',
-              title: 'Delivery Blocked - Payment Missing',
-              message: `Order ${order.id} cannot be marked as delivered because payment has not been confirmed.`,
-              relatedId: order.id,
-              relatedType: 'order',
-            }, io);
-          } catch (err) { console.error('Failed to notify about missing payment on delivery attempt', err); }
-          return res.status(400).json({ message: 'Cannot mark as delivered: no confirmed payment for this order' });
-        }
+      // Only allow marking as delivered if currently accepted
+      if (status === "delivered" && order.status !== "accepted") {
+        return res.status(400).json({ message: "Order must be accepted before delivery" });
       }
 
-      // Handle Refunds on Rejection
-      if (status === 'rejected') {
-        const payments = await storage.getPaymentsByOrder(req.params.id);
-        const completedPayment = payments.find((p: any) => p.status === 'completed');
-
-        if (completedPayment && completedPayment.paymentMethod === 'paystack' && completedPayment.transactionId) {
-          console.log(`[Refund] Initiating refund for rejected order ${req.params.id}, payment ${completedPayment.id}`);
-          const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
-
-          if (paystackSecret) {
-            try {
-              const refundRes = await fetch('https://api.paystack.co/refund', {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${paystackSecret}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  transaction: completedPayment.transactionId,
-                  amount: Number(completedPayment.amount) * 100 // Amount in kobo
-                }),
-              });
-
-              if (refundRes.ok) {
-                const refundData = await refundRes.json();
-                console.log(`[Refund] Refund successful for order ${req.params.id}`, refundData);
-
-                // Update payment status
-                await storage.updatePaymentStatus(completedPayment.id, 'refunded');
-
-                // Update escrow if exists
-                const escrow = await storage.getEscrowByOrder(req.params.id);
-                if (escrow) {
-                  await storage.updateEscrowStatus(escrow.id, 'refunded');
-                }
-
-                // Notify buyer
-                const orderDetails = await storage.getOrderWithDetails(order.id);
-                await sendNotificationToUser(order.buyerId, {
-                  userId: order.buyerId,
-                  type: 'order_update',
-                  title: 'Order Refunded',
-                  message: `Your order for ${orderDetails?.listing.productName || 'product'} was rejected and a refund has been initiated.`,
-                  relatedId: order.id,
-                  relatedType: 'order',
-                }, io);
-              } else {
-                const errorText = await refundRes.text();
-                console.error(`[Refund] Paystack refund failed: ${errorText}`);
-                // We still reject the order but log the refund failure. 
-                // In a real system, you might want to flag this for admin review.
-                await sendNotificationToUser(order.farmerId, {
-                  userId: order.farmerId,
-                  type: 'order_update',
-                  title: 'Refund Failed',
-                  message: `Order rejected but automatic refund failed. Please contact support.`,
-                  relatedId: order.id,
-                  relatedType: 'order',
-                }, io);
-              }
-            } catch (err) {
-              console.error(`[Refund] Error processing refund:`, err);
-            }
-          }
-        }
-      }
-
-      const updated = await storage.updateOrderStatus(req.params.id, status);
-
-      // Notify buyer about order status update
-      const statusMessages: Record<string, string> = {
-        accepted: "Your order has been accepted",
-        rejected: "Your order has been rejected",
-        delivered: "Your order has been delivered - please confirm receipt",
-        completed: "Your order has been completed",
-        cancelled: "Your order has been cancelled",
-      };
-
-      if (statusMessages[status]) {
-        const orderDetails = await storage.getOrderWithDetails(req.params.id);
-        if (orderDetails) {
-          await sendNotificationToUser(order.buyerId, {
-            userId: order.buyerId,
-            type: "order_update",
-            title: "Order Status Update",
-            message: `${statusMessages[status]}: ${orderDetails.listing.productName}`,
-            relatedId: order.id,
-            relatedType: "order",
-          }, io);
-        }
-      }
-
-      res.json(updated);
-    } catch (error: any) {
-      console.error("Update order status error:", error);
-      res.status(400).json({ message: "Failed to update order status" });
-    }
-  });
-
-  // Buyer confirms receipt of delivery
-  app.patch("/api/orders/:id/complete", requireRole("buyer"), async (req, res) => {
-    try {
-      const buyerId = req.session.user!.id;
-
-      // Verify ownership
-      const order = await storage.getOrder(req.params.id);
-      if (!order) {
-        console.warn(`Order not found: ${req.params.id} requested by user: ${req.session.user?.id} role: ${req.session.user?.role}`);
-        return res.status(404).json({ message: "Order not found" });
-      }
-      if (order.buyerId !== buyerId) {
-        return res.status(403).json({ message: "Forbidden - Not your order" });
-      }
-      if (order.status !== "delivered") {
-        return res.status(400).json({ message: `Order must be delivered before completion, current status: ${order.status}` });
-      }
-
-      // Ensure payment has been completed for this order before allowing completion
-      // Skip payment validation in test environments
-      if (process.env.ENABLE_TEST_ENDPOINTS !== 'true') {
-        const payments = await storage.getPaymentsByOrder(req.params.id);
-        const hasCompletedPayment = payments.some((p: any) => p.status === 'completed');
-        if (!hasCompletedPayment) {
-          try {
-            await sendNotificationToUser(order.buyerId, {
-              userId: order.buyerId,
-              type: 'order_update',
-              title: 'Payment Required',
-              message: `Cannot complete order ${order.id} because no completed payment exists. Please complete payment to confirm receipt.`,
-              relatedId: order.id,
-              relatedType: 'order',
-            }, io);
-            await sendNotificationToUser(order.farmerId, {
-              userId: order.farmerId,
-              type: 'order_update',
-              title: 'Completion Blocked - Payment Missing',
-              message: `Buyer attempted to confirm receipt for order ${order.id} but no confirmed payment was found.`,
-              relatedId: order.id,
-              relatedType: 'order',
-            }, io);
-          } catch (err) { console.error('Failed to notify about missing payment on complete attempt', err); }
-          return res.status(400).json({ message: 'Cannot complete order: no confirmed payment for this order' });
-        }
-      }
-
-      // Use atomic transaction to complete order and credit wallet
-      await storage.completeOrderAndCreditWallet(req.params.id);
-
-      const updated = await storage.getOrder(req.params.id);
-
-      // Notify farmer about completion
-      const orderDetails = await storage.getOrderWithDetails(req.params.id);
-      if (orderDetails) {
-        await sendNotificationToUser(order.farmerId, {
-          userId: order.farmerId,
-          type: "order_update",
-          title: "Order Completed",
-          message: `Order for ${orderDetails.listing.productName} has been confirmed as received. Funds have been credited to your wallet.`,
-          relatedId: order.id,
-          relatedType: "order",
-        }, io);
-        await sendNotificationToUser(order.buyerId, {
-          userId: order.buyerId,
-          type: "order_update",
-          title: "Order Completed",
-          message: `You have confirmed receipt for ${orderDetails.listing.productName}. Thank you!`,
-          relatedId: order.id,
-          relatedType: "order",
-        }, io);
-      }
-
-      // Create payout now that order is completed (Legacy check, can be removed if fully migrated)
-      // await maybeCreatePayoutForOrder(req.params.id);
-
-      res.json(updated);
-    } catch (error: any) {
-      console.error("Complete order error:", error);
-      res.status(400).json({ message: "Failed to complete order" });
-    }
-  });
-
-  // Create payout automatically after order completion
-  // This is a simple flow: a platform commission is applied, then a payout record is created.
-  // For full production, replace with a job queue and reconciliation system.
-  async function maybeCreatePayoutForOrder(orderId: string) {
-    try {
-      const order = await storage.getOrder(orderId);
-      if (!order) return;
-      if (order.status !== 'completed') return; // only for completed orders
-
-      const platformCommissionPercent = Number(process.env.PLATFORM_COMMISSION_PERCENT || '5');
-      console.log('maybeCreatePayoutForOrder', orderId, 'commission%', platformCommissionPercent);
-      const total = Number(order.totalPrice || 0);
-      const payoutAmount = Number((total * (1 - platformCommissionPercent / 100)).toFixed(2));
-      console.log('maybeCreatePayoutForOrder', 'total', total, 'payoutAmount', payoutAmount);
-
-      // Release escrow
-      const escrow = await storage.getEscrowByOrder(orderId);
-      if (escrow) {
-        await storage.updateEscrowStatus(escrow.id, 'released');
-        console.log(`[Escrow] Released funds for order ${orderId}`);
-      }
-
-      // Credit farmer's wallet
-      await storage.createWalletTransaction({
-        userId: order.farmerId,
-        amount: String(payoutAmount),
-        type: 'credit',
-        description: `Payout for order #${order.id.slice(0, 8)}`,
-        referenceId: order.id,
-        referenceType: 'order'
-      });
-
-      // Notify farmer
-      try {
-        await sendNotificationToUser(order.farmerId, {
-          userId: order.farmerId,
-          type: 'wallet_update',
-          title: 'Wallet Credited',
-          message: `Your wallet has been credited with GHS ${payoutAmount} for order #${order.id.slice(0, 8)}`,
-          relatedId: order.id,
-          relatedType: 'order'
-        }, io);
-      } catch (err) { console.error('Failed to notify farmer about wallet credit', err); }
-
-    } catch (err) {
-      console.error('Failed to process wallet credit for order', orderId, err);
-    }
-  }
-
-  async function enqueuePayout(payoutId: string) {
-    try {
-      const payout = await storage.getPayout(payoutId);
-      if (!payout) return;
-      if (payout.status !== 'pending') return;
-
-      const farmer = await storage.getUser(payout.farmerId);
-      const recipientCode = (farmer as any)?.paystackRecipientCode;
-
-      if (!recipientCode) {
-        console.error(`Cannot process payout ${payoutId}: Farmer ${payout.farmerId} has no recipient code`);
-        await storage.updatePayout(payoutId, { status: 'failed' } as any);
-        return;
-      }
-
-      const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
-      if (!paystackSecret) {
-        console.error('PAYSTACK_SECRET_KEY not configured');
-        return;
-      }
-
-      console.log(`Processing payout ${payoutId} for farmer ${payout.farmerId} amount ${payout.amount}`);
-
-      // Initiate Transfer
-      const res = await fetch('https://api.paystack.co/transfer', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${paystackSecret}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          source: 'balance',
-          amount: Math.round(Number(payout.amount) * 100), // kobo
-          recipient: recipientCode,
-          reason: `Payout for AgriCompass Sales`,
-        }),
-      });
-
-      if (!res.ok) {
-        const errorBody = await res.text();
-        console.error('Paystack transfer failed', res.status, errorBody);
-        await storage.updatePayout(payoutId, { status: 'failed' } as any);
-        return;
-      }
-
-      const body = await res.json();
-      if (body.status === false) {
-        console.error('Paystack transfer API returned false status', body);
-        await storage.updatePayout(payoutId, { status: 'failed' } as any);
-        return;
-      }
-
-      const transferCode = body.data.transfer_code;
-      await storage.updatePayout(payoutId, { status: 'processing', transactionId: transferCode } as any);
-      console.log(`Payout ${payoutId} initiated. Transfer code: ${transferCode}`);
-
-      // Notify farmer
-      try {
-        await sendNotificationToUser(payout.farmerId, {
-          userId: payout.farmerId,
-          type: 'payout_update',
-          title: 'Payout Processing',
-          message: `Your payout of GHS ${payout.amount} is being processed.`,
-          relatedId: payout.id,
-          relatedType: 'payout'
-        }, io);
-      } catch (err) { console.error('Failed to notify farmer about payout', err); }
-
-    } catch (err) {
-      console.error('enqueuePayout error:', err);
-    }
-  }
-
-  // ====================
-  // VERIFICATION ROUTES
-  // ====================
-
-  // Get all verifications for field officers
-  app.get("/api/verifications", requireRole("field_officer"), async (req: Request, res: Response) => {
-    try {
-      // Get ALL verifications, not just ones assigned to this officer
-      const allVerifications = await storage.getAllVerifications();
-
-      // Fetch farmer details for each verification
-      const verificationsWithFarmers = await Promise.all(
-        allVerifications.map(async (v: any) => {
-          const farmer = await storage.getUser(v.farmerId);
-          if (!farmer) return null;
-
-          const { password, ...safeFarmer } = farmer;
-          return { ...v, farmer: safeFarmer };
-        })
-      );
-
-      res.json(verificationsWithFarmers.filter(v => v !== null));
-    } catch (error: any) {
-      console.error("Get verifications error:", error);
-      res.status(500).json({ message: "Failed to fetch verifications" });
-    }
-  });
-
-  // Get farmer's own verification status
-  app.get("/api/verifications/me", requireRole("farmer"), async (req: Request, res: Response) => {
-    try {
-      const farmerId = req.session.user!.id;
-      const verification = await storage.getVerificationByFarmer(farmerId);
-    } catch (error: any) {
-      console.error("Get verification error:", error);
-      res.status(500).json({ message: "Failed to fetch verification status" });
-    }
-  });
-
-  // Submit verification request (farmer)
-  app.post("/api/verifications/request", requireRole("farmer"), async (req: Request, res: Response) => {
-    console.log('Verification request submitted');
-    try {
-      const farmerId = req.session.user!.id;
-      const { farmSize, farmLocation, experienceYears, additionalInfo, documentUrl } = req.body;
-
-      // Check if farmer already has a pending verification
-      const existing = await storage.getVerificationByFarmer(farmerId);
-      if (existing) {
-        return res.status(400).json({ message: "You already have a verification request" });
-      }
-
-      // Update user farm size first
-      await storage.updateUser(farmerId, { farmSize });
-
-      // Get first available field officer
-      const officers = await storage.getUsersByRole("field_officer");
-      if (officers.length === 0) {
-        return res.status(400).json({ message: "No field officers available" });
-      }
-
-      const verification = await storage.createVerification({
-        farmerId,
-        officerId: officers[0].id, // Assign to first officer
-        notes: `Farm Location: ${farmLocation}\nExperience: ${experienceYears} years\n${additionalInfo || ''}`,
-        documentUrl: documentUrl || null,
-      });
-
-      // Notify officer about new verification request
-      const farmer = await storage.getUser(farmerId);
-      if (farmer) {
-        await sendNotificationToUser(officers[0].id, {
-          userId: officers[0].id,
-          type: "verification_update",
-          title: "New Verification Request",
-          message: `${farmer.fullName} has submitted a verification request`,
-          relatedId: verification.id,
-          relatedType: "verification",
-        }, io);
-      }
-
-      res.json(verification);
-    } catch (error: any) {
-      console.error("Create verification request error:", error);
-      res.status(400).json({ message: error.message || "Failed to create verification request" });
-    }
-  });
-
-  // Get all verifications (for field officers and admins)
-  app.get("/api/verifications", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const userRole = req.session.user!.role;
-
-      // Only field officers and admins can view all verifications
-      if (userRole !== "field_officer" && userRole !== "admin") {
-        return res.status(403).json({ message: "Forbidden - Insufficient permissions" });
-      }
-
-      const allVerifications = await storage.getAllVerifications();
-
-      // Enrich with farmer details
-      const verificationsWithFarmer = await Promise.all(
-        allVerifications.map(async (v) => {
-          const farmer = await storage.getUser(v.farmerId);
-          return { ...v, farmer };
-        })
-      );
-
-      res.json(verificationsWithFarmer);
-    } catch (error: any) {
-      console.error("Get verifications error:", error);
-      res.status(500).json({ message: "Failed to fetch verifications" });
-    }
-  });
-
-  // Review verification (field officer)
-  app.patch("/api/verifications/:id/review", requireRole("field_officer"), async (req: Request, res: Response) => {
-    console.log('Review endpoint called for id:', req.params.id, 'status:', req.body.status);
-    try {
-      const { id } = req.params;
-      const { status, notes } = req.body;
-      console.log(`Reviewing verification ${id} with status ${status}`);
-
-      const verification = await storage.updateVerificationStatus(id, status, notes);
-      if (!verification) {
-        return res.status(404).json({ message: "Verification not found" });
-      }
-
-      // If approved, update sessions and notify sockets to refresh user state
-      if (status === 'approved') {
-        const farmerId = verification.farmerId;
-        console.log(`Approving verification for farmer ${farmerId}, verification status updated`);
-
-        // Check user after update
-        const updatedUser = await storage.getUser(farmerId);
-        console.log(`User after verification update:`, updatedUser ? { ...updatedUser, verified: updatedUser.verified } : 'null');
-
-        // Emit socket event for this farmer's connected clients
-        try {
-          if (io) io.to(`user:${farmerId}`).emit('user_updated', { userId: farmerId, verified: true });
-        } catch (err) { console.error('Failed to emit user_updated socket event', err); }
-
-        // Update in-memory sessions (if supported) so active farmer sessions show verified:true
-        try {
-          if (sessionStore && typeof sessionStore.all === 'function') {
-            sessionStore.all((err: any, sessions: Record<string, any>) => {
-              if (err || !sessions) return;
-              for (const sid in sessions) {
-                const sess = (sessions as any)[sid];
-                if (sess && sess.user && sess.user.id === farmerId) {
-                  sess.user = { ...sess.user, verified: true };
-                  sessionStore.set(sid, sess, (setErr: any) => setErr ? console.error('Failed to update session', setErr) : null);
-                }
-              }
-            });
-          }
-        } catch (err) { console.error('Error updating farmer sessions after approval', err); }
-      }
-
-      // Notify farmer about verification decision
-      const farmer = await storage.getUser(verification.farmerId);
-      if (farmer) {
-        const statusMessages: Record<string, string> = {
-          approved: "Your farmer verification has been approved! You are now a verified farmer.",
-          rejected: "Your farmer verification request has been rejected. Please review the officer's notes.",
-        };
-
-        if (statusMessages[status]) {
-          // Send in-app notification
-          await sendNotificationToUser(verification.farmerId, {
-            userId: verification.farmerId,
-            type: "verification_update",
-            title: "Verification Status Update",
-            message: statusMessages[status],
-            relatedId: verification.id,
-            relatedType: "verification",
-          }, io);
-
-          // Send email notification (async, non-blocking)
-          if (status === 'approved' || status === 'rejected') {
-            sendVerificationStatusEmail(
-              farmer.email,
-              farmer.fullName,
-              status,
-              notes
-            ).catch(err => console.error('Failed to send verification status email:', err));
-          }
-        }
-      }
-
-      res.json(verification);
-    } catch (error: any) {
-      console.error("Review verification error:", error);
-      res.status(400).json({ message: "Failed to review verification" });
-    }
-  });
-
-  // Test-only helper: mark a user as verified and emit socket update
-  // Enabled only in test environment to avoid accidental use in production
-  // Test helper: gated by explicit env var `ENABLE_TEST_ENDPOINTS=true`.
-  // This endpoint must be explicitly enabled in CI or local test runs.
-  if (process.env.ENABLE_TEST_ENDPOINTS === 'true') {
-    app.post('/__test/mark-verified', async (req: Request, res: Response) => {
-      try {
-        const { userId } = req.body || {};
-        if (!userId) return res.status(400).json({ message: 'userId is required' });
-
-        const user = await storage.getUser(userId);
-        if (!user) return res.status(404).json({ message: 'User not found' });
-
-        // Mark verified in storage
-        await storage.updateUser(userId, { verified: true });
-
-        // Emit socket event to connected clients for this user
-        try {
-          if (io) io.to(`user:${userId}`).emit('user_updated', { userId, verified: true });
-        } catch (emitErr) {
-          console.error('Failed to emit user_updated in test helper', emitErr);
-        }
-
-        // Update in-memory sessions (if supported) so active sessions reflect verified:true
-        try {
-          if (sessionStore && typeof sessionStore.all === 'function') {
-            sessionStore.all((err: any, sessions: Record<string, any>) => {
-              if (err || !sessions) return;
-              for (const sid in sessions) {
-                const sess = (sessions as any)[sid];
-                if (sess && sess.user && sess.user.id === userId) {
-                  sess.user = { ...sess.user, verified: true };
-                  sessionStore.set(sid, sess, (setErr: any) => setErr ? console.error('Failed to update session in test helper', setErr) : null);
-                }
-              }
-            });
-          }
-        } catch (sessErr) { console.error('Error updating sessions in test helper', sessErr); }
-
-        const fresh = await storage.getUser(userId);
-        const { password, ...safe } = fresh as any;
-        res.json({ ok: true, user: safe });
-      } catch (err: any) {
-        console.error('Test mark-verified error:', err);
-        res.status(500).json({ message: 'Failed to mark user verified' });
-      }
-    });
-
-    // Test-only helper: seed or return a stable test account for E2E runs
-    app.post('/__test/seed-account', async (req: Request, res: Response) => {
-      try {
-        const { role } = req.body || {};
-        if (!role) return res.status(400).json({ message: 'role is required' });
-
-        // Use deterministic test email per role so tests can reuse the account
-        const testEmail = `${role}@e2e.test`;
-
-        let user = await storage.getUserByEmail(testEmail);
-        const plainPassword = 'password';
-        const hashed = await hashPassword(plainPassword);
-
-        if (!user) {
-          user = await storage.createUser({
-            email: testEmail,
-            password: hashed,
-            fullName: `E2E ${role}`,
-            role,
-          } as any);
-        } else {
-          // Ensure password is set to known password for tests and unlock account
-          await storage.updateUser(user.id, { password: hashed, failedLoginAttempts: 0, lockedUntil: null });
-        }
-
-        const fresh = await storage.getUser(user.id);
-        const { password, ...safe } = fresh as any;
-        // Return credentials for login via UI
-        res.json({ ok: true, email: testEmail, password: plainPassword, user: safe });
-      } catch (err: any) {
-        console.error('Test seed-account error:', err);
-        res.status(500).json({ message: 'Failed to seed account' });
-      }
-    });
-
-    // Test-only helper: retrieve reset token for a specific email (for E2E tests)
-    app.post('/__test/get-reset-token', async (req: Request, res: Response) => {
-      try {
-        const { email } = req.body || {};
-        if (!email) return res.status(400).json({ message: 'email is required' });
-
-        const user = await storage.getUserByEmail(email);
-        if (!user) return res.status(404).json({ message: 'User not found' });
-
-        return res.json({ ok: true, email: user.email, resetToken: user.resetToken });
-      } catch (err: any) {
-        console.error('Test get-reset-token error:', err);
-        return res.status(500).json({ message: 'Failed to get reset token' });
-      }
-    });
-  }
-
-  // Field Officer routes
-  app.get("/api/officer/farmers", requireRole("field_officer"), async (req, res) => {
-    try {
-      const farmers = await storage.getUsersByRole("farmer");
-      // Remove passwords before sending
-      const safeFarmers = farmers.map((farmer: any) => {
-        const { password, ...rest } = farmer;
-        return rest;
-      });
-      res.json(safeFarmers);
-    } catch (error: any) {
-      console.error("Get farmers error:", error);
-      res.status(500).json({ message: "Failed to fetch farmers" });
-    }
-  });
-
-  app.post("/api/officer/verify/:farmerId", requireRole("field_officer"), async (req, res) => {
-    try {
-      const { farmerId } = req.params;
-      const officerId = req.session.user!.id;
-      const { status, notes } = req.body;
-
-      // Check if verification already exists
-      let verification = await storage.getVerificationByFarmer(farmerId);
-
-      if (!verification) {
-        // Create new verification
-        verification = await storage.createVerification({
-          farmerId,
-          officerId,
-          notes,
-          documentUrl: "",
-        });
-      }
-
-      // Update verification status
-      const updated = await storage.updateVerificationStatus(
-        verification.id,
-        status,
-        notes
-      );
-
-      res.json(updated);
-    } catch (error: any) {
-      console.error("Verify farmer error:", error);
-      res.status(400).json({ message: error.message || "Verification failed" });
-    }
-  });
-
-  // Review verification (approve/reject) - used by officer dashboard
-  app.patch("/api/verifications/:id/review", requireRole("field_officer"), async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { status, notes } = req.body;
-
-      if (!["approved", "rejected"].includes(status)) {
-        return res.status(400).json({ message: "Invalid status" });
-      }
-
-      const updated = await storage.updateVerificationStatus(id, status, notes);
-
-      if (!updated) {
-        return res.status(404).json({ message: "Verification not found" });
-      }
-
-      // If approved, notify farmer
-      if (status === "approved") {
-        const verification = await storage.getVerificationByFarmer(updated.farmerId); // Re-fetch to get details if needed, or just use updated
-        // Actually updated contains farmerId
-        await sendNotificationToUser(updated.farmerId, {
-          userId: updated.farmerId,
-          type: "verification_update",
-          title: "Verification Approved",
-          message: "Your account has been verified by a field officer.",
-          relatedId: updated.id,
-          relatedType: "verification",
-        }, io as any);
-      } else if (status === "rejected") {
-        await sendNotificationToUser(updated.farmerId, {
-          userId: updated.farmerId,
-          type: "verification_update",
-          title: "Verification Rejected",
-          message: `Your verification was rejected. ${notes ? `Reason: ${notes}` : ""}`,
-          relatedId: updated.id,
-          relatedType: "verification",
-        }, io as any);
-      }
-
-      res.json(updated);
-    } catch (error: any) {
-      console.error("Review verification error:", error);
-      res.status(500).json({ message: "Failed to review verification" });
-    }
-  });
-
-  // File upload endpoint - for listing images and verification documents
-  app.post("/api/upload", requireAuth, upload.single('file'), async (req: Request, res: Response) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ message: "No file uploaded" });
-      }
-
-      // Generate unique filename
-      const ext = path.extname(req.file.originalname);
-      const filename = `${crypto.randomUUID()}${ext}`;
-      const filePath = path.join(process.cwd(), 'public', 'uploads', filename);
-
-      // Ensure upload directory exists
-      const uploadDir = path.dirname(filePath);
-      await fs.promises.mkdir(uploadDir, { recursive: true });
-
-      // Write file from memory buffer
-      await fs.promises.writeFile(filePath, req.file.buffer);
-
-      // Return public URL
-      const url = `/uploads/${filename}`;
-      res.json({ url, filename });
-    } catch (error: any) {
-      console.error("File upload error:", error);
-      res.status(500).json({ message: "Failed to upload file" });
-    }
-  });
-
-  // User profile routes
-  app.get("/api/user/:id", requireAuth, async (req, res) => {
-    try {
-      const user = await storage.getUser(req.params.id);
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      const { password, ...userWithoutPassword } = user;
-      res.json(userWithoutPassword);
-    } catch (error: any) {
-      console.error("Get user error:", error);
-      res.status(500).json({ message: "Failed to fetch user" });
-    }
-  });
-
-  // ====================
-  // MESSAGE ROUTES
-  // ====================
-
-  // Get all conversations for current user
-  app.get("/api/messages/conversations", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const userId = req.session.user!.id;
-      const conversations = await storage.getConversations(userId);
-      res.json(conversations);
-    } catch (error: any) {
-      console.error("Get conversations error:", error);
-      res.status(500).json({ message: "Failed to fetch conversations" });
-    }
-  });
-
-  // Get messages between current user and another user
-  app.get("/api/messages/:otherUserId", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const userId = req.session.user!.id;
-      const { otherUserId } = req.params;
-      const messages = await storage.getMessagesBetweenUsers(userId, otherUserId);
-      res.json(messages);
-    } catch (error: any) {
-      console.error("Get messages error:", error);
-      res.status(500).json({ message: "Failed to fetch messages" });
-    }
-  });
-
-  // Mark a conversation as read
-  app.patch("/api/messages/:otherUserId/read", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const userId = req.session.user!.id;
-      const { otherUserId } = req.params;
-      await storage.markConversationRead(userId, otherUserId);
-      res.json({ success: true });
-    } catch (error: any) {
-      console.error("Mark conversation read error:", error);
-      res.status(400).json({ message: "Failed to mark conversation as read" });
-    }
-  });
-
-  // Get unread message count
-  app.get("/api/messages/unread/count", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const userId = req.session.user!.id;
-      const count = await storage.getUnreadMessageCount(userId);
-      res.json({ count });
-    } catch (error: any) {
-      console.error("Get unread message count error:", error);
-      res.status(500).json({ message: "Failed to fetch unread message count" });
-    }
-  });
-
-  // ====================
-  // NOTIFICATION ROUTES
-  // ====================
-
-  // Get notifications for the current user
-  app.get("/api/notifications", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const userId = req.session.user!.id;
-      const notifications = await storage.getNotificationsByUser(userId);
-      res.json(notifications);
-    } catch (error: any) {
-      console.error("Get notifications error:", error);
-      res.status(500).json({ message: "Failed to fetch notifications" });
-    }
-  });
-
-  // Get unread notification count
-  app.get("/api/notifications/unread-count", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const userId = req.session.user!.id;
-      const count = await storage.getUnreadNotificationCount(userId);
-      res.json({ count });
-    } catch (error: any) {
-      console.error("Get unread count error:", error);
-      res.status(500).json({ message: "Failed to fetch unread count" });
-    }
-  });
-
-  // Mark notification as read
-  app.patch("/api/notifications/:id/read", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const notification = await storage.markNotificationRead(id);
-
-      if (!notification) {
-        return res.status(404).json({ message: "Notification not found" });
-      }
-
-      res.json(notification);
-    } catch (error: any) {
-      console.error("Mark notification read error:", error);
-      res.status(500).json({ message: "Failed to mark notification as read" });
-    }
-  });
-
-  // Mark all notifications as read
-  app.patch("/api/notifications/mark-all-read", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const userId = req.session.user!.id;
-      await storage.markAllNotificationsRead(userId);
-      res.json({ message: "All notifications marked as read" });
-    } catch (error: any) {
-      console.error("Mark all notifications read error:", error);
-      res.status(500).json({ message: "Failed to mark all notifications as read" });
-    }
-  });
-
-  // Delete notification
-  app.delete("/api/notifications/:id", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const success = await storage.deleteNotification(id);
-
-      if (!success) {
-        return res.status(404).json({ message: "Notification not found" });
-      }
-
-      res.json({ message: "Notification deleted" });
-    } catch (error: any) {
-      console.error("Delete notification error:", error);
-      res.status(500).json({ message: "Failed to delete notification" });
-    }
-  });
-
-  // ====================
-  // ANALYTICS ROUTES
-  // ====================
-
-  // Get analytics data for farmers
-  app.get("/api/analytics/farmer", requireRole("farmer"), async (req: Request, res: Response) => {
-    try {
-      const farmerId = req.session.user!.id;
-
-      // Get farmer's listings
-      const listings = await storage.getListingsByFarmer(farmerId);
-
-      // Get all orders for farmer's products
-      const orders = await storage.getOrdersByFarmer(farmerId);
-
-      // Calculate metrics
-      const totalListings = listings.length;
-      const activeListings = listings.filter((l: any) => l.status === "active").length;
-      const totalOrders = orders.length;
-      const completedOrders = orders.filter((o: any) => o.status === "completed").length;
-      const pendingOrders = orders.filter((o: any) => o.status === "pending").length;
-
-      // Calculate total revenue (completed orders only)
-      const totalRevenue = completedOrders > 0
-        ? orders
-          .filter((o: any) => o.status === "completed")
-          .reduce((sum: number, order: any) => sum + Number(order.totalPrice || 0), 0)
-        : 0;
-
-      // Sales by month (last 6 months)
-      const sixMonthsAgo = new Date();
-      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-
-      const salesByMonth = orders
-        .filter((o: any) => o.createdAt && new Date(o.createdAt) >= sixMonthsAgo)
-        .reduce((acc: any[], order: any) => {
-          const month = new Date(order.createdAt!).toLocaleDateString('en-US', {
-            month: 'short',
-            year: 'numeric'
-          });
-          const existing = acc.find((item: any) => item.month === month);
-          if (existing) {
-            existing.orders += 1;
-            existing.revenue += Number(order.totalPrice || 0);
-          } else {
-            acc.push({
-              month,
-              orders: 1,
-              revenue: Number(order.totalPrice || 0)
-            });
-          }
-          return acc;
-        }, []);
-
-      // Top selling products
-      const productSales = orders.reduce((acc: any, order: any) => {
-        const listingId = order.listingId;
-        if (!acc[listingId]) {
-          acc[listingId] = {
-            listingId,
-            quantity: 0,
-            revenue: 0,
-          };
-        }
-        acc[listingId].quantity += order.quantity || 0;
-        acc[listingId].revenue += Number(order.totalPrice || 0);
-        return acc;
-      }, {});
-
-      const topProducts = await Promise.all(
-        Object.values(productSales)
-          .sort((a: any, b: any) => b.revenue - a.revenue)
-          .slice(0, 5)
-          .map(async (ps: any) => {
-            const listing = await storage.getListing(ps.listingId);
-            return {
-              name: listing?.productName || 'Unknown',
-              quantity: ps.quantity,
-              revenue: ps.revenue,
-            };
-          })
-      );
-
-      res.json({
-        totalListings,
-        activeListings,
-        totalOrders,
-        completedOrders,
-        pendingOrders,
-        totalRevenue,
-        salesByMonth,
-        topProducts,
-      });
-    } catch (error: any) {
-      console.error("Get farmer analytics error:", error);
-      res.status(500).json({ message: "Failed to fetch analytics" });
-    }
-  });
-
-  // Get analytics data for buyers
-  app.get("/api/analytics/buyer", requireRole("buyer"), async (req: Request, res: Response) => {
-    try {
-      const buyerId = req.session.user!.id;
-
-      // Get buyer's orders
-      const orders = await storage.getOrdersByBuyer(buyerId);
-
-      // Calculate metrics
-      const totalOrders = orders.length;
-      const completedOrders = orders.filter((o: any) => o.status === "completed").length;
-      const pendingOrders = orders.filter((o: any) => o.status === "pending").length;
-      const cancelledOrders = orders.filter((o: any) => o.status === "cancelled").length;
-
-      // Calculate total spending (completed orders only)
-      const totalSpending = orders
-        .filter((o: any) => o.status === "completed")
-        .reduce((sum: number, order: any) => sum + Number(order.totalPrice || 0), 0);
-
-      // Spending by month (last 6 months)
-      const sixMonthsAgo = new Date();
-      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-
-      const spendingByMonth = orders
-        .filter((o: any) => o.createdAt && new Date(o.createdAt) >= sixMonthsAgo)
-        .reduce((acc: any[], order: any) => {
-          const month = new Date(order.createdAt!).toLocaleDateString('en-US', {
-            month: 'short',
-            year: 'numeric'
-          });
-          const existing = acc.find((item: any) => item.month === month);
-          if (existing) {
-            existing.orders += 1;
-            existing.spending += Number(order.totalPrice || 0);
-          } else {
-            acc.push({
-              month,
-              orders: 1,
-              spending: Number(order.totalPrice || 0)
-            });
-          }
-          return acc;
-        }, []);
-
-      // Most purchased products
-      const productPurchases = orders.reduce((acc: any, order: any) => {
-        const listingId = order.listingId;
-        if (!acc[listingId]) {
-          acc[listingId] = {
-            listingId,
-            quantity: 0,
-            spending: 0,
-          };
-        }
-        acc[listingId].quantity += order.quantity || 0;
-        acc[listingId].spending += Number(order.totalPrice || 0);
-        return acc;
-      }, {});
-
-      const topPurchases = await Promise.all(
-        Object.values(productPurchases)
-          .sort((a: any, b: any) => b.spending - a.spending)
-          .slice(0, 5)
-          .map(async (pp: any) => {
-            const listing = await storage.getListing(pp.listingId);
-            return {
-              name: listing?.productName || 'Unknown',
-              quantity: pp.quantity,
-              spending: pp.spending,
-            };
-          })
-      );
-
-      res.json({
-        totalOrders,
-        completedOrders,
-        pendingOrders,
-        cancelledOrders,
-        totalSpending,
-        spendingByMonth,
-        topPurchases,
-      });
-    } catch (error: any) {
-      console.error("Get buyer analytics error:", error);
-      res.status(500).json({ message: "Failed to fetch analytics" });
-    }
-  });
-
-  // Get analytics data for field officers
-  app.get("/api/analytics/officer", requireRole("field_officer"), async (req: Request, res: Response) => {
-    try {
-      // Get all farmers
-      const farmers = await storage.getUsersByRole("farmer");
-
-      // Get all verifications (we'll need to add a method to get all verifications)
-      const allVerifications: any[] = [];
-      for (const farmer of farmers) {
-        const verification = await storage.getVerificationByFarmer(farmer.id);
-        if (verification) {
-          allVerifications.push(verification);
-        }
-      }
-
-      // Calculate metrics
-      const totalFarmers = farmers.length;
-      const verifiedFarmers = farmers.filter((f: any) => f.verified).length;
-      const pendingVerifications = allVerifications.filter((v: any) => v.status === "pending").length;
-      const approvedVerifications = allVerifications.filter((v: any) => v.status === "approved").length;
-      const rejectedVerifications = allVerifications.filter((v: any) => v.status === "rejected").length;
-
-      // Verifications by month (last 6 months)
-      const sixMonthsAgo = new Date();
-      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-
-      const verificationsByMonth = allVerifications
-        .filter((v: any) => v.createdAt && new Date(v.createdAt) >= sixMonthsAgo)
-        .reduce((acc: any[], verification: any) => {
-          const month = new Date(verification.createdAt!).toLocaleDateString('en-US', {
-            month: 'short',
-            year: 'numeric'
-          });
-          const existing = acc.find((item: any) => item.month === month);
-          if (existing) {
-            existing.total += 1;
-            if (verification.status === "approved") existing.approved += 1;
-            if (verification.status === "rejected") existing.rejected += 1;
-            if (verification.status === "pending") existing.pending += 1;
-          } else {
-            acc.push({
-              month,
-              total: 1,
-              approved: verification.status === "approved" ? 1 : 0,
-              rejected: verification.status === "rejected" ? 1 : 0,
-              pending: verification.status === "pending" ? 1 : 0,
-            });
-          }
-          return acc;
-        }, []);
-
-      // Farmers by region
-      const farmersByRegion = farmers.reduce((acc: any[], farmer: any) => {
-        const region = farmer.region || 'Unknown';
-        const existing = acc.find((item: any) => item.region === region);
-        if (existing) {
-          existing.count += 1;
-        } else {
-          acc.push({ region, count: 1 });
-        }
-        return acc;
-      }, []);
-
-      res.json({
-        totalFarmers,
-        verifiedFarmers,
-        pendingVerifications,
-        approvedVerifications,
-        rejectedVerifications,
-        verificationsByMonth,
-        farmersByRegion,
-      });
-    } catch (error: any) {
-      console.error("Get officer analytics error:", error);
-      res.status(500).json({ message: "Failed to fetch analytics" });
-    }
-  });
-
-  // ==================== ADMIN ROUTES ====================
-  // Get system-wide admin statistics
-  app.get('/api/admin/stats', requireRole('admin'), async (req: Request, res: Response) => {
-    try {
-      const roles = ['farmer', 'buyer', 'field_officer', 'admin'];
-      const usersByRole: Record<string, number> = {};
-      for (const r of roles) {
-        const users = await storage.getUsersByRole(r);
-        usersByRole[r] = users.length;
-      }
-
-      const totalUsers = Object.values(usersByRole).reduce((acc, v) => acc + v, 0);
-
-      // Try to use optimized DB-level totals; fallback to storage computed totals
-      try {
-        const totals = await getAdminTotals();
-        // Merge result with usersByRole computed above
-        res.json({
-          totalUsers,
-          usersByRole,
-          totalListings: totals.totalListings,
-          registeredFarmers: (await storage.getUsersByRole('farmer')).length,
-          verifiedFarmers: (await storage.getUsersByRole('farmer')).filter((f: any) => f.verified).length,
-          pendingVerifications: (await storage.getAllVerifications()).filter((v: any) => v.status === 'pending').length,
-          totalReviews: totals.totalReviews,
-          totalOrders: totals.totalOrders,
-          totalRevenueFromCompleted: totals.totalRevenueFromCompleted,
-          totalPayments: (await storage.getAllPayments()).length,
-          totalPayouts: totals.totalPayouts,
-        });
-      } catch (err) {
-        // If DB not available, fallback to previous storage-based totals
-        const listings = await storage.getAllListings();
-        const totalListings = listings.length;
-        const farmers = await storage.getUsersByRole('farmer');
-        const registeredFarmers = farmers.length;
-        const verifiedFarmers = farmers.filter((f: any) => f.verified).length;
-        const allVerifs = await storage.getAllVerifications();
-        const pendingVerifications = allVerifs.filter((v: any) => v.status === 'pending').length;
-        const reviews = await storage.getAllReviews();
-        const totalReviews = reviews.length;
-        const allOrders = await storage.getAllOrders();
-        const totalOrders = allOrders.length;
-        const totalRevenueFromCompleted = allOrders.filter((o: any) => o.status === 'completed').reduce((acc: number, o: any) => acc + (Number(o.totalPrice || 0) || 0), 0);
-        const payouts = await storage.getAllPayouts();
-        const totalPayouts = payouts.length;
-        const payments = await storage.getAllPayments();
-        const totalPayments = payments.length;
-        res.json({
-          totalUsers,
-          usersByRole,
-          totalListings,
-          registeredFarmers,
-          verifiedFarmers,
-          pendingVerifications,
-          totalReviews,
-          totalOrders,
-          totalRevenueFromCompleted,
-          totalPayments,
-          totalPayouts,
-        });
-      }
-    } catch (err: any) {
-      console.error('Admin stats error:', err);
-      res.status(500).json({ message: 'Failed to fetch admin stats' });
-    }
-  });
-
-  // ==================== PRICING TIERS ROUTES ====================
-
-  // Get pricing tiers for a listing
-
-
-  // Admin - revenue metrics
-  app.get('/api/admin/revenue', requireRole('admin'), async (req: Request, res: Response) => {
-    try {
-      const months = Number(req.query.months || 6);
-      const data = await getRevenueAggregated(months);
-      res.json(data);
-    } catch (err: any) {
-      console.error('Admin revenue error:', err);
-      res.status(500).json({ message: 'Failed to compute revenue' });
-    }
-  });
-
-  // Admin - get active sellers (by completed orders)
-  app.get('/api/admin/active-sellers', requireRole('admin'), async (req: Request, res: Response) => {
-    try {
-      const topN = Number(req.query.top || 10);
-      const offset = Number(req.query.offset || 0);
-      const sellers = await getActiveSellers(topN, offset);
-      res.json({ top: topN, sellers });
-    } catch (err: any) {
-      console.error('Admin active-sellers error:', err);
-      res.status(500).json({ message: 'Failed to compute active sellers' });
-    }
-  });
-
-  // Create pricing tier (farmer only)
-  app.post("/api/listings/:id/pricing-tiers", requireRole("farmer"), async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const farmerId = req.session.user!.id;
-
-      // Verify listing ownership
-      const listing = await storage.getListing(id);
-      if (!listing) {
-        return res.status(404).json({ message: "Listing not found" });
-      }
-      if (listing.farmerId !== farmerId) {
-        return res.status(403).json({ message: "Not authorized to modify this listing" });
-      }
-
-      const data = insertPricingTierSchema.parse({ ...req.body, listingId: id });
-
-      // Validate pricing tier
-      if (data.minQuantity < 1) {
-        return res.status(400).json({ message: "Minimum quantity must be at least 1" });
-      }
-
-      // Check if tier with same minQuantity already exists
-      const existingTiers = await storage.getPricingTiersByListing(id);
-      if (existingTiers.some((t: any) => t.minQuantity === data.minQuantity)) {
-        return res.status(400).json({ message: "A tier with this minimum quantity already exists" });
-      }
-
-      const tier = await storage.createPricingTier(data);
-      res.status(201).json(tier);
-    } catch (error: any) {
-      console.error("Create pricing tier error:", error);
-      res.status(400).json({ message: error.message || "Failed to create pricing tier" });
-    }
-  });
-
-  // Delete pricing tier (farmer only)
-  app.delete("/api/pricing-tiers/:id", requireRole("farmer"), async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const deleted = await storage.deletePricingTier(id);
-
-      if (!deleted) {
-        return res.status(404).json({ message: "Pricing tier not found" });
-      }
-
-      res.json({ message: "Pricing tier deleted successfully" });
-    } catch (error: any) {
-      console.error("Delete pricing tier error:", error);
-      res.status(500).json({ message: "Failed to delete pricing tier" });
-    }
-  });
-
-  // ==================== REVIEWS ROUTES ====================
-
-  // Get reviews for a user (reviewee)
-  app.get("/api/reviews/user/:userId", async (req: Request, res: Response) => {
-    try {
-      const { userId } = req.params;
-      const reviews = await storage.getReviewsByReviewee(userId);
-      const rating = await storage.getFarmerRating(userId);
-
-      res.json({
-        reviews,
-        averageRating: rating.average,
-        reviewCount: rating.count,
-      });
-    } catch (error: any) {
-      console.error("Get user reviews error:", error);
-      res.status(500).json({ message: "Failed to fetch reviews" });
-    }
-  });
-
-  // Get all reviews (admin only)
-  app.get("/api/reviews", requireRole("admin"), async (req: Request, res: Response) => {
-    try {
-      const reviews = await storage.getAllReviews();
-      res.json(reviews);
-    } catch (error: any) {
-      console.error("Get all reviews error:", error);
-      res.status(500).json({ message: "Failed to fetch reviews" });
-    }
-  });
-
-  // Get review by order ID (check if user already reviewed)
-  app.get("/api/reviews/order/:orderId", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const { orderId } = req.params;
-      const userId = req.session.user!.id;
-
-      const reviews = await storage.getReviewsByOrder(orderId);
-      const userReview = reviews.find((r: any) => r.reviewerId === userId);
-
-      if (!userReview) {
-        return res.status(404).json({ message: "No review found" });
-      }
-
-      res.json(userReview);
-    } catch (error) {
-      console.error("Error fetching order review:", error);
-      res.status(500).json({ message: "Failed to fetch review" });
-    }
-  });
-
-  // Create review (after order completion)
-  app.post("/api/reviews/order/:orderId", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const { orderId } = req.params;
-      const reviewerId = req.session.user!.id;
-
-      // Get order details
-      const order = await storage.getOrderWithDetails(orderId);
-      if (!order) {
-        console.warn(`Order not found for review creation: ${orderId} requested by ${req.session.user?.id} role: ${req.session.user?.role}`);
-        return res.status(404).json({ message: "Order not found" });
-      }
-
-      // Check if user is part of this order
-      if (order.buyerId !== reviewerId && order.farmerId !== reviewerId) {
-        return res.status(403).json({ message: "Not authorized to review this order" });
-      }
-
-      // Check if order is completed
-      if (order.status !== "completed") {
-        return res.status(400).json({ message: "Can only review completed orders" });
-      }
-
-      // Check if review already exists
-      const existingReviews = await storage.getReviewsByOrder(orderId);
-      if (existingReviews.some((r: any) => r.reviewerId === reviewerId)) {
-        return res.status(400).json({ message: "You have already reviewed this order" });
-      }
-
-      // Determine reviewee (buyer reviews farmer, farmer reviews buyer)
-      const revieweeId = reviewerId === order.buyerId ? order.farmerId : order.buyerId;
-
-      const data = insertReviewSchema.parse({
-        ...req.body,
-        orderId,
-        reviewerId,
-        revieweeId,
-      });
-
-      const review = await storage.createReview(data);
-
-      // Notify reviewee about new review
-      await sendNotificationToUser(revieweeId, {
-        userId: revieweeId,
+      const updatedOrder = await storage.updateOrderStatus(id, status);
+
+      // Notify buyer
+      await sendNotificationToUser(order.buyerId, {
+        userId: order.buyerId,
         type: "order_update",
-        title: "New Review Received",
-        message: `You received a ${data.rating}-star review`,
-        relatedId: review.id,
-        relatedType: "review",
+        title: "Order Delivered",
+        message: `Your order for ${order.quantity} items has been marked as delivered. Please confirm receipt.`,
+        relatedId: order.id,
+        relatedType: "order"
       }, io);
 
-      res.status(201).json(review);
-    } catch (error: any) {
-      console.error("Create review error:", error);
-      res.status(400).json({ message: error.message || "Failed to create review" });
+      res.json(updatedOrder);
+    } catch (err: any) {
+      console.error("Update order status error:", err);
+      res.status(500).json({ message: "Failed to update order status" });
     }
   });
 
-  // Update review approval (admin only)
-  app.patch("/api/reviews/:id/approve", requireRole("admin"), async (req: Request, res: Response) => {
+  // Complete order (Buyer: Confirm Receipt)
+  app.patch("/api/orders/:id/complete", requireRole("buyer"), async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { approved } = req.body;
-
-      const review = await storage.updateReview(id, { approved });
-      if (!review) {
-        return res.status(404).json({ message: "Review not found" });
-      }
-
-      res.json(review);
-    } catch (error: any) {
-      console.error("Update review approval error:", error);
-      res.status(500).json({ message: "Failed to update review" });
-    }
-  });
-
-  // Delete review (admin only or review owner)
-  app.delete("/api/reviews/:id", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const userId = req.session.user!.id;
-      const userRole = req.session.user!.role;
-
-      // Get review to check ownership
-      const reviews = await storage.getAllReviews();
-      const review = reviews.find((r: any) => r.id === id);
-
-      if (!review) {
-        return res.status(404).json({ message: "Review not found" });
-      }
-
-      // Only admin or review owner can delete
-      if (userRole !== "admin" && review.reviewerId !== userId) {
-        return res.status(403).json({ message: "Not authorized to delete this review" });
-      }
-
-      const deleted = await storage.deleteReview(id);
-      if (!deleted) {
-        return res.status(404).json({ message: "Review not found" });
-      }
-
-      res.json({ message: "Review deleted successfully" });
-    } catch (error: any) {
-      console.error("Delete review error:", error);
-      res.status(500).json({ message: "Failed to delete review" });
-    }
-  });
-
-  // Bulk moderate content (admin only)
-  app.post("/api/admin/moderation/bulk", requireRole("admin"), async (req: Request, res: Response) => {
-    try {
-      const { items, action, reason } = req.body;
-
-      if (!items || !Array.isArray(items) || items.length === 0) {
-        return res.status(400).json({ message: "items array is required" });
-      }
-
-      if (!action || !["approve", "reject"].includes(action)) {
-        return res.status(400).json({ message: "action must be 'approve' or 'reject'" });
-      }
-
-      if (action === "reject" && !reason) {
-        return res.status(400).json({ message: "reason is required for rejection" });
-      }
-
-      const results = [];
-      const errors = [];
-
-      for (const item of items) {
-        try {
-          const { id, type } = item;
-
-          if (type === "listing") {
-            const listing = await storage.getListing(id);
-            if (!listing) {
-              errors.push({ id, type, error: "Listing not found" });
-              continue;
-            }
-
-            const moderationStatus = action === "approve" ? "approved" : "rejected";
-            const moderated = action === "approve";
-
-            await storage.updateListing(id, {
-              moderated,
-              moderationStatus,
-              moderationReason: reason || null,
-              moderatedAt: new Date(),
-              moderatedBy: req.session.user!.id,
-            });
-
-            // Notify farmer
-            const farmer = await storage.getUser(listing.farmerId);
-            if (farmer) {
-              await sendNotificationToUser(listing.farmerId, {
-                userId: listing.farmerId,
-                type: "listing_update",
-                title: `Listing ${moderationStatus}`,
-                message: `${moderationStatus === "approved" ? "Your listing has been approved" : `Your listing has been rejected${reason ? `: ${reason}` : ""}`}`,
-                relatedId: listing.id,
-                relatedType: "listing",
-              }, io);
-            }
-
-            results.push({ id, type: "listing", action, status: "success" });
-
-          } else if (type === "message") {
-            const message = await storage.getMessage(id);
-            if (!message) {
-              errors.push({ id, type, error: "Message not found" });
-              continue;
-            }
-
-            const moderationStatus = action === "approve" ? "approved" : "rejected";
-            const moderated = action === "approve";
-
-            await storage.updateMessage(id, {
-              moderated,
-              moderationStatus,
-              moderationReason: reason || null,
-              moderatedAt: new Date(),
-              moderatedBy: req.session.user!.id,
-            });
-
-            // Notify sender
-            const sender = await storage.getUser(message.senderId);
-            if (sender) {
-              await sendNotificationToUser(message.senderId, {
-                userId: message.senderId,
-                type: "message_update",
-                title: `Message ${moderationStatus}`,
-                message: `${moderationStatus === "approved" ? "Your message has been approved" : `Your message has been rejected${reason ? `: ${reason}` : ""}`}`,
-                relatedId: message.id,
-                relatedType: "message",
-              }, io);
-            }
-
-            results.push({ id, type: "message", action, status: "success" });
-          } else {
-            errors.push({ id, type, error: "Invalid content type" });
-          }
-        } catch (err: any) {
-          errors.push({ id: item.id, type: item.type, error: err.message || "Operation failed" });
-        }
-      }
-
-      res.json({
-        results,
-        errors,
-        message: `Bulk moderation completed: ${results.length} successful, ${errors.length} failed`
-      });
-    } catch (error: any) {
-      console.error("Bulk moderation error:", error);
-      res.status(500).json({ message: "Bulk moderation failed" });
-    }
-  });
-
-  // Get moderation analytics (admin only)
-  app.get("/api/admin/moderation/analytics", requireRole("admin"), async (req: Request, res: Response) => {
-    try {
-      const { days = "30" } = req.query;
-      const daysAgo = Number(days);
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - daysAgo);
-
-      // Get moderation stats from database
-      const stats = await storage.getModerationStatsByDateRange(startDate, new Date());
-
-      // Calculate current pending counts
-      const pendingListings = await storage.getListingsByModerationStatus("pending");
-      const pendingMessages = await storage.getMessagesByModerationStatus("pending");
-      const pendingReviews = await storage.getAllReviews().then((reviews: any[]) =>
-        reviews.filter((r: any) => !r.approved).length
-      );
-
-      // Calculate totals from stats
-      const totalStats = {
-        listings: {
-          total: stats.filter((s: any) => s.contentType === 'listing').reduce((acc: number, s: any) => acc + (s.totalApproved || 0) + (s.totalRejected || 0), 0),
-          approved: stats.filter((s: any) => s.contentType === 'listing').reduce((acc: number, s: any) => acc + (s.totalApproved || 0), 0),
-          rejected: stats.filter((s: any) => s.contentType === 'listing').reduce((acc: number, s: any) => acc + (s.totalRejected || 0), 0),
-          pending: pendingListings.length,
-        },
-        messages: {
-          total: stats.filter((s: any) => s.contentType === 'message').reduce((acc: number, s: any) => acc + (s.totalApproved || 0) + (s.totalRejected || 0), 0),
-          approved: stats.filter((s: any) => s.contentType === 'message').reduce((acc: number, s: any) => acc + (s.totalApproved || 0), 0),
-          rejected: stats.filter((s: any) => s.contentType === 'message').reduce((acc: number, s: any) => acc + (s.totalRejected || 0), 0),
-          pending: pendingMessages.length,
-        },
-        reviews: {
-          total: stats.filter((s: any) => s.contentType === 'review').reduce((acc: number, s: any) => acc + (s.totalApproved || 0) + (s.totalRejected || 0), 0),
-          approved: stats.filter((s: any) => s.contentType === 'review').reduce((acc: number, s: any) => acc + (s.totalApproved || 0), 0),
-          rejected: stats.filter((s: any) => s.contentType === 'review').reduce((acc: number, s: any) => acc + (s.totalRejected || 0), 0),
-          pending: pendingReviews,
-        }
-      };
-
-      // Calculate average moderation times
-      const avgModerationTime = {
-        listings: stats.filter((s: any) => s.contentType === 'listing' && s.averageModerationTime)
-          .reduce((acc: number, s: any, _: number, arr: any[]) => acc + (s.averageModerationTime || 0) / arr.length, 0),
-        messages: stats.filter((s: any) => s.contentType === 'message' && s.averageModerationTime)
-          .reduce((acc: number, s: any, _: number, arr: any[]) => acc + (s.averageModerationTime || 0) / arr.length, 0),
-        reviews: stats.filter((s: any) => s.contentType === 'review' && s.averageModerationTime)
-          .reduce((acc: number, s: any, _: number, arr: any[]) => acc + (s.averageModerationTime || 0) / arr.length, 0),
-      };
-
-      // Daily stats for charts
-      const dailyStats = stats.reduce((acc: any[], stat: any) => {
-        const dateKey = stat.date.toISOString().split('T')[0];
-        const existing = acc.find((item: any) => item.date === dateKey);
-        if (existing) {
-          existing[stat.contentType] = {
-            approved: (existing[stat.contentType]?.approved || 0) + (stat.totalApproved || 0),
-            rejected: (existing[stat.contentType]?.rejected || 0) + (stat.totalRejected || 0),
-            pending: (existing[stat.contentType]?.pending || 0) + (stat.totalPending || 0),
-          };
-        } else {
-          acc.push({
-            date: dateKey,
-            [stat.contentType]: {
-              approved: stat.totalApproved || 0,
-              rejected: stat.totalRejected || 0,
-              pending: stat.totalPending || 0,
-            }
-          });
-        }
-        return acc;
-      }, []);
-
-      res.json({
-        summary: totalStats,
-        averageModerationTime: avgModerationTime,
-        dailyStats: dailyStats.sort((a: any, b: any) => a.date.localeCompare(b.date)),
-        period: `${days} days`
-      });
-    } catch (error: any) {
-      console.error("Get moderation analytics error:", error);
-      res.status(500).json({ message: "Failed to fetch moderation analytics" });
-    }
-  });
-
-  // Get all users with pagination and filtering (admin only)
-  app.get("/api/admin/users", requireRole("admin"), async (req: Request, res: Response) => {
-    try {
-      const { page = "1", limit = "20", role, search, status } = req.query;
-      const pageNum = Number(page);
-      const limitNum = Number(limit);
-      const offset = (pageNum - 1) * limitNum;
-
-      const users = await storage.getAllUsers();
-      let filteredUsers = users;
-
-      // Filter by role
-      if (role) {
-        filteredUsers = filteredUsers.filter((u: any) => u.role === role);
-      }
-
-      // Filter by search (username or email)
-      if (search) {
-        const searchStr = String(Array.isArray(search) ? search[0] : search);
-        const searchLower = searchStr.toLowerCase();
-        filteredUsers = filteredUsers.filter((u: any) =>
-          u.fullName.toLowerCase().includes(searchLower) ||
-          u.email.toLowerCase().includes(searchLower)
-        );
-      }
-
-      // Filter by status (active/inactive based on account status)
-      if (status === "active") {
-        filteredUsers = filteredUsers.filter((u: any) => u.isActive === true);
-      } else if (status === "inactive") {
-        filteredUsers = filteredUsers.filter((u: any) => u.isActive === false);
-      }
-
-      // Paginate
-      const totalUsers = filteredUsers.length;
-      const paginatedUsers = filteredUsers.slice(offset, offset + limitNum);
-
-      res.json({
-        users: paginatedUsers,
-        pagination: {
-          page: pageNum,
-          limit: limitNum,
-          total: totalUsers,
-          pages: Math.ceil(totalUsers / limitNum)
-        }
-      });
-    } catch (error: any) {
-      console.error("Get users error:", error);
-      res.status(500).json({ message: "Failed to fetch users" });
-    }
-  });
-
-  // Update user role (admin only)
-  app.patch("/api/admin/users/:userId/role", requireRole("admin"), async (req: Request, res: Response) => {
-    try {
-      const { userId } = req.params;
-      const { role } = req.body;
-
-      if (!["farmer", "buyer", "field_officer", "admin"].includes(role)) {
-        return res.status(400).json({ message: "Invalid role" });
-      }
-
-      const user = await storage.getUser(userId);
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      // Prevent admin from demoting themselves
-      if (userId === req.session.user!.id && role !== "admin") {
-        return res.status(400).json({ message: "Cannot change your own admin role" });
-      }
-
-      await storage.updateUserRole(userId, role);
-
-      // Notify the user about role change
-      const notification = {
-        id: crypto.randomUUID(),
-        userId,
-        type: "role_change" as const,
-        title: "Role Updated",
-        message: `Your role has been changed to ${role}`,
-        read: false,
-        createdAt: new Date()
-      };
-      await storage.createNotification(notification);
-
-      // Emit socket notification
-      if (io) {
-        io.to(userId).emit("notification", notification);
-      }
-
-      res.json({ message: "User role updated successfully" });
-    } catch (error: any) {
-      console.error("Update user role error:", error);
-      res.status(500).json({ message: "Failed to update user role" });
-    }
-  });
-
-  // Bulk update user roles (admin only)
-  app.patch("/api/admin/users/bulk/role", requireRole("admin"), async (req: Request, res: Response) => {
-    try {
-      const { userIds, role } = req.body;
-
-      if (!Array.isArray(userIds) || userIds.length === 0) {
-        return res.status(400).json({ message: "userIds must be a non-empty array" });
-      }
-
-      if (!["farmer", "buyer", "field_officer", "admin"].includes(role)) {
-        return res.status(400).json({ message: "Invalid role" });
-      }
-
-      const results = [];
-      const errors = [];
-
-      for (const userId of userIds) {
-        try {
-          const user = await storage.getUser(userId);
-          if (!user) {
-            errors.push({ userId, error: "User not found" });
-            continue;
-          }
-
-          // Prevent admin from demoting themselves
-          if (userId === req.session.user!.id && role !== "admin") {
-            errors.push({ userId, error: "Cannot change your own admin role" });
-            continue;
-          }
-
-          await storage.updateUserRole(userId, role);
-
-          // Notify the user about role change
-          const notification = {
-            id: crypto.randomUUID(),
-            userId,
-            type: "role_change" as const,
-            title: "Role Updated",
-            message: `Your role has been changed to ${role}`,
-            read: false,
-            createdAt: new Date()
-          };
-          await storage.createNotification(notification);
-
-          // Emit socket notification
-          if (io) {
-            io.to(userId).emit("notification", notification);
-          }
-
-          results.push({ userId, success: true });
-        } catch (error: any) {
-          errors.push({ userId, error: error.message });
-        }
-      }
-
-      res.json({
-        results,
-        errors,
-        message: `Bulk role update completed: ${results.length} successful, ${errors.length} failed`
-      });
-    } catch (error: any) {
-      console.error("Bulk update user roles error:", error);
-      res.status(500).json({ message: "Bulk role update failed" });
-    }
-  });
-
-  // Moderate listing (admin only)
-  app.patch("/api/listings/:id/moderate", requireRole("admin"), async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const { action, reason } = req.body;
-
-      if (!action || !["approve", "reject"].includes(action)) {
-        return res.status(400).json({ message: "action must be 'approve' or 'reject'" });
-      }
-
-      const listing = await storage.getListing(id);
-      if (!listing) {
-        return res.status(404).json({ message: "Listing not found" });
-      }
-
-      const moderationStatus = action === "approve" ? "approved" : "rejected";
-      const moderated = action === "approve";
-
-      const updated = await storage.updateListing(id, {
-        moderated,
-        moderationStatus,
-        moderationReason: reason || null,
-        moderatedAt: new Date(),
-        moderatedBy: req.session.user!.id,
-      });
-
-      // Notify farmer about moderation decision
-      const farmer = await storage.getUser(listing.farmerId);
-      if (farmer) {
-        const statusMessages: Record<string, string> = {
-          approved: "Your listing has been approved and is now visible to buyers.",
-          rejected: "Your listing has been rejected and is not visible to buyers.",
-        };
-
-        await sendNotificationToUser(listing.farmerId, {
-          userId: listing.farmerId,
-          type: "listing_update",
-          title: `Listing ${moderationStatus}`,
-          message: `${statusMessages[moderationStatus]}${reason ? ` Reason: ${reason}` : ""}`,
-          relatedId: listing.id,
-          relatedType: "listing",
-        }, io);
-      }
-
-      res.json(updated);
-    } catch (error: any) {
-      console.error("Moderate listing error:", error);
-      res.status(500).json({ message: "Failed to moderate listing" });
-    }
-  });
-
-  // Moderate message (admin only)
-  app.patch("/api/messages/:id/moderate", requireRole("admin"), async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const { action, reason } = req.body;
-
-      if (!action || !["approve", "reject"].includes(action)) {
-        return res.status(400).json({ message: "action must be 'approve' or 'reject'" });
-      }
-
-      const message = await storage.getMessage(id);
-      if (!message) {
-        return res.status(404).json({ message: "Message not found" });
-      }
-
-      const moderationStatus = action === "approve" ? "approved" : "rejected";
-      const moderated = action === "approve";
-
-      const updated = await storage.updateMessage(id, {
-        moderated,
-        moderationStatus,
-        moderationReason: reason || null,
-        moderatedAt: new Date(),
-        moderatedBy: req.session.user!.id,
-      });
-
-      // Notify sender about moderation decision
-      const sender = await storage.getUser(message.senderId);
-      if (sender) {
-        const statusMessages: Record<string, string> = {
-          approved: "Your message has been approved and is now visible.",
-          rejected: "Your message has been rejected and is not visible.",
-        };
-
-        await sendNotificationToUser(message.senderId, {
-          userId: message.senderId,
-          type: "message_update",
-          title: `Message ${moderationStatus}`,
-          message: `${statusMessages[moderationStatus]}${reason ? ` Reason: ${reason}` : ""}`,
-          relatedId: message.id,
-          relatedType: "message",
-        }, io);
-      }
-
-      res.json(updated);
-    } catch (error: any) {
-      console.error("Moderate message error:", error);
-      res.status(500).json({ message: "Failed to moderate message" });
-    }
-  });
-
-  // Get pending moderation content (admin only) with filtering
-  app.get("/api/admin/moderation/pending", requireRole("admin"), async (req: Request, res: Response) => {
-    try {
-      const { status, userId, dateFrom, dateTo, category, page = "1", limit = "20" } = req.query as {
-        status?: string;
-        userId?: string;
-        dateFrom?: string;
-        dateTo?: string;
-        category?: string;
-        page?: string;
-        limit?: string;
-      };
-
-      const offset = (Number(page) - 1) * Number(limit);
-
-      let pendingListings = await storage.getListingsByModerationStatus("pending");
-      let pendingMessages = await storage.getMessagesByModerationStatus("pending");
-
-      // Apply filters
-      if (status && status !== "all") {
-        pendingListings = pendingListings.filter((l: any) => l.moderationStatus === status);
-        pendingMessages = pendingMessages.filter((m: any) => m.moderationStatus === status);
-      }
-
-      if (userId) {
-        pendingListings = pendingListings.filter((l: any) => l.farmerId === userId);
-        pendingMessages = pendingMessages.filter((m: any) => m.senderId === userId);
-      }
-
-      if (category && category !== "all") {
-        pendingListings = pendingListings.filter((l: any) => l.category === category);
-      }
-
-      if (dateFrom || dateTo) {
-        const fromDate = dateFrom ? new Date(dateFrom) : null;
-        const toDate = dateTo ? new Date(dateTo) : null;
-
-        pendingListings = pendingListings.filter((l: any) => {
-          const createdDate = new Date(l.createdAt!);
-          return (!fromDate || createdDate >= fromDate) && (!toDate || createdDate <= toDate);
-        });
-
-        pendingMessages = pendingMessages.filter((m: any) => {
-          const createdDate = new Date(m.createdAt!);
-          return (!fromDate || createdDate >= fromDate) && (!toDate || createdDate <= toDate);
-        });
-      }
-
-      // Apply pagination
-      const totalListings = pendingListings.length;
-      const totalMessages = pendingMessages.length;
-      pendingListings = pendingListings.slice(offset, offset + Number(limit));
-      pendingMessages = pendingMessages.slice(offset, offset + Number(limit));
-
-      res.json({
-        listings: pendingListings,
-        messages: pendingMessages,
-        pagination: {
-          page: Number(page),
-          limit: Number(limit),
-          totalListings,
-          totalMessages,
-          totalItems: totalListings + totalMessages,
-        }
-      });
-    } catch (error: any) {
-      console.error("Get filtered pending moderation error:", error);
-      res.status(500).json({ message: "Failed to fetch pending moderation content" });
-    }
-  });
-
-  // ==================== PAYMENTS ROUTES - MVP STUBS ====================
-
-  // Initiate a payment
-  app.post('/api/payments/initiate', requireRole('buyer'), async (req, res) => {
-    try {
       const buyerId = req.session.user!.id;
-      const { orderId, paymentMethod, returnUrl } = req.body;
-      if (!orderId) return res.status(400).json({ message: 'orderId is required' });
 
-      const order = await storage.getOrder(orderId);
+      const order = await storage.getOrder(id);
       if (!order) {
-        console.warn(`Order not found: ${req.params.orderId || req.params.id || 'unknown'} requested by user: ${req.session.user?.id} role: ${req.session.user?.role}`);
-        return res.status(404).json({ message: 'Order not found' });
+        return res.status(404).json({ message: "Order not found" });
       }
-      if (order.buyerId !== buyerId) return res.status(403).json({ message: 'Not your order' });
 
-      const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
-      if (paystackSecret) {
-        // server authoritative amount
-        const expectedAmount = Number(order.totalPrice || 0);
-        if (isNaN(expectedAmount) || expectedAmount <= 0) {
-          return res.status(400).json({ message: 'Invalid order amount' });
-        }
+      if (order.buyerId !== buyerId) {
+        return res.status(403).json({ message: "Not authorized to complete this order" });
+      }
 
-        const amountInKobo = Math.round(expectedAmount * 100);
-        const buyer = await storage.getUser(buyerId);
+      if (order.status !== "delivered") {
+        return res.status(400).json({ message: "Order must be delivered before completion" });
+      }
 
-        const bodyPayload: any = { email: buyer?.email, amount: amountInKobo, metadata: { orderId } };
-        if (returnUrl) bodyPayload.callback_url = returnUrl;
-        const initRes = await fetch('https://api.paystack.co/transaction/initialize', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${paystackSecret}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(bodyPayload),
+      // 1. Update order status
+      const updatedOrder = await storage.updateOrderStatus(id, "completed");
+
+      // 2. Release Escrow
+      const escrow = await storage.getEscrowByOrder(id);
+      if (escrow && (escrow.status === 'held' || escrow.status === 'upfront_held')) {
+        await storage.updateEscrowStatus(escrow.id, 'released');
+
+        // 3. Credit Farmer Wallet
+        await storage.createWalletTransaction({
+          userId: order.farmerId,
+          amount: escrow.amount,
+          type: 'credit',
+          description: `Payment for order #${order.id}`,
+          referenceId: order.id,
+          referenceType: 'order',
+          status: 'completed'
         });
 
-        if (!initRes.ok) {
-          const text = await initRes.text().catch(() => '');
-          console.error('Paystack init failed', initRes.status, text);
-          return res.status(502).json({ message: 'Payment provider error' });
-        }
-
-        const body = await initRes.json();
-        const { authorization_url, reference } = body.data || {};
-
-        const payment = await storage.createPayment({
-          orderId,
-          payerId: buyerId,
-          amount: String(expectedAmount),
-          paymentMethod: 'paystack',
-          transactionId: reference,
-          status: 'pending',
-        } as any);
-
-        // Notify buyer and farmer that a payment has been initiated (persist+emit)
-        try {
-          await sendNotificationToUser(buyerId, { userId: buyerId, type: 'order_update', title: 'Payment initiated', message: `Payment initiated for order ${orderId}.`, relatedId: orderId, relatedType: 'order' }, io);
-          await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Buyer payment initiated', message: `A buyer has initiated payment for order ${orderId}.`, relatedId: orderId, relatedType: 'order' }, io);
-        } catch (err) { console.error('Failed to create payment notifications', err); }
-
-        return res.json({ payment, authorization_url, reference });
-      }
-
-      // fallback to manual
-      const payment = await storage.createPayment({ orderId, payerId: buyerId, amount: String(order.totalPrice), paymentMethod: paymentMethod || 'manual', transactionId: null, status: 'pending' } as any);
-      try {
-        await sendNotificationToUser(buyerId, { userId: buyerId, type: 'order_update', title: 'Payment created', message: `Your payment record for order ${orderId} has been created.`, relatedId: orderId, relatedType: 'order' }, io);
-        await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Buyer created payment record', message: `Buyer created a payment record for order ${orderId}.`, relatedId: orderId, relatedType: 'order' }, io);
-      } catch (err) { console.error('Failed to create payment notifications', err); }
-      res.json({ payment });
-    } catch (err: any) {
-      console.error('Initiate payment error:', err);
-      res.status(500).json({ message: 'Failed to initiate payment' });
-    }
-  });
-
-  // Duplicate removed - see line 3368 for the complete implementation
-
-  // Verify a payment (admin or provider webhook) - admin-only endpoint for simulating verification
-  app.post('/api/payments/verify', requireRole('admin'), async (req, res) => {
-    try {
-      const { paymentId } = req.body;
-      if (!paymentId) return res.status(400).json({ message: 'paymentId required' });
-
-      const payment = await storage.getPayment(paymentId);
-      if (!payment) return res.status(404).json({ message: 'Payment not found' });
-
-      const updated = await storage.updatePaymentStatus(paymentId, 'completed');
-      if (updated) {
-        await storage.updateOrderStatus(updated.orderId, 'accepted');
-
-        // Create Escrow Record
-        const order = await storage.getOrder(updated.orderId);
-        if (order) {
-          const existingEscrow = await storage.getEscrowByOrder(order.id);
-          if (!existingEscrow) {
-            await storage.createEscrow({
-              orderId: order.id,
-              buyerId: order.buyerId,
-              farmerId: order.farmerId,
-              amount: String(order.totalPrice),
-              status: 'upfront_held',
-              upfrontPaymentId: updated.id,
-            });
-            console.log(`[Escrow] Created escrow for order ${order.id}`);
-          }
-
-          // Notify buyer and farmer
-          try {
-            await sendNotificationToUser(updated.payerId, { userId: updated.payerId, type: 'order_update', title: 'Payment received', message: `Payment completed for order ${order.id}.`, relatedId: order.id, relatedType: 'order' }, io);
-            await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Payment received', message: `A payment for order ${order.id} has been completed.`, relatedId: order.id, relatedType: 'order' }, io);
-          } catch (err) { console.error('Failed to send payment notifications', err); }
+        // Update farmer wallet balance
+        const farmer = await storage.getUser(order.farmerId);
+        if (farmer) {
+          const currentBalance = Number(farmer.walletBalance || 0);
+          const newBalance = currentBalance + Number(escrow.amount);
+          await storage.updateUser(farmer.id, { walletBalance: newBalance.toFixed(2) });
         }
       }
 
-      res.json({ payment: updated });
+      // Notify farmer
+      await sendNotificationToUser(order.farmerId, {
+        userId: order.farmerId,
+        type: "order_completed",
+        title: "Order Completed",
+        message: `Order #${order.id} has been completed and funds released to your wallet.`,
+        relatedId: order.id,
+        relatedType: "order"
+      }, io);
+
+      res.json(updatedOrder);
     } catch (err: any) {
-      console.error('Verify payment error:', err);
-      res.status(500).json({ message: 'Failed to verify payment' });
+      console.error("Complete order error:", err);
+      res.status(500).json({ message: "Failed to complete order" });
     }
   });
 
-  // Get payment status
-  app.get('/api/payments/:id', requireAuth, async (req, res) => {
+  // Cancel order
+  app.patch("/api/orders/:id", requireAuth, async (req: Request, res: Response) => {
     try {
-      const payment = await storage.getPayment(req.params.id);
-      if (!payment) return res.status(404).json({ message: 'Payment not found' });
+      const { id } = req.params;
+      const { status } = req.body;
+      const userId = req.session.user!.id;
 
-      const order = await storage.getOrder(payment.orderId);
+      if (status !== "cancelled") {
+        return res.status(400).json({ message: "Invalid status update" });
+      }
+
+      const order = await storage.getOrder(id);
       if (!order) {
-        console.warn(`Order not found: ${req.params.orderId || req.params.id || 'unknown'} requested by user: ${req.session.user?.id} role: ${req.session.user?.role}`);
-        return res.status(404).json({ message: 'Order not found' });
-      }
-      const userId = req.session.user!.id;
-      if (userId !== payment.payerId && userId !== order.farmerId && req.session.user!.role !== 'admin') {
-        return res.status(403).json({ message: 'Not authorized' });
+        return res.status(404).json({ message: "Order not found" });
       }
 
-      res.json({ payment });
+      if (order.buyerId !== userId && order.farmerId !== userId) {
+        return res.status(403).json({ message: "Not authorized to cancel this order" });
+      }
+
+      if (order.status !== "pending") {
+        return res.status(400).json({ message: "Only pending orders can be cancelled" });
+      }
+
+      const updatedOrder = await storage.updateOrderStatus(id, "cancelled");
+
+      // Notify other party
+      const otherPartyId = order.buyerId === userId ? order.farmerId : order.buyerId;
+      await sendNotificationToUser(otherPartyId, {
+        userId: otherPartyId,
+        type: "order_cancelled",
+        title: "Order Cancelled",
+        message: `Order #${order.id} has been cancelled.`,
+        relatedId: order.id,
+        relatedType: "order"
+      }, io);
+
+      res.json(updatedOrder);
     } catch (err: any) {
-      console.error('Get payment error:', err);
-      res.status(500).json({ message: 'Failed to fetch payment' });
+      console.error("Cancel order error:", err);
+      res.status(500).json({ message: "Failed to cancel order" });
     }
   });
 
-  // Old payout recipient route removed
-
-
-  // List payments for an order
-  app.get('/api/payments/order/:orderId', requireAuth, async (req, res) => {
-    try {
-      const { orderId } = req.params;
-      const userId = req.session.user!.id;
-      const userRole = req.session.user!.role;
-
-      const order = await storage.getOrder(orderId);
-      if (!order) {
-        console.warn(`Order not found: ${req.params.orderId || req.params.id || 'unknown'} requested in payment flow. user: ${req.session.user?.id} role: ${req.session.user?.role}`);
-        return res.status(404).json({ message: 'Order not found' });
-      }
-      // Only buyer, farmer or admin can access
-      if (userId !== order.buyerId && userId !== order.farmerId && userRole !== 'admin') {
-        return res.status(403).json({ message: 'Forbidden' });
-      }
-
-      const payments = await storage.getPaymentsByOrder(orderId);
-      res.json({ payments });
-    } catch (err: any) {
-      console.error('Get payments by order error:', err);
-      res.status(500).json({ message: 'Failed to fetch payments' });
-    }
-  });
-
-  // Get payments by transaction id (useful for finding related orders after redirect)
-  app.get('/api/payments/transaction/:transactionId', requireAuth, async (req, res) => {
-    try {
-      const transactionId = req.params.transactionId;
-
-      // First try to find payments by transaction UUID
-      let payments = await storage.getPaymentsByTransactionId(transactionId);
-
-      // If no payments found, try to find transaction by Paystack reference and get payments
-      if (!payments || payments.length === 0) {
-        const transaction = await storage.getTransactionByPaystackReference(transactionId);
-        if (transaction) {
-          payments = await storage.getPaymentsByTransactionId(transaction.id);
-        }
-      }
-
-      if (!payments || payments.length === 0) return res.status(404).json({ message: 'Payments not found for this transaction' });
-      const userId = req.session.user!.id;
-      const userRole = req.session.user!.role;
-      // Only allow if caller is the payer for at least one payment or admin
-      const belongsToUser = payments.some((p: any) => p.payerId === userId);
-      if (!belongsToUser && userRole !== 'admin') return res.status(403).json({ message: 'Forbidden' });
-
-      res.json({ payments });
-    } catch (err: any) {
-      console.error('Get payments by transaction error:', err);
-      res.status(500).json({ message: 'Failed to fetch payments for transaction' });
-    }
-  });
-
-  // Client endpoint to verify a Paystack transaction: buyer can call to verify their payment using reference
+  // Verify Paystack payment (Client initiated)
   app.post('/api/payments/paystack/verify-client', requireAuth, async (req, res) => {
     try {
-      const { reference } = req.body;
-      if (!reference) return res.status(400).json({ message: 'reference is required' });
+      const { reference, orderId } = req.body;
       const userId = req.session.user!.id;
-      const paystackKey = process.env.PAYSTACK_SECRET_KEY;
-      if (!paystackKey) return res.status(400).json({ message: 'Paystack not configured' });
 
-      // Find transaction by Paystack reference
-      const transaction = await storage.getTransactionByPaystackReference(reference);
-      if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
-
-      // Ensure the transaction belongs to this user
-      const payments = await storage.getPaymentsByTransactionId(transaction.id);
-      const isPayer = payments.some(p => p.payerId === userId);
-
-      let isBuyer = false;
-      try {
-        const meta = JSON.parse(transaction.metadata || '{}');
-        if (meta.buyerId === userId) isBuyer = true;
-      } catch (e) { }
-
-      if (!isPayer && !isBuyer && req.session.user!.role !== 'admin') {
-        return res.status(403).json({ message: 'Forbidden' });
+      if (!reference) {
+        return res.status(400).json({ message: 'Reference is required' });
       }
 
-      // Call Paystack verify
+      const paystackKey = process.env.PAYSTACK_SECRET_KEY;
+      if (!paystackKey) {
+        return res.status(500).json({ message: 'Server configuration error' });
+      }
+
+      // 1. Verify with Paystack first to ensure it's valid
       const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
         method: 'GET',
         headers: { 'Authorization': `Bearer ${paystackKey}` },
       });
+
       if (!verifyRes.ok) {
-        const text = await verifyRes.text().catch(() => '');
-        console.error('Paystack verify failed', verifyRes.status, text);
-        return res.status(502).json({ message: 'Failed to verify with Paystack' });
+        return res.status(404).json({ message: 'Transaction not found on Paystack' });
       }
+
       const data = await verifyRes.json();
-      const status = data.data?.status;
+      if (data.data?.status !== 'success' && data.data?.status !== 'completed') {
+        return res.status(400).json({ message: 'Payment not successful' });
+      }
 
-      if (status === 'success' || status === 'completed') {
+      // 2. Find transaction locally
+      let transaction = await storage.getTransactionByPaystackReference(reference);
+
+      if (transaction) {
         // Update transaction status
-        await storage.updateTransactionStatus(transaction.id, 'completed');
+        if (transaction.status !== 'completed') {
+          await storage.updateTransactionStatus(transaction.id, 'completed');
+        }
 
-        // Update all payments linked to this transaction
+        // Find associated payments
         const payments = await storage.getPaymentsByTransactionId(transaction.id);
-        for (const payment of payments) {
-          await storage.updatePaymentStatus(payment.id, 'completed');
-          // Update order status to accepted
-          await storage.updateOrderStatus(payment.orderId, 'accepted');
 
-          // Create Escrow Record for each order
-          const order = await storage.getOrder(payment.orderId);
+        for (const payment of payments) {
+          if (payment.status !== 'completed') {
+            await storage.updatePaymentStatus(payment.id, 'completed');
+            await storage.updateOrderStatus(payment.orderId, 'accepted');
+
+            // Create Escrow
+            const order = await storage.getOrder(payment.orderId);
+            if (order) {
+              const existingEscrow = await storage.getEscrowByOrder(order.id);
+              if (!existingEscrow) {
+                await storage.createEscrow({
+                  orderId: order.id,
+                  buyerId: order.buyerId,
+                  farmerId: order.farmerId,
+                  amount: String(order.totalPrice),
+                  status: 'upfront_held',
+                  upfrontPaymentId: payment.id,
+                });
+              }
+            }
+          }
+        }
+        return res.json({ message: "Payment verified and updated" });
+      }
+
+      // If transaction not found via reference, try to find by orderId if provided
+      if (orderId) {
+        const payments = await storage.getPaymentsByOrder(orderId);
+        const pendingPayment = payments.find(p => p.status === 'pending' && p.paymentMethod === 'paystack');
+
+        if (pendingPayment) {
+          await storage.updatePaymentStatus(pendingPayment.id, 'completed');
+          if (pendingPayment.transactionId) {
+            await storage.updateTransactionStatus(pendingPayment.transactionId, 'completed');
+          }
+
+          await storage.updateOrderStatus(orderId, 'accepted');
+
+          // Create Escrow
+          const order = await storage.getOrder(orderId);
           if (order) {
             const existingEscrow = await storage.getEscrowByOrder(order.id);
             if (!existingEscrow) {
@@ -3366,199 +824,89 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
                 farmerId: order.farmerId,
                 amount: String(order.totalPrice),
                 status: 'upfront_held',
-                upfrontPaymentId: payment.id,
+                upfrontPaymentId: pendingPayment.id,
               });
-              console.log(`[Escrow] Created escrow for order ${order.id} (Transaction: ${transaction.id})`);
             }
           }
+          return res.json({ message: "Payment verified and updated via order lookup" });
         }
-
-        // Notify buyer and farmers
-        try {
-          if (transaction.buyerId) {
-            await sendNotificationToUser(transaction.buyerId, { userId: transaction.buyerId, type: 'order_update', title: 'Payment received', message: `Your payment for transaction ${transaction.id} has been confirmed.`, relatedId: transaction.id, relatedType: 'transaction' }, io as any);
-          }
-
-          // Get all unique farmers from the payments
-          const farmerIds = Array.from(new Set((await Promise.all(payments.map(async (p: any) => {
-            const order = await storage.getOrder(p.orderId);
-            return order?.farmerId;
-          }))).filter(Boolean)));
-
-          for (const farmerId of farmerIds) {
-            if (farmerId) {
-              await sendNotificationToUser(farmerId, { userId: farmerId, type: 'order_update', title: 'Payment received', message: `A payment for transaction ${transaction.id} has been confirmed.`, relatedId: transaction.id, relatedType: 'transaction' }, io as any);
-            }
-          }
-        } catch (err) { console.error('Failed to create notifications after verification', err); }
       }
 
-      res.json({ status: status, transaction: await storage.getTransaction(transaction.id), payments: await Promise.all((await storage.getPaymentsByTransactionId(transaction.id)).map((p: any) => storage.getPayment(p.id))) });
+      res.json({ message: "Payment verified on Paystack but no local record updated" });
+
     } catch (err: any) {
-      console.error('Client verify error:', err);
-      res.status(500).json({ message: 'Verification failed' });
+      console.error("Verification error:", err);
+      res.status(500).json({ message: "Verification failed" });
     }
   });
 
-  // Paystack webhook handler - used by Paystack to notify server of payment events
-  app.post('/api/payments/paystack/webhook', async (req, res) => {
+  // Manual payment verification for an order
+  app.post('/api/orders/:id/verify-payment', requireAuth, async (req, res) => {
     try {
-      // Accept webhook via signature verification when secret is available.
-      // If webhook secret is not provided in env, fallback to server-to-server verification using PAYSTACK_SECRET_KEY.
-      const secret = process.env.PAYSTACK_WEBHOOK_SECRET;
-      const paystackKey = process.env.PAYSTACK_SECRET_KEY;
-      const signature = (req.headers['x-paystack-signature'] as string) || '';
+      const { id } = req.params;
+      const orderId = id;
 
-      if (secret) {
-        // Verify signature - mandatory when webhook secret is set
-        try {
-          const raw = (req as any).rawBody as Buffer | string | undefined;
-          if (!raw) {
-            console.warn('Webhook received without raw body');
-            return res.status(400).json({ message: 'Invalid webhook format' });
-          }
+      // Find pending payments for this order
+      const payments = await storage.getPaymentsByOrder(orderId);
+      const pendingPayment = payments.find(p => p.status === 'pending' && p.paymentMethod === 'paystack');
 
-          const payloadBuf = Buffer.isBuffer(raw) ? raw : Buffer.from(typeof raw === 'string' ? raw : JSON.stringify(req.body || {}));
-          const computed = crypto.createHmac('sha512', secret).update(payloadBuf).digest('hex');
-          if (!signature || computed !== signature) {
-            console.warn('Invalid Paystack webhook signature - possible security breach');
-            return res.status(401).json({ message: 'Invalid signature' });
-          }
-        } catch (vErr) {
-          console.warn('Failed while verifying webhook signature', vErr);
-          return res.status(400).json({ message: 'Invalid webhook signature verification' });
+      if (!pendingPayment) {
+        return res.status(400).json({ message: "No pending Paystack payment found for this order" });
+      }
+
+      // If we have a transaction ID, check that
+      if (pendingPayment.transactionId) {
+        const transaction = await storage.getTransaction(pendingPayment.transactionId);
+        let paystackRef = '';
+        if (transaction && transaction.metadata) {
+          try {
+            const meta = JSON.parse(transaction.metadata);
+            paystackRef = meta.paystackReference || meta.reference;
+          } catch (e) { }
         }
-      } else if (!paystackKey) {
-        console.error('PAYSTACK_WEBHOOK_SECRET not configured and PAYSTACK_SECRET_KEY not provided - webhook cannot be verified');
-        // Do not process webhooks without a verification method
-        return res.status(500).json({ message: 'Webhook configuration error' });
-      } else {
-        console.warn('PAYSTACK_WEBHOOK_SECRET not configured - using API-based fallback verification');
-        // we will perform server-to-server verification later after getting the reference
-      }
 
-      const event = req.body;
-      let eventType = String(event?.event || '').toLowerCase();
-      const reference = event?.data?.reference || event?.data?.id || event?.data?.trx || null;
-      if (!reference) {
-        // Nothing to do, just acknowledge
-        return res.json({ ok: true, message: 'no reference' });
-      }
-
-      // Find transaction by Paystack reference
-      let transaction = await storage.getTransactionByPaystackReference(reference);
-
-      if (!transaction) {
-        // Another option: find by paystackReference field
-        const maybeTransaction = await storage.getTransactionByPaystackReference?.(reference as any);
-        if (!maybeTransaction) {
-          // Just acknowledge - we want to avoid unprocessed webhooks disrupting the provider
-          return res.json({ ok: true, message: 'no linked transaction' });
-        }
-        transaction = maybeTransaction;
-      }
-
-      // If PAYSTACK_WEBHOOK_SECRET is not set, perform a server-to-server verification to confirm this event
-      let fallbackVerified = false;
-      if (!secret) {
-        try {
-          const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+        if (paystackRef) {
+          // Verify with Paystack
+          const paystackKey = process.env.PAYSTACK_SECRET_KEY;
+          const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(paystackRef)}`, {
             method: 'GET',
             headers: { 'Authorization': `Bearer ${paystackKey}` },
           });
-          if (!verifyRes.ok) {
-            const text = await verifyRes.text().catch(() => '');
-            console.warn('Paystack verify fallback failed', verifyRes.status, text);
-            return res.status(502).json({ message: 'Failed to verify with Paystack' });
-          }
-          const vdata = await verifyRes.json();
-          const vstatus = vdata.data?.status;
-          if (vstatus && (vstatus === 'success' || vstatus === 'completed')) {
-            // treat as success event; continue to process below (or handle event type accordingly)
-            fallbackVerified = true;
-            // If eventType is empty or not a success-type, normalize it so existing logic processes it
-            if (!eventType || !eventType.includes('transaction') && !eventType.includes('charge') && !eventType.includes('payment')) {
-              eventType = 'transaction.success';
-            }
-          } else {
-            // Not a success - treat as not processed
-            console.warn('Paystack verify fallback reported status not success:', vstatus);
-            return res.json({ ok: true, message: 'not a successful transaction' });
-          }
-        } catch (verifyErr) {
-          console.error('Error during Paystack server-to-server verification', verifyErr);
-          return res.status(502).json({ message: 'Failed to verify with Paystack' });
-        }
-      }
 
-      // Event types: charge.success, transaction.success -> payment completed
-      if (eventType.includes('charge.success') || eventType.includes('transaction.success') || eventType.includes('payment.success')) {
-        // Update transaction status
-        await storage.updateTransactionStatus(transaction.id, 'completed');
+          if (verifyRes.ok) {
+            const data = await verifyRes.json();
+            if (data.data.status === 'success') {
+              // Update everything
+              await storage.updateTransactionStatus(transaction!.id, 'completed');
+              await storage.updatePaymentStatus(pendingPayment.id, 'completed');
+              await storage.updateOrderStatus(orderId, 'accepted');
 
-        // Update all payments linked to this transaction
-        const payments = await storage.getPaymentsByTransactionId(transaction.id);
-        for (const p of payments) {
-          try {
-            const existing = await storage.getPayment(p.id);
-            if (!existing) continue;
-            if (existing.status === 'completed') continue; // idempotency
-
-            await storage.updatePaymentStatus(p.id, 'completed');
-            // update order status to accepted so farmer can move forward
-            await storage.updateOrderStatus(existing.orderId, 'accepted');
-
-            // Handle escrow logic
-            const escrow = await storage.getEscrowByOrder(existing.orderId);
-            if (escrow) {
-              if (existing.id === escrow.upfrontPaymentId) {
-                // This is the payment (100% held)
-                await storage.updateEscrowStatus(escrow.id, 'held');
-              }
-            }
-
-            // Create buyer/farmer notifications
-            try {
-              if (io && existing.payerId) {
-                await sendNotificationToUser(existing.payerId, { userId: existing.payerId, type: 'order_update', title: 'Payment received', message: `Your payment for order ${existing.orderId} has been confirmed.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
-                const order = await storage.getOrder(existing.orderId);
-                if (order) {
-                  await sendNotificationToUser(order.farmerId, { userId: order.farmerId, type: 'order_update', title: 'Payment received', message: `A payment for order ${order.id} has been confirmed.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
+              // Create Escrow
+              const order = await storage.getOrder(orderId);
+              if (order) {
+                const existingEscrow = await storage.getEscrowByOrder(order.id);
+                if (!existingEscrow) {
+                  await storage.createEscrow({
+                    orderId: order.id,
+                    buyerId: order.buyerId,
+                    farmerId: order.farmerId,
+                    amount: String(order.totalPrice),
+                    status: 'upfront_held',
+                    upfrontPaymentId: pendingPayment.id,
+                  });
                 }
               }
-            } catch (nerr) { console.error('Failed to create post-webhook notifications', nerr); }
-          } catch (err) { console.error('Failed to update payment on webhook', err); }
+              return res.json({ message: "Payment verified successfully" });
+            }
+          }
         }
-        return res.json({ ok: true });
       }
 
-      if (eventType.includes('charge.failed') || eventType.includes('transaction.failed') || eventType.includes('payment.failed')) {
-        // Update transaction status
-        await storage.updateTransactionStatus(transaction.id, 'failed');
+      res.status(400).json({ message: "Could not verify payment with Paystack" });
 
-        // Update all payments linked to this transaction
-        const payments = await storage.getPaymentsByTransactionId(transaction.id);
-        for (const p of payments) {
-          try {
-            const existing = await storage.getPayment(p.id);
-            if (!existing) continue;
-            await storage.updatePaymentStatus(p.id, 'failed');
-            // Notify users about failure (no change to order automatic state)
-            try {
-              if (io && existing.payerId) {
-                await sendNotificationToUser(existing.payerId, { userId: existing.payerId, type: 'order_update', title: 'Payment failed', message: `Your payment for order ${existing.orderId} failed. Please retry or contact support.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
-              }
-            } catch (nerr) { console.error('Failed to create post-webhook failure notification', nerr); }
-          } catch (err) { console.error('Failed to mark payment failed on webhook', err); }
-        }
-        return res.json({ ok: true });
-      }
-
-      // Default ack
-      res.json({ ok: true });
     } catch (err: any) {
-      console.error('Paystack webhook error:', err);
-      res.status(500).json({ message: 'Webhook handling failed' });
+      console.error("Order payment verification error:", err);
+      res.status(500).json({ message: "Verification failed" });
     }
   });
 
@@ -3572,7 +920,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
       const escrow = await storage.getEscrowByOrder(orderId);
       if (!escrow) {
-        return res.status(404).json({ message: 'Escrow not found' });
+        return res.json(null);
       }
 
       // Only buyer or farmer can view this escrow
