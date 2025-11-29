@@ -5,6 +5,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.1.0] - 2025-11-29
+### Added - Payment & Escrow Refactor
+- **Paystack Transfers & Internal Wallet**
+  - Replaced Paystack Split Payments with Paystack Transfers + Internal Wallet model.
+  - Funds are now held by the platform (escrow) until delivery confirmation.
+  - Farmers have an internal wallet credited upon order completion.
+  - Farmers can request withdrawals from their wallet to their mobile money account via Paystack Transfers.
+  - Added `wallet_transactions` and `withdrawals` tables.
+  - Added `status` column to `wallet_transactions`.
+
+- **Escrow Enhancements**
+  - Added dispute resolution fields (`disputeReason`, `disputeResolution`, `disputedAt`, `disputeResolvedAt`) to `escrow` table.
+  - Updated escrow logic to handle full upfront payment held by platform.
+
+- **Frontend Updates**
+  - Refactored Farmer Dashboard:
+    - Replaced "Request Payout" with "Wallet" card showing balance and withdrawal option.
+    - Added "Payout Settings" card for managing Paystack recipient.
+  - Removed Admin Payouts page (legacy).
+
+- **Database Migrations**
+  - `add_status_to_wallet_transactions.sql`
+  - `add_dispute_fields_to_escrow.sql`
+  - `add_listing_id_to_messages.sql`
+  - `add_reviewed_at_to_verifications.sql`
+
+- **Fixes**
+  - Resolved TS errors in routes and socket handlers.
+  - Cleaned up old payout routes and logic.
+
 ## [0.8.10] - 2025-11-27
 ### Fixed - Critical CORS & API Connectivity Issues
 - **CORS Configuration Fix** ✅

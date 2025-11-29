@@ -128,29 +128,13 @@ export interface IStorage {
   updateTransactionStatus(id: string, status: string): Promise<Transaction | undefined>;
   updateTransaction(id: string, updates: Partial<Transaction>): Promise<Transaction | undefined>;
 
-  createPayout(payout: InsertPayout): Promise<Payout>;
-  getPayout(id: string): Promise<Payout | undefined>;
-  getPayoutsByFarmer(farmerId: string): Promise<Payout[]>;
-  updatePayout(id: string, updates: Partial<Payout>): Promise<Payout | undefined>;
-  getAllPayouts(): Promise<Payout[]>;
-
-  // Escrow operations
-  createEscrow(escrow: InsertEscrow): Promise<Escrow>;
-  getEscrowByOrder(orderId: string): Promise<Escrow | undefined>;
-  updateEscrowStatus(id: string, status: string): Promise<Escrow | undefined>;
-
-  // Wallet operations
-  getWalletBalance(userId: string): Promise<string>;
-  createWalletTransaction(transaction: InsertWalletTransaction): Promise<WalletTransaction>;
-  getWalletTransactions(userId: string): Promise<WalletTransaction[]>;
-  requestWithdrawal(withdrawal: InsertWithdrawal): Promise<Withdrawal>;
-  getWithdrawals(userId: string): Promise<Withdrawal[]>;
-  updateWithdrawalStatus(id: string, status: string, transactionId?: string): Promise<Withdrawal | undefined>;
-
   // Admin operations
   getModerationStats(): Promise<ModerationStat[]>;
+  getModerationStatsByDateRange(startDate: Date, endDate: Date): Promise<ModerationStat[]>;
   resetModerationStats(moderatorId: string): Promise<ModerationStat>;
   incrementModerationStats(moderatorId: string, type: 'approved' | 'rejected'): Promise<void>;
+  getMessagesByModerationStatus(status: string): Promise<Message[]>;
+  getAllReviews(): Promise<Review[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -233,8 +217,8 @@ export class MemStorage implements IStorage {
 
   async getVerificationsByOfficer(officerId: string): Promise<Verification[]> { return []; }
   async getVerificationByFarmer(farmerId: string): Promise<Verification | undefined> { return undefined; }
-  async createVerification(verification: InsertVerification): Promise<Verification> { const id = randomUUID(); const newVerification = { ...verification, id, createdAt: new Date() } as Verification; this.verifications.set(id, newVerification); return newVerification; }
-  async updateVerificationStatus(id: string, status: string, notes?: string): Promise<Verification | undefined> { return undefined; }
+  async createVerification(verification: InsertVerification): Promise<Verification> { const id = randomUUID(); const newVerification = { ...verification, id, submittedAt: new Date(), reviewedAt: null, status: 'pending' } as unknown as Verification; this.verifications.set(id, newVerification); return newVerification; }
+  async updateVerificationStatus(id: string, status: string, notes?: string): Promise<Verification | undefined> { const v = this.verifications.get(id); if (!v) return undefined; const updated = { ...v, status, notes: notes || null, reviewedAt: new Date() } as Verification; this.verifications.set(id, updated); return updated; }
   async getAllVerifications(): Promise<Verification[]> { return Array.from(this.verifications.values()); }
 
   async getPricingTiersByListing(listingId: string): Promise<PricingTier[]> { return []; }
@@ -253,29 +237,36 @@ export class MemStorage implements IStorage {
   async createMessage(message: InsertMessage): Promise<Message> { const id = randomUUID(); const newMsg = { ...message, id, createdAt: new Date() } as Message; this.messages.set(id, newMsg); return newMsg; }
   async markMessagesRead(senderId: string, receiverId: string): Promise<boolean> { return true; }
 
+  async getPayoutsByFarmer(farmerId: string): Promise<Payout[]> { return Array.from(this.payouts.values()).filter(p => p.farmerId === farmerId); }
+  async getAllPayouts(): Promise<Payout[]> { return Array.from(this.payouts.values()); }
+
+  async createPayment(payment: InsertPayment): Promise<Payment> { const id = randomUUID(); const newPayment = { ...payment, id, createdAt: new Date() } as Payment; this.payments.set(id, newPayment); return newPayment; }
+  async getPayment(id: string): Promise<Payment | undefined> { return this.payments.get(id); }
+  async getPaymentsByOrder(orderId: string): Promise<Payment[]> { return Array.from(this.payments.values()).filter(p => p.orderId === orderId); }
+  async getAllPayments(): Promise<Payment[]> { return Array.from(this.payments.values()); }
+  async getPaymentsByTransactionId(transactionId: string): Promise<Payment[]> { return []; }
+  async updatePaymentStatus(id: string, status: string): Promise<Payment | undefined> { const p = this.payments.get(id); if (!p) return undefined; const updated = { ...p, status }; this.payments.set(id, updated); return updated; }
+
+  async createTransaction(transaction: InsertTransaction): Promise<Transaction> { const id = randomUUID(); const newTx = { ...transaction, id, createdAt: new Date() } as Transaction; this.transactions.set(id, newTx); return newTx; }
+  async updateTransaction(id: string, updates: Partial<Transaction>): Promise<Transaction | undefined> { const tx = this.transactions.get(id); if (!tx) return undefined; const updated = { ...tx, ...updates }; this.transactions.set(id, updated); return updated; }
+  async getTransaction(id: string): Promise<Transaction | undefined> { return this.transactions.get(id); }
+  async getTransactionByPaystackReference(reference: string): Promise<Transaction | undefined> { return Array.from(this.transactions.values()).find(t => t.reference === reference); }
+  async updateTransactionStatus(id: string, status: string): Promise<Transaction | undefined> { return this.updateTransaction(id, { status }); }
+
+  async createEscrow(escrow: InsertEscrow): Promise<Escrow> { const id = randomUUID(); const newEscrow = { ...escrow, id, createdAt: new Date(), updatedAt: new Date() } as Escrow; this.escrows.set(id, newEscrow); return newEscrow; }
+  async getEscrowByOrder(orderId: string): Promise<Escrow | undefined> { return Array.from(this.escrows.values()).find(e => e.orderId === orderId); }
+  async getEscrow(id: string): Promise<Escrow | undefined> { return this.escrows.get(id); }
+  async updateEscrowStatus(id: string, status: string, updates?: Partial<Escrow>): Promise<Escrow | undefined> { const e = this.escrows.get(id); if (!e) return undefined; const updated = { ...e, status, ...updates, updatedAt: new Date() }; this.escrows.set(id, updated); return updated; }
+  async getEscrowsByBuyer(buyerId: string): Promise<Escrow[]> { return Array.from(this.escrows.values()).filter(e => e.buyerId === buyerId); }
+  async getEscrowsByFarmer(farmerId: string): Promise<Escrow[]> { return Array.from(this.escrows.values()).filter(e => e.farmerId === farmerId); }
+  async getAllEscrows(): Promise<Escrow[]> { return Array.from(this.escrows.values()); }
+
+  async updateUserRole(userId: string, role: string): Promise<void> { const user = this.users.get(userId); if (user) user.role = role; }
+
   async getReviewsByListing(listingId: string): Promise<ReviewWithUsers[]> { return []; }
   async getReviewsByFarmer(farmerId: string): Promise<ReviewWithUsers[]> { return []; }
   async createReview(review: InsertReview): Promise<Review> { const id = randomUUID(); const newReview = { ...review, id, createdAt: new Date() } as Review; this.reviews.set(id, newReview); return newReview; }
   async getFarmerRating(farmerId: string): Promise<{ average: number; count: number }> { return { average: 0, count: 0 }; }
-
-  async createPayment(payment: InsertPayment): Promise<Payment> { const id = randomUUID(); const newPayment = { ...payment, id, createdAt: new Date() } as Payment; this.payments.set(id, newPayment); return newPayment; }
-  async getPayment(id: string): Promise<Payment | undefined> { return this.payments.get(id); }
-  async getPaymentsByOrder(orderId: string): Promise<Payment[]> { return []; }
-  async updatePaymentStatus(id: string, status: string, transactionId?: string): Promise<Payment | undefined> { return undefined; }
-  async createTransaction(transaction: InsertTransaction): Promise<Transaction> { const id = randomUUID(); const newTx = { ...transaction, id, createdAt: new Date() } as Transaction; this.transactions.set(id, newTx); return newTx; }
-  async getTransactionByReference(reference: string): Promise<Transaction | undefined> { return undefined; }
-  async updateTransactionStatus(id: string, status: string): Promise<Transaction | undefined> { return undefined; }
-
-  async createPayout(payout: InsertPayout): Promise<Payout> { const id = randomUUID(); const newPayout = { ...payout, id, createdAt: new Date() } as Payout; this.payouts.set(id, newPayout); return newPayout; }
-  async getPayout(id: string): Promise<Payout | undefined> { return this.payouts.get(id); }
-  async getPayoutsByFarmer(farmerId: string): Promise<Payout[]> { return []; }
-  async updatePayout(id: string, updates: Partial<Payout>): Promise<Payout | undefined> { return undefined; }
-  async getAllPayouts(): Promise<Payout[]> { return Array.from(this.payouts.values()); }
-
-  async createEscrow(escrow: InsertEscrow): Promise<Escrow> { const id = randomUUID(); const newEscrow = { ...escrow, id, createdAt: new Date() } as Escrow; this.escrows.set(id, newEscrow); return newEscrow; }
-  async getEscrowByOrder(orderId: string): Promise<Escrow | undefined> { return undefined; }
-  async updateEscrowStatus(id: string, status: string): Promise<Escrow | undefined> { return undefined; }
-
   // Wallet methods
   async getWalletBalance(userId: string): Promise<string> { return "0.00"; }
   async createWalletTransaction(transaction: InsertWalletTransaction): Promise<WalletTransaction> { const id = randomUUID(); const newTx = { ...transaction, id, createdAt: new Date() } as WalletTransaction; this.walletTransactions.set(id, newTx); return newTx; }
@@ -285,8 +276,13 @@ export class MemStorage implements IStorage {
   async updateWithdrawalStatus(id: string, status: string, transactionId?: string): Promise<Withdrawal | undefined> { return undefined; }
 
   async getModerationStats(): Promise<ModerationStat[]> { return []; }
+  async getModerationStatsByDateRange(startDate: Date, endDate: Date): Promise<ModerationStat[]> { return []; }
   async resetModerationStats(moderatorId: string): Promise<ModerationStat> { throw new Error("Method not implemented."); }
   async incrementModerationStats(moderatorId: string, type: 'approved' | 'rejected'): Promise<void> { }
+  async getMessagesByModerationStatus(status: string): Promise<Message[]> { return Array.from(this.messages.values()).filter(m => m.moderationStatus === status); }
+  async getAllReviews(): Promise<Review[]> { return Array.from(this.reviews.values()); }
+
+  async completeOrderAndCreditWallet(orderId: string): Promise<void> { throw new Error("Method not implemented."); }
 }
 
 export const storage = new PostgresStorage();

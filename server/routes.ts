@@ -340,6 +340,63 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
 
+  // Update payout settings (create Paystack recipient)
+  app.post("/api/users/payout-settings", requireRole("farmer"), async (req, res) => {
+    try {
+      const userId = req.session.user!.id;
+      const { mobileNumber, mobileNetwork, bankCode } = req.body;
+
+      if (!mobileNumber || !mobileNetwork || !bankCode) {
+        return res.status(400).json({ message: "Mobile number, network, and bank code are required" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      // Create Paystack Transfer Recipient
+      const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
+      if (!paystackSecret) {
+        return res.status(500).json({ message: "Payment service unavailable" });
+      }
+
+      const response = await fetch("https://api.paystack.co/transferrecipient", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${paystackSecret}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          type: "mobile_money",
+          name: user.fullName,
+          account_number: mobileNumber,
+          bank_code: bankCode,
+          currency: "GHS",
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        console.error("Paystack recipient creation failed:", error);
+        return res.status(400).json({ message: "Failed to verify payout details" });
+      }
+
+      const data = await response.json();
+      const recipientCode = data.data.recipient_code;
+
+      // Update user with payout details
+      await storage.updateUser(userId, {
+        mobileNumber,
+        mobileNetwork,
+        paystackRecipientCode: recipientCode,
+      });
+
+      res.json({ message: "Payout settings updated successfully", recipientCode });
+    } catch (error: any) {
+      console.error("Payout settings error:", error);
+      res.status(500).json({ message: "Failed to update payout settings" });
+    }
+  });
+
   app.get("/api/auth/me", async (req, res) => {
     if (req.session.user) {
       try {
@@ -510,6 +567,12 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     try {
       // Get farmer ID from authenticated session
       const farmerId = req.session.user!.id;
+
+      // Enforce verification
+      const user = await storage.getUser(farmerId);
+      if (!user?.verified) {
+        return res.status(403).json({ message: "You must be verified to create listings" });
+      }
 
       const data = insertListingSchema.parse({
         ...req.body,
@@ -926,15 +989,19 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           const amountInKobo = Math.round(totalTransactionAmount * 100);
           const buyer = await storage.getUser(buyerId);
 
-          // Collect farmers with missing recipients so frontend can warn buyers
-          const farmerIds = Array.from(new Set(orders.map(o => o.farmerId)));
-          const missingRecipients: string[] = [];
-          for (const fid of farmerIds) {
-            const f = await storage.getUser(fid);
-            if (!f || !(f as any).paystackRecipientCode) missingRecipients.push(fid);
-          }
+          // NOTE: We are NOT using split payments (subaccounts) here.
+          // Funds are collected by the platform and held in escrow (wallet system).
+          // Payouts are handled via Transfers upon delivery confirmation.
 
-          const bodyPayload: any = { email: buyer?.email, amount: amountInKobo, metadata: { transactionId: transaction.id } };
+          const bodyPayload: any = {
+            email: buyer?.email,
+            amount: amountInKobo,
+            metadata: {
+              transactionId: transaction.id,
+              buyerId,
+              orderIds: orders.map(o => o.id)
+            }
+          };
           // Use the frontend provided returnUrl for client verification
           if (req.body.returnUrl) {
             // Append order IDs to callback URL so that the client can determine which orders this payment maps to.
@@ -996,7 +1063,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
               } catch (err) { /* ignore individual notification errors */ }
             }
           } catch (err) { console.error('Failed to create payment notifications', err); }
-          return res.json({ orders, transaction, autoPay: { payments, authorization_url, reference, missingRecipients } });
+          return res.json({ orders, transaction, autoPay: { payments, authorization_url, reference } });
         }
       }
 
@@ -1205,7 +1272,10 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         }
       }
 
-      const updated = await storage.updateOrderStatus(req.params.id, "completed");
+      // Use atomic transaction to complete order and credit wallet
+      await storage.completeOrderAndCreditWallet(req.params.id);
+
+      const updated = await storage.getOrder(req.params.id);
 
       // Notify farmer about completion
       const orderDetails = await storage.getOrderWithDetails(req.params.id);
@@ -1214,7 +1284,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           userId: order.farmerId,
           type: "order_update",
           title: "Order Completed",
-          message: `Order for ${orderDetails.listing.productName} has been confirmed as received`,
+          message: `Order for ${orderDetails.listing.productName} has been confirmed as received. Funds have been credited to your wallet.`,
           relatedId: order.id,
           relatedType: "order",
         }, io);
@@ -1228,8 +1298,8 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         }, io);
       }
 
-      // Create payout now that order is completed
-      await maybeCreatePayoutForOrder(req.params.id);
+      // Create payout now that order is completed (Legacy check, can be removed if fully migrated)
+      // await maybeCreatePayoutForOrder(req.params.id);
 
       res.json(updated);
     } catch (error: any) {
@@ -3176,56 +3246,8 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
 
-  // Create payout recipient (Paystack)
-  app.post('/api/payouts/recipient', requireRole('farmer'), async (req, res) => {
-    try {
-      const userId = req.session.user!.id;
-      const { type, name, account_number, bank_code, currency } = req.body;
+  // Old payout recipient route removed
 
-      if (!account_number || !bank_code) {
-        return res.status(400).json({ message: "Account number and bank code are required" });
-      }
-
-      const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
-      if (!paystackSecret) {
-        return res.status(503).json({ message: "Payment service unavailable" });
-      }
-
-      const response = await fetch('https://api.paystack.co/transferrecipient', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${paystackSecret}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          type: type || "nuban",
-          name: name,
-          account_number: account_number,
-          bank_code: bank_code,
-          currency: currency || "GHS"
-        })
-      });
-
-      if (!response.ok) {
-        const error = await response.text();
-        console.error("Paystack recipient error:", error);
-        return res.status(response.status).json({ message: "Failed to create payout recipient" });
-      }
-
-      const data = await response.json();
-      if (data.status && data.data.recipient_code) {
-        // Update user with recipient code
-        await storage.updateUser(userId, { paystackRecipientCode: data.data.recipient_code });
-        return res.json({ message: "Payout recipient saved successfully", recipient_code: data.data.recipient_code });
-      } else {
-        return res.status(400).json({ message: "Invalid response from payment provider" });
-      }
-
-    } catch (error) {
-      console.error("Create payout recipient error:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
 
   // List payments for an order
   app.get('/api/payments/order/:orderId', requireAuth, async (req, res) => {
@@ -3353,7 +3375,9 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
         // Notify buyer and farmers
         try {
-          await sendNotificationToUser(transaction.buyerId, { userId: transaction.buyerId, type: 'order_update', title: 'Payment received', message: `Your payment for transaction ${transaction.id} has been confirmed.`, relatedId: transaction.id, relatedType: 'transaction' }, io as any);
+          if (transaction.buyerId) {
+            await sendNotificationToUser(transaction.buyerId, { userId: transaction.buyerId, type: 'order_update', title: 'Payment received', message: `Your payment for transaction ${transaction.id} has been confirmed.`, relatedId: transaction.id, relatedType: 'transaction' }, io as any);
+          }
 
           // Get all unique farmers from the payments
           const farmerIds = Array.from(new Set((await Promise.all(payments.map(async (p: any) => {
@@ -3488,18 +3512,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
             const escrow = await storage.getEscrowByOrder(existing.orderId);
             if (escrow) {
               if (existing.id === escrow.upfrontPaymentId) {
-                // This is the upfront payment (30%)
-                await storage.updateEscrowStatus(escrow.id, 'upfront_held');
-              } else if (existing.id === escrow.remainingPaymentId) {
-                // This is the remaining payment (70%)
-                await storage.updateEscrowStatus(escrow.id, 'remaining_released');
-                await storage.updateEscrowStatus(escrow.id, 'completed');
+                // This is the payment (100% held)
+                await storage.updateEscrowStatus(escrow.id, 'held');
               }
             }
 
             // Create buyer/farmer notifications
             try {
-              if (io) {
+              if (io && existing.payerId) {
                 await sendNotificationToUser(existing.payerId, { userId: existing.payerId, type: 'order_update', title: 'Payment received', message: `Your payment for order ${existing.orderId} has been confirmed.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
                 const order = await storage.getOrder(existing.orderId);
                 if (order) {
@@ -3525,7 +3545,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
             await storage.updatePaymentStatus(p.id, 'failed');
             // Notify users about failure (no change to order automatic state)
             try {
-              if (io) {
+              if (io && existing.payerId) {
                 await sendNotificationToUser(existing.payerId, { userId: existing.payerId, type: 'order_update', title: 'Payment failed', message: `Your payment for order ${existing.orderId} failed. Please retry or contact support.`, relatedId: transaction.id, relatedType: 'transaction' }, io);
               }
             } catch (nerr) { console.error('Failed to create post-webhook failure notification', nerr); }
@@ -3672,8 +3692,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       }
 
       // Can only dispute if remaining payment is released but not completed
-      if (escrow.status !== 'remaining_released') {
-        return res.status(400).json({ message: 'Can only dispute after remaining payment is released' });
+      // With full payment, maybe dispute is allowed when 'held' or 'released'?
+      // Assuming dispute is allowed when 'held' (before delivery confirmation) or 'released' (after delivery but before withdrawal?)
+      // Actually, 'released' means funds are in farmer wallet.
+      // Dispute should probably happen before 'released' (i.e. when 'held').
+      // Or if buyer disputes delivery.
+      // I'll allow dispute if status is 'held'.
+      if (escrow.status !== 'held') {
+        return res.status(400).json({ message: 'Can only dispute active escrow' });
       }
 
       const updated = await storage.updateEscrowStatus(id, 'disputed', {
@@ -3711,143 +3737,12 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
 
-  // Farmer requests a payout
-  app.post('/api/payouts/request', requireRole('farmer'), async (req, res) => {
-    try {
-      const farmerId = req.session.user!.id;
-      const { amount, mobileNumber, mobileNetwork } = req.body;
-      if (!amount) return res.status(400).json({ message: 'Amount required' });
-      if (mobileNumber && !isValidGhanaMobileNumber(mobileNumber)) {
-        return res.status(400).json({ message: 'mobileNumber must be a valid Ghana mobile number (E.164 or local 0XXXXXXXXX)' });
-      }
-      const normalizedMobileNumber = mobileNumber ? normalizeGhanaMobileToE164(mobileNumber) : null;
+  // Old payout request route removed
 
-      // In a real implementation validate farmer balance and bank details
-      const payout = await storage.createPayout({ farmerId, amount: String(amount), status: 'pending', mobileNumber: normalizedMobileNumber ?? null, mobileNetwork: mobileNetwork ?? null, scheduledDate: null } as any);
-      // If auto payouts enabled via env or recipient exists, enqueue if recipient exists
-      const farmer = await storage.getUser(farmerId);
-      const recipient = (farmer as any)?.paystackRecipientCode;
-      const autoEnabled = process.env.PAYSTACK_AUTO_PAYOUTS === 'true' || Boolean(recipient);
-      if (autoEnabled) {
-        if (!recipient) {
-          await storage.updatePayout(payout.id, { status: 'needs_recipient' } as any);
-          try {
-            await sendNotificationToUser(farmerId, {
-              userId: farmerId,
-              type: 'payout_update',
-              title: 'Payout Pending - Recipient Required',
-              message: `Your payout request for ${amount} is pending because no payout recipient has been set. Please add your mobile money details to receive payouts.`,
-              relatedId: payout.id,
-              relatedType: 'payout'
-            }, io);
-          } catch (err) { console.error('Failed to notify farmer about recipient requirement', err); }
-          return res.json({ payout: await storage.getPayout(payout.id), queued: false, message: 'Payout pending recipient' });
-        }
-        try { enqueuePayout(payout.id); } catch (err) { console.error('Failed to enqueue payout', err); }
-      }
-      return res.json({ payout });
-    } catch (err: any) {
-      console.error('Payout request error:', err);
-      res.status(500).json({ message: 'Failed to create payout request' });
-    }
-  });
 
-  // Admin: process payout (MVP stub) - enqueue job to process payout
-  app.post('/api/payouts/process', requireRole('admin'), async (req, res) => {
-    try {
-      const { payoutId, reason } = req.body;
-      if (!payoutId) return res.status(400).json({ message: 'payoutId required' });
-      const payout = await storage.getPayout(payoutId);
-      if (!payout) return res.status(404).json({ message: 'Payout not found' });
 
-      // Enqueue job to process payout (transfer or completion)
-      try {
-        // store admin note if provided
-        if (reason) { await storage.updatePayout(payoutId, { adminNote: reason } as any); }
-        // If the farmer has no recipient, mark `needs_recipient` instead of enqueueing
-        const farmer = await storage.getUser(payout.farmerId);
-        const recipient = (farmer as any)?.paystackRecipientCode;
-        if (!recipient) {
-          await storage.updatePayout(payoutId, { status: 'needs_recipient' } as any);
-          return res.json({ queued: false, payoutId, message: 'Farmer has no paystack recipient. Marked as needs_recipient' });
-        }
-        enqueuePayout(payoutId);
-        res.json({ queued: true, payoutId });
-      } catch (err: any) {
-        console.error('Failed to enqueue payout:', err);
-        res.status(500).json({ message: 'Failed to queue payout' });
-      }
-    } catch (err: any) {
-      console.error('Payout process error:', err);
-      res.status(500).json({ message: 'Failed to process payout' });
-    }
-  });
+  // Old payout routes removed
 
-  // Admin: list all payouts
-  app.get('/api/admin/payouts', requireRole('admin'), async (req, res) => {
-    try {
-      const payouts = await storage.getAllPayouts?.();
-      res.json(payouts);
-    } catch (err: any) {
-      console.error('Failed to fetch payouts', err);
-      res.status(500).json({ message: 'Failed to fetch payouts' });
-    }
-  });
-
-  // Farmer: create or update Paystack transfer recipient in profile
-  app.post('/api/payouts/recipient', requireRole('farmer'), async (req, res) => {
-    try {
-      const farmerId = req.session.user!.id;
-      const { mobileNumber, mobileNetwork, name, currency } = req.body;
-      if (!mobileNumber || !mobileNetwork) return res.status(400).json({ message: 'mobileNumber and mobileNetwork are required' });
-      if (!isValidGhanaMobileNumber(mobileNumber)) {
-        return res.status(400).json({ message: 'mobileNumber must be a valid Ghana mobile number (E.164 or local 0XXXXXXXXX)' });
-      }
-      const normalizedMobile = normalizeGhanaMobileToE164(mobileNumber);
-      const paystackKey = process.env.PAYSTACK_SECRET_KEY;
-      if (!paystackKey) return res.status(400).json({ message: 'Paystack not configured' });
-
-      const farmer = await storage.getUser(farmerId);
-      if (!farmer) return res.status(404).json({ message: 'Farmer not found' });
-
-      // Create mobile money recipient
-      const recipientRes = await fetch('https://api.paystack.co/transferrecipient', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${paystackKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'mobile_money', name: name || farmer.fullName, currency: currency || 'GHS', mobile_money: { phone: normalizedMobile, provider: mobileNetwork } }),
-      });
-
-      if (!recipientRes.ok) {
-        const text = await recipientRes.text().catch(() => '');
-        console.error('Paystack recipient creation failed', recipientRes.status, text);
-        return res.status(502).json({ message: 'Failed to create recipient at Paystack' });
-      }
-
-      const body = await recipientRes.json();
-      const recipientCode = body.data?.recipient_code;
-      if (!recipientCode) {
-        return res.status(502).json({ message: 'Paystack responded without recipient code' });
-      }
-
-      await storage.updateUser(farmerId, { paystackRecipientCode: recipientCode, mobileNumber: normalizedMobile, mobileNetwork } as any);
-      res.json({ recipientCode });
-    } catch (err: any) {
-      console.error('Create recipient error:', err);
-      res.status(500).json({ message: 'Failed to create payout recipient' });
-    }
-  });
-
-  // Get farmer's saved recipient code
-  app.get('/api/payouts/recipient/me', requireRole('farmer'), async (req, res) => {
-    try {
-      const farmerId = req.session.user!.id;
-      const farmer = await storage.getUser(farmerId);
-      res.json({ paystackRecipientCode: (farmer as any)?.paystackRecipientCode, mobileNumber: (farmer as any)?.mobileNumber, mobileNetwork: (farmer as any)?.mobileNetwork });
-    } catch (err: any) {
-      console.error('Get recipient error:', err);
-      res.status(500).json({ message: 'Failed to fetch recipient' });
-    }
-  });
 
   // Admin: Verify Paystack payment by reference (calls Paystack verify endpoint)
   app.post('/api/payments/paystack/verify', requireRole('admin'), async (req, res) => {
@@ -4161,6 +4056,109 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
 
+  // Request withdrawal
+  app.post("/api/wallet/withdraw", requireRole("farmer"), async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.user!.id;
+      const { amount } = req.body;
+      const withdrawAmount = Number(amount);
+
+      if (isNaN(withdrawAmount) || withdrawAmount < 10) { // Min withdrawal 10 GHS
+        return res.status(400).json({ message: "Invalid amount. Minimum withdrawal is 10 GHS" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      if (!user.paystackRecipientCode) {
+        return res.status(400).json({ message: "Payout settings not configured. Please set up mobile money details first." });
+      }
+
+      const currentBalance = Number(user.walletBalance || 0);
+      if (currentBalance < withdrawAmount) {
+        return res.status(400).json({ message: "Insufficient funds" });
+      }
+
+      // 1. Deduct from wallet (Pending State)
+      // We use a unique reference for idempotency
+      const reference = `wd-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+
+      await storage.createWalletTransaction({
+        userId,
+        amount: withdrawAmount.toFixed(2),
+        type: 'debit',
+        description: 'Withdrawal Request',
+        referenceId: reference,
+        referenceType: 'withdrawal',
+        status: 'pending'
+      });
+
+      // 2. Initiate Paystack Transfer
+      const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
+      if (!paystackSecret) {
+        // Reverse if config missing (shouldn't happen in prod)
+        await storage.createWalletTransaction({
+          userId,
+          amount: withdrawAmount.toFixed(2),
+          type: 'credit',
+          description: 'Withdrawal Reversal - System Error',
+          referenceId: reference,
+          referenceType: 'reversal',
+          status: 'completed'
+        });
+        return res.status(500).json({ message: "Payment service unavailable" });
+      }
+
+      try {
+        const response = await fetch("https://api.paystack.co/transfer", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${paystackSecret}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            source: "balance",
+            amount: Math.round(withdrawAmount * 100), // In kobo
+            recipient: user.paystackRecipientCode,
+            reason: "AgriCompass Withdrawal",
+            reference: reference, // Use same reference
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || "Transfer failed");
+        }
+
+        // 3. Success - Transaction is already recorded as debit.
+        // We might want to update a separate Withdrawal record status if we had one, 
+        // but the wallet transaction serves as the record.
+
+        res.json({ message: "Withdrawal initiated successfully", reference });
+
+      } catch (transferError: any) {
+        console.error("Paystack transfer failed:", transferError);
+
+        // 4. Reversal on Failure
+        await storage.createWalletTransaction({
+          userId,
+          amount: withdrawAmount.toFixed(2),
+          type: 'credit',
+          description: 'Withdrawal Reversal - Transfer Failed',
+          referenceId: reference,
+          referenceType: 'reversal',
+          status: 'completed'
+        });
+
+        return res.status(400).json({ message: "Withdrawal failed: " + transferError.message });
+      }
+
+    } catch (error: any) {
+      console.error("Withdrawal error:", error);
+      res.status(500).json({ message: "Failed to process withdrawal" });
+    }
+  });
+
   // Get wallet transactions
   app.get("/api/wallet/transactions", requireRole("farmer"), async (req: Request, res: Response) => {
     try {
@@ -4173,47 +4171,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
 
-  // Request withdrawal
-  app.post("/api/wallet/withdraw", requireRole("farmer"), async (req: Request, res: Response) => {
-    try {
-      const userId = req.session.user!.id;
-      const { amount, mobileNumber, mobileNetwork, recipientCode } = req.body;
 
-      if (!amount || Number(amount) <= 0) {
-        return res.status(400).json({ message: "Invalid amount" });
-      }
-
-      const balance = await storage.getWalletBalance(userId);
-      if (Number(balance) < Number(amount)) {
-        return res.status(400).json({ message: "Insufficient funds" });
-      }
-
-      // Create withdrawal request
-      const withdrawal = await storage.requestWithdrawal({
-        userId,
-        amount: String(amount),
-        status: 'pending',
-        mobileNumber,
-        mobileNetwork,
-        recipientCode
-      });
-
-      // Debit wallet immediately
-      await storage.createWalletTransaction({
-        userId,
-        amount: String(amount),
-        type: 'debit',
-        description: `Withdrawal request`,
-        referenceId: withdrawal.id,
-        referenceType: 'withdrawal'
-      });
-
-      res.json(withdrawal);
-    } catch (error: any) {
-      console.error("Request withdrawal error:", error);
-      res.status(500).json({ message: "Failed to request withdrawal" });
-    }
-  });
 
   // Get withdrawals
   app.get("/api/wallet/withdrawals", requireRole("farmer"), async (req: Request, res: Response) => {

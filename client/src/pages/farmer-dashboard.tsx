@@ -76,13 +76,7 @@ export default function FarmerDashboard() {
     enabled: !!user?.id,
   });
 
-  const { data: recipient } = useQuery({
-    queryKey: ['/api/payouts/recipient/me', user?.id],
-    queryFn: async () => {
-      return apiRequest('GET', '/api/payouts/recipient/me');
-    },
-    enabled: !!user,
-  });
+
 
   const updateOrderMutation = useMutation({
     mutationFn: async ({ orderId, status }: { orderId: string; status: string }) => {
@@ -125,24 +119,27 @@ export default function FarmerDashboard() {
     },
   });
 
-  const requestPayoutMutation = useMutation({
-    mutationFn: async ({ amount, mobileNumber }: { amount: string; mobileNumber?: string }) => {
-      return apiRequest("POST", '/api/payouts/request', { amount, mobileNumber });
+  const createRecipientMutation = useMutation({
+    mutationFn: async ({ mobileNumber, mobileNetwork, bankCode }: { mobileNumber: string; mobileNetwork: string; bankCode: string }) => {
+      return apiRequest("POST", '/api/users/payout-settings', { mobileNumber, mobileNetwork, bankCode });
     },
     onSuccess: (data) => {
-      toast({ title: 'Payout Requested', description: 'Your payout request has been submitted.' });
+      refreshUser();
+      toast({ title: 'Settings Saved', description: 'Payout settings updated successfully.' });
     },
     onError: (error: Error) => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
     },
   });
 
-  const createRecipientMutation = useMutation({
-    mutationFn: async ({ mobileNumber, mobileNetwork }: { mobileNumber: string; mobileNetwork: string }) => {
-      return apiRequest("POST", '/api/payouts/recipient', { mobileNumber, mobileNetwork });
+  const withdrawMutation = useMutation({
+    mutationFn: async ({ amount }: { amount: string }) => {
+      return apiRequest("POST", '/api/wallet/withdraw', { amount });
     },
-    onSuccess: (data) => {
-      toast({ title: 'Recipient Created', description: 'Paystack recipient created and saved.' });
+    onSuccess: () => {
+      refreshUser();
+      toast({ title: 'Withdrawal Initiated', description: 'Your withdrawal request has been processed.' });
+      setPayoutAmount('');
     },
     onError: (error: Error) => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -521,86 +518,121 @@ export default function FarmerDashboard() {
           </div>
         )}
 
-        <Card className="mt-6">
-          <CardHeader>
-            <CardTitle>Request Payout</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col md:flex-row md:items-center gap-3">
-              <Input className="w-40" placeholder="Amount (GHS)" value={payoutAmount} onChange={(e: any) => setPayoutAmount(e.target.value)} />
-              <Input className="w-48" placeholder="Mobile number (e.g. +233...)" value={mobileNumber} onChange={(e: any) => setMobileNumber(e.target.value)} />
-              <Button onClick={() => {
-                if (!isValidGhanaMobile(mobileNumber)) {
-                  toast({ title: 'Invalid mobile number', description: 'Please enter a valid Ghana mobile number (e.g., +233XXXXXXXXX or 0XXXXXXXXX)', variant: 'destructive' });
-                  return;
-                }
-                if (!mobileNetwork) {
-                  toast({ title: 'Network required', description: 'Please choose your mobile network', variant: 'destructive' });
-                  return;
-                }
-                requestPayoutMutation.mutate({ amount: payoutAmount, mobileNumber });
-              }} disabled={requestPayoutMutation.isPending} size="sm">
-                <DollarSign className="h-4 w-4 mr-2" />
-                Request
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="mt-4">
-          <CardHeader>
-            <CardTitle>Manage Payout Recipient</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col md:flex-row items-center gap-3">
-              <div className="w-36">
-                <Select value={recipientMobileNetwork} onValueChange={(v) => setRecipientMobileNetwork(v)}>
-                  <SelectTrigger className="w-full"><SelectValue placeholder="Network" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="mtn">MTN</SelectItem>
-                    <SelectItem value="vodafone">Vodafone</SelectItem>
-                    <SelectItem value="airteltigo">AirtelTigo</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <Input ref={recipientAccountRef} className="w-48" placeholder="Mobile number (e.g., +233...)" value={recipientMobileNumber} onChange={(e: any) => setRecipientMobileNumber(e.target.value)} />
-              <Button onClick={() => {
-                // validation before submit
-                const mobile = recipientMobileNumber;
-                const ghLocal = /^0[0-9]{9}$/;
-                const e164 = /^\+233[0-9]{9}$/;
-                if (!mobile || (!ghLocal.test(mobile) && !e164.test(mobile))) {
-                  toast({ title: 'Invalid mobile', description: 'Please enter a valid Ghana mobile number', variant: 'destructive' });
-                  return;
-                }
-                if (!isValidGhanaMobile(recipientMobileNumber)) {
-                  toast({ title: 'Invalid mobile number', description: 'Please enter a valid Ghana mobile number in the form +233XXXXXXXXX or 0XXXXXXXXX', variant: 'destructive' });
-                  return;
-                }
-                if (!recipientMobileNetwork) {
-                  toast({ title: 'Network required', description: 'Please select your mobile network for payouts', variant: 'destructive' });
-                  return;
-                }
-                createRecipientMutation.mutate({ mobileNumber: recipientMobileNumber, mobileNetwork: recipientMobileNetwork });
-              }} size="sm" disabled={createRecipientMutation.isPending}>
-                <DollarSign className="h-4 w-4 mr-2" /> Save Recipient
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-        {recipient?.paystackRecipientCode && (
-          <Card className="mt-4">
+        <div className="grid md:grid-cols-2 gap-6 mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Wallet</CardTitle>
+            </CardHeader>
             <CardContent>
-              <div className="flex items-center justify-between">
+              <div className="space-y-4">
                 <div>
-                  <div className="text-sm text-muted-foreground">Saved Recipient</div>
-                  <div className="font-medium">{recipient?.mobileNumber} ({recipient?.mobileNetwork})</div>
+                  <p className="text-sm text-muted-foreground">Current Balance</p>
+                  <p className="text-3xl font-bold text-primary">{formatCurrency(user?.walletBalance || 0)}</p>
                 </div>
-                <div className="text-xs text-muted-foreground">Recipient Code: {recipient?.paystackRecipientCode}</div>
+                <div className="flex flex-col gap-2">
+                  <Input
+                    placeholder="Amount to withdraw (GHS)"
+                    value={payoutAmount}
+                    onChange={(e) => setPayoutAmount(e.target.value)}
+                    type="number"
+                  />
+                  <Button
+                    onClick={() => {
+                      if (!payoutAmount || Number(payoutAmount) <= 0) {
+                        toast({ title: 'Invalid Amount', description: 'Please enter a valid amount', variant: 'destructive' });
+                        return;
+                      }
+                      if (Number(payoutAmount) > Number(user?.walletBalance || 0)) {
+                        toast({ title: 'Insufficient Funds', description: 'You cannot withdraw more than your balance', variant: 'destructive' });
+                        return;
+                      }
+                      if (!user?.paystackRecipientCode) {
+                        toast({ title: 'Setup Required', description: 'Please set up your payout details first', variant: 'destructive' });
+                        return;
+                      }
+                      withdrawMutation.mutate({ amount: payoutAmount });
+                    }}
+                    disabled={withdrawMutation.isPending || !user?.paystackRecipientCode}
+                    className="w-full"
+                  >
+                    <DollarSign className="h-4 w-4 mr-2" />
+                    Withdraw Funds
+                  </Button>
+                  {!user?.paystackRecipientCode && (
+                    <p className="text-xs text-destructive">Set up payout details to withdraw.</p>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>
-        )}
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Payout Settings</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-2">
+                  <Select value={recipientMobileNetwork} onValueChange={(v) => setRecipientMobileNetwork(v)}>
+                    <SelectTrigger><SelectValue placeholder="Network" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="mtn">MTN</SelectItem>
+                      <SelectItem value="vodafone">Vodafone</SelectItem>
+                      <SelectItem value="airteltigo">AirtelTigo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    placeholder="Bank Code (e.g. MTN)"
+                    value={mobileNetwork} // Reusing state var for bank code temporarily or I should add a new one? 
+                    // Wait, createRecipientMutation expects bankCode. 
+                    // I should probably map network to bank code or ask user.
+                    // For mobile money, bank code is usually 'MTN', 'VOD', 'ATL'.
+                    // I'll simplify and map it in the UI or let user select.
+                    // Actually, the previous code had bank_code in the backend but UI only had network.
+                    // I'll add a hidden mapping or just use network as bank code for now if valid.
+                    // Let's assume network is the bank code for simplicity or add a mapping.
+                    // MTN -> MTN, Vodafone -> VOD, AirtelTigo -> ATL
+                    onChange={(e) => setMobileNetwork(e.target.value)}
+                    className="hidden"
+                  />
+                </div>
+                <Input
+                  placeholder="Mobile Number (e.g. 024...)"
+                  value={recipientMobileNumber}
+                  onChange={(e) => setRecipientMobileNumber(e.target.value)}
+                />
+                <Button
+                  onClick={() => {
+                    if (!recipientMobileNumber || !recipientMobileNetwork) {
+                      toast({ title: 'Missing Details', description: 'Please fill all fields', variant: 'destructive' });
+                      return;
+                    }
+                    // Map network to bank code
+                    const bankCodes: Record<string, string> = { 'mtn': 'MTN', 'vodafone': 'VOD', 'airteltigo': 'ATL' };
+                    const code = bankCodes[recipientMobileNetwork] || 'MTN';
+                    createRecipientMutation.mutate({
+                      mobileNumber: recipientMobileNumber,
+                      mobileNetwork: recipientMobileNetwork,
+                      bankCode: code
+                    });
+                  }}
+                  disabled={createRecipientMutation.isPending}
+                  className="w-full"
+                >
+                  Save Payout Details
+                </Button>
+
+                {user?.paystackRecipientCode && (
+                  <div className="mt-4 p-3 bg-muted rounded-md">
+                    <p className="text-sm font-medium">Active Recipient Configured</p>
+                    <p className="text-xs text-muted-foreground">Code: {user.paystackRecipientCode}</p>
+                    <p className="text-xs text-muted-foreground">Mobile: {user.mobileNumber}</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );

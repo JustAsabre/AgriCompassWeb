@@ -152,6 +152,7 @@ export const messages = pgTable("messages", {
   senderId: varchar("sender_id").notNull().references(() => users.id),
   receiverId: varchar("receiver_id").notNull().references(() => users.id),
   content: text("content").notNull(),
+  listingId: varchar("listing_id").references(() => listings.id),
   read: boolean("read").default(false),
   // Content moderation fields
   moderated: boolean("moderated").default(false),
@@ -194,8 +195,12 @@ export const escrow = pgTable("escrow", {
   buyerId: varchar("buyer_id").notNull().references(() => users.id),
   farmerId: varchar("farmer_id").notNull().references(() => users.id),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
-  status: text("status").default("held"), // held, released, refunded, dispute
+  status: text("status").default("held"), // held, released, refunded, disputed, completed
   upfrontPaymentId: varchar("upfront_payment_id").references(() => payments.id),
+  disputeReason: text("dispute_reason"),
+  disputeResolution: text("dispute_resolution"), // buyer, farmer, split
+  disputedAt: timestamp("disputed_at"),
+  disputeResolvedAt: timestamp("dispute_resolved_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -209,6 +214,7 @@ export const walletTransactions = pgTable("wallet_transactions", {
   description: text("description").notNull(),
   referenceId: text("reference_id"), // orderId or withdrawalId
   referenceType: text("reference_type"), // "order" | "withdrawal"
+  status: text("status").default("completed"), // pending, completed, failed
   createdAt: timestamp("created_at").defaultNow(),
 });
 

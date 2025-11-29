@@ -73,7 +73,7 @@ export async function initializeSocket(httpServer: HTTPServer) {
             } else {
               // already authenticated - skip duplicate session log
             }
-              socket.emit('authenticated', { userId });
+            socket.emit('authenticated', { userId });
           }
         });
       }
@@ -161,7 +161,7 @@ export async function initializeSocket(httpServer: HTTPServer) {
       try {
         const entries = Array.from(connectedUsers.entries());
         const senderEntry = entries.find(([_, socketId]) => socketId === socket.id);
-        
+
         if (!senderEntry) {
           callback?.({ error: "User not authenticated" });
           return;
@@ -172,7 +172,7 @@ export async function initializeSocket(httpServer: HTTPServer) {
           senderId,
           receiverId: data.receiverId,
           content: data.content,
-          listingId: data.listingId,
+          listingId: data.listingId ?? null,
         });
 
         // Get sender details for the message
@@ -188,10 +188,10 @@ export async function initializeSocket(httpServer: HTTPServer) {
 
           // Send to receiver if they're online
           io.to(`user:${data.receiverId}`).emit("new_message", messageWithUsers);
-          
+
           // Also send to sender so they see their own message
           io.to(`user:${senderId}`).emit("new_message", messageWithUsers);
-          
+
           // Send confirmation to sender
           callback?.({ success: true, message: messageWithUsers });
 
@@ -216,7 +216,7 @@ export async function initializeSocket(httpServer: HTTPServer) {
       try {
         const entries = Array.from(connectedUsers.entries());
         const userEntry = entries.find(([_, socketId]) => socketId === socket.id);
-        
+
         if (userEntry) {
           const [userId] = userEntry;
           await storage.markConversationRead(userId, otherUserId);
@@ -276,20 +276,20 @@ export async function broadcastNewListing(
   if (typeof io?.emit === 'function') {
     io.emit("new_listing", listing);
   }
-  
+
   // Create notifications for all buyers in the same region
   const buyers = await storage.getUsersByRole("buyer");
-  
+
   // Match based on listing location or farmer's region
   const listingRegion = listing.location || listing.farmer.region;
-  
+
   const buyersInRegion = buyers.filter((u: any) => {
     if (!u.region || !listingRegion) return false;
     // Check if buyer's region matches listing location or farmer's region
-    return u.region.toLowerCase().includes(listingRegion.toLowerCase()) || 
-           listingRegion.toLowerCase().includes(u.region.toLowerCase());
+    return u.region.toLowerCase().includes(listingRegion.toLowerCase()) ||
+      listingRegion.toLowerCase().includes(u.region.toLowerCase());
   });
-  
+
   for (const buyer of buyersInRegion) {
     await sendNotificationToUser(buyer.id, {
       userId: buyer.id,
