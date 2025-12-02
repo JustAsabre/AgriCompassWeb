@@ -71,7 +71,7 @@ export const orders = pgTable("orders", {
   listingId: varchar("listing_id").notNull().references(() => listings.id),
   quantity: integer("quantity").notNull(),
   totalPrice: decimal("total_price", { precision: 10, scale: 2 }).notNull(),
-  status: text("status").default("pending"), // pending, accepted, rejected, completed, cancelled
+  status: text("status").default("pending"), // pending, accepted, rejected, completed, cancelled, expired
   deliveryAddress: text("delivery_address"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -96,7 +96,7 @@ export const payments = pgTable("payments", {
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   paymentMethod: text("payment_method"),
   paystackReference: text("paystack_reference"), // Individual payment reference
-  status: text("status").default("pending"), // pending, completed, failed, refunded
+  status: text("status").default("pending"), // pending, completed, failed, refunded, expired
   createdAt: timestamp("created_at").defaultNow(),
 });
 

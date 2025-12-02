@@ -3424,6 +3424,29 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
             }
           }
         } catch (err) { console.error('Failed to create notifications after verification', err); }
+      } else if (status === 'failed' || status === 'abandoned') {
+        // Handle failed or abandoned payments
+        await storage.updateTransactionStatus(transaction.id, 'failed');
+        
+        const payments = await storage.getPaymentsByTransactionId(transaction.id);
+        for (const payment of payments) {
+          await storage.updatePaymentStatus(payment.id, 'failed');
+          // Don't change order status - buyer can retry payment
+        }
+        
+        // Notify buyer about failure
+        try {
+          if (transaction.buyerId) {
+            await sendNotificationToUser(transaction.buyerId, { 
+              userId: transaction.buyerId, 
+              type: 'order_update', 
+              title: 'Payment failed', 
+              message: `Your payment for transaction ${transaction.id} failed. Please retry or contact support.`, 
+              relatedId: transaction.id, 
+              relatedType: 'transaction' 
+            }, io as any);
+          }
+        } catch (err) { console.error('Failed to send failure notification', err); }
       }
 
       res.json({ status: status, transaction: await storage.getTransaction(transaction.id), payments: await Promise.all((await storage.getPaymentsByTransactionId(transaction.id)).map((p: any) => storage.getPayment(p.id))) });

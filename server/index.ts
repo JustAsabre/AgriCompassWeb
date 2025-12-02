@@ -10,6 +10,7 @@ import { Server } from "socket.io";
 import { createServer } from "http";
 import { registerRoutes } from "./routes";
 import { startProcessing as startPayoutProcessing } from './jobs/payoutQueue';
+import { startPaymentExpirationJob } from './jobs/paymentExpiration';
 import { initializeSocket } from "./socket";
 import cors from "cors";
 // csurf is optional in case the dependency is not installed in some dev/test setups
@@ -211,6 +212,9 @@ app.use((req, res, next) => {
 
   // Start any job workers needed (in-memory fallback worker)
   try { startPayoutProcessing(); } catch (err) { console.error('Failed to start payout worker', err); }
+  
+  // Start payment expiration job (runs daily at 3 AM)
+  try { startPaymentExpirationJob(); } catch (err) { console.error('Failed to start payment expiration job', err); }
 
   // Specific handler for CSRF errors
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {

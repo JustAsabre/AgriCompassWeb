@@ -829,8 +829,7 @@ export class PostgresStorage {
       const newQuantity = listing.quantityAvailable - order.quantity;
       await tx.update(listings)
         .set({ 
-          quantityAvailable: Math.max(0, newQuantity), // Ensure it doesn't go negative
-          updatedAt: new Date() 
+          quantityAvailable: Math.max(0, newQuantity) // Ensure it doesn't go negative
         })
         .where(eq(listings.id, order.listingId));
 

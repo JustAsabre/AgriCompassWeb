@@ -5,6 +5,69 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.2.0] - 2025-12-02
+### Added - Payment System Improvements
+- **Payment Expiration Job** ✅
+  - Automated cron job to prevent unlimited accumulation of pending payments
+  - Runs daily at 3:00 AM to clean up payments pending >24 hours
+  - Auto-expires old pending payments, updates order status, deletes escrow records
+  - Added manual cleanup function for testing/admin use
+  - Location: `server/jobs/paymentExpiration.ts`
+
+- **Failed Payment Status** ✅
+  - Added 'failed' and 'expired' statuses to payment schema
+  - Added 'expired' status to order schema
+  - Updated webhook handler to properly set 'failed' status on Paystack failures
+  - Updated client verification endpoint to handle failed/abandoned payments
+  - Notifications sent to buyers when payments fail
+
+- **Payment Improvements Roadmap** 📋
+  - Created comprehensive documentation for future payment system improvements
+  - Phase 2: Cart retention, webhook configuration, order detail UX, admin metrics
+  - Phase 3: Cleanup scripts, monitoring alerts
+  - Location: `PAYMENT_IMPROVEMENTS.md`
+
+### Fixed - UX & Real-Time Updates
+- **Scroll-to-Top on Navigation** ✅
+  - Added ScrollToTop component to reset scroll position on all route changes
+  - Uses `useLocation` hook and `useEffect` for automatic scroll management
+  - Location: `client/src/App.tsx`
+
+- **Real-Time Updates Optimization** ✅
+  - Implemented global query invalidation across all mutations for instant updates
+  - Configured React Query with 30s staleTime and window focus refetch
+  - Updated 15+ page components to use global invalidation pattern
+  - Removed 5-second polling intervals - now uses invalidation-based updates
+  - Updates appear <1 second without manual refresh
+
+- **Listing Quantity Reduction** ✅
+  - Fixed bug where listing quantities never decreased after order completion
+  - Added quantity reduction logic to `completeOrderAndCreditWallet` transaction
+  - Atomic update in same transaction as order completion, escrow release, wallet credit
+  - Prevents negative quantities with Math.max(0, newQuantity)
+  - Location: `server/postgresStorage.ts` lines 810-869
+
+- **Review System Fix** ✅
+  - Changed review endpoint to return null instead of 404 when no review exists
+  - Frontend no longer treats "no review yet" as an error state
+  - Review forms now properly appear on completed orders
+  - Location: `server/routes.ts` line 2468
+
+### Technical
+- **Dependencies Added**
+  - `node-cron`: ^3.0.3 - For scheduled payment expiration job
+  - `@types/node-cron`: ^3.0.11 - TypeScript types for node-cron
+
+- **Database Schema Updates**
+  - Payment status enum: added 'failed' and 'expired'
+  - Order status enum: added 'expired'
+  - Location: `shared/schema.ts`
+
+### Documentation
+- Added `REAL_TIME_UPDATES_TESTING.md` - Testing guide for query invalidation
+- Added `PAYMENT_IMPROVEMENTS.md` - Roadmap for future payment system enhancements
+- Added diagnostic scripts for troubleshooting database issues
+
 ## [1.1.0] - 2025-11-29
 ### Added - Payment & Escrow Refactor
 - **Paystack Transfers & Internal Wallet**

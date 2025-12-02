@@ -11,7 +11,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { FileUpload } from "@/components/ui/file-upload";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
-import { apiRequest, getCsrfToken } from "@/lib/queryClient";
+import { apiRequest, getCsrfToken, queryClient } from "@/lib/queryClient";
 import { ShieldCheck, Upload, CheckCircle, AlertCircle, XCircle } from "lucide-react";
 import type { Verification } from "@shared/schema";
 
