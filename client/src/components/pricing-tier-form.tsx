@@ -50,7 +50,7 @@ export function PricingTierForm({ listingId, basePrice }: PricingTierFormProps) 
       return apiRequest("POST", `/api/listings/${listingId}/pricing-tiers`, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/listings/${listingId}/pricing-tiers`] });
+      queryClient.invalidateQueries(); // Global invalidation for instant updates
       form.reset();
       setIsAdding(false);
       toast({
@@ -75,7 +75,7 @@ export function PricingTierForm({ listingId, basePrice }: PricingTierFormProps) 
       return apiRequest("DELETE", `/api/pricing-tiers/${tierId}`, {});
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/listings/${listingId}/pricing-tiers`] });
+      queryClient.invalidateQueries(); // Global invalidation for instant updates
       toast({
         title: "Tier Deleted",
         description: "Pricing tier removed successfully",

@@ -825,17 +825,26 @@ export class PostgresStorage {
         .set({ status: 'completed', updatedAt: new Date() })
         .where(eq(orders.id, orderId));
 
-      // 3. Update Escrow Status
+      // 3. Reduce listing quantity
+      const newQuantity = listing.quantityAvailable - order.quantity;
+      await tx.update(listings)
+        .set({ 
+          quantityAvailable: Math.max(0, newQuantity), // Ensure it doesn't go negative
+          updatedAt: new Date() 
+        })
+        .where(eq(listings.id, order.listingId));
+
+      // 4. Update Escrow Status
       await tx.update(escrow)
         .set({ status: 'released' })
         .where(eq(escrow.orderId, orderId));
 
-      // 4. Calculate Amounts
+      // 5. Calculate Amounts
       const totalAmount = Number(order.totalPrice);
       const platformFee = totalAmount * 0.02; // 2% fee
       const farmerAmount = totalAmount - platformFee;
 
-      // 5. Credit Farmer Wallet
+      // 6. Credit Farmer Wallet
       const [farmer] = await tx.select().from(users).where(eq(users.id, order.farmerId));
 
       if (!farmer) throw new Error("Farmer not found");
@@ -847,7 +856,7 @@ export class PostgresStorage {
         .set({ walletBalance: newBalance })
         .where(eq(users.id, order.farmerId));
 
-      // 6. Create Wallet Transaction Record
+      // 7. Create Wallet Transaction Record
       await tx.insert(walletTransactions).values({
         userId: order.farmerId,
         amount: farmerAmount.toFixed(2),

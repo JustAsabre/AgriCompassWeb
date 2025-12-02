@@ -42,6 +42,7 @@ export default function VerificationRequest() {
       return apiRequest("POST", "/api/verifications/request", data);
     },
     onSuccess: () => {
+      queryClient.invalidateQueries(); // Global invalidation for instant updates
       toast({
         title: "Verification Request Submitted",
         description: "Your verification request has been submitted successfully. A field officer will review it soon.",

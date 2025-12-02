@@ -115,14 +115,13 @@ export default function CreateListing() {
       return apiRequest("POST", "/api/listings", data);
     },
     onSuccess: () => {
+      queryClient.invalidateQueries(); // Global invalidation for instant updates
       toast({
         title: "Success!",
         description: isEditMode
           ? "Your listing has been updated successfully."
           : "Your listing has been created successfully.",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/farmer/listings"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/listings"] });
       setLocation("/farmer/dashboard");
     },
     onError: () => {

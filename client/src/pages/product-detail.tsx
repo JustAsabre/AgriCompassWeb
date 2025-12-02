@@ -65,6 +65,7 @@ export default function ProductDetail() {
       });
     },
     onSuccess: () => {
+      queryClient.invalidateQueries(); // Global invalidation for real-time updates
       toast({
         title: "Added to cart",
         description: "Product has been added to your cart",

@@ -119,12 +119,20 @@ export const queryClient = new QueryClient({
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
-      refetchOnWindowFocus: false,
-      staleTime: Infinity,
+      refetchOnWindowFocus: true, // Refetch when user returns to tab
+      staleTime: 30000, // Consider data stale after 30 seconds
       retry: false,
     },
     mutations: {
       retry: false,
+      // Note: Individual mutations with onSuccess will override this
+      // We'll need to manually invalidate in each mutation's onSuccess
     },
   },
 });
+
+// Helper function to invalidate all related queries after mutations
+// Call this in your mutation's onSuccess handler
+export function invalidateAllQueries() {
+  queryClient.invalidateQueries();
+}

@@ -113,9 +113,7 @@ function AdminDashboardContent() {
       return apiRequest('PATCH', endpoint, { action, reason });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/moderation/pending'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/stats'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/moderation/analytics'] });
+      queryClient.invalidateQueries(); // Global invalidation for instant updates
       toast({
         title: "Content moderated successfully",
         description: "The content has been updated and the user has been notified."
@@ -137,9 +135,7 @@ function AdminDashboardContent() {
       return apiRequest('POST', '/api/admin/moderation/bulk', { items, action, reason });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/moderation/pending'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/stats'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/moderation/analytics'] });
+      queryClient.invalidateQueries(); // Global invalidation for instant updates
       toast({
         title: "Bulk moderation completed",
         description: "Selected content has been moderated successfully."
@@ -162,7 +158,7 @@ function AdminDashboardContent() {
       return apiRequest('PATCH', `/api/admin/escrow/${escrowId}/resolve`, { resolution });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/escrow'] });
+      queryClient.invalidateQueries(); // Global invalidation for instant updates
       toast({
         title: "Escrow dispute resolved",
         description: "The escrow dispute has been resolved and both parties have been notified."

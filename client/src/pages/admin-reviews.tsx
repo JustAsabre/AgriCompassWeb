@@ -41,7 +41,7 @@ export default function AdminReviews() {
       return apiRequest("PATCH", `/api/reviews/${reviewId}/approve`, {});
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/reviews"] });
+      queryClient.invalidateQueries(); // Global invalidation for instant updates
       toast({
         title: "Review Approved",
         description: "The review has been approved successfully",
@@ -61,7 +61,7 @@ export default function AdminReviews() {
       return apiRequest("DELETE", `/api/reviews/${reviewId}`, {});
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/reviews"] });
+      queryClient.invalidateQueries(); // Global invalidation for instant updates
       toast({
         title: "Review Deleted",
         description: "The review has been deleted successfully",

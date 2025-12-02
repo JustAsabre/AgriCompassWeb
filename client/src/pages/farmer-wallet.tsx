@@ -103,9 +103,7 @@ export default function FarmerWallet() {
             return res.json();
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["/api/wallet/balance"] });
-            queryClient.invalidateQueries({ queryKey: ["/api/wallet/transactions"] });
-            queryClient.invalidateQueries({ queryKey: ["/api/wallet/withdrawals"] });
+            queryClient.invalidateQueries(); // Global invalidation for instant updates
             setIsWithdrawOpen(false);
             toast({
                 title: "Withdrawal Requested",

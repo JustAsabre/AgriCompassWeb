@@ -83,8 +83,7 @@ export default function FarmerDashboard() {
       return apiRequest("PATCH", `/api/orders/${orderId}/status`, { status });
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/farmer/orders", user?.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/escrow"] });
+      queryClient.invalidateQueries(); // Global invalidation for instant updates
       toast({
         title: "Order Updated",
         description: `Order status updated to ${variables.status} successfully`,
@@ -104,7 +103,7 @@ export default function FarmerDashboard() {
       return apiRequest("DELETE", `/api/listings/${listingId}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/farmer/listings", user?.id] });
+      queryClient.invalidateQueries(); // Global invalidation for instant updates
       toast({
         title: "Listing Deleted",
         description: "The listing has been deleted successfully",

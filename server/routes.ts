@@ -2473,8 +2473,9 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       const reviews = await storage.getReviewsByOrder(orderId);
       const userReview = reviews.find((r: any) => r.reviewerId === userId);
 
+      // Return null instead of 404 if no review exists - this is a valid state
       if (!userReview) {
-        return res.status(404).json({ message: "No review found" });
+        return res.json(null);
       }
 
       res.json(userReview);

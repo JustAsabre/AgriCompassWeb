@@ -133,23 +133,20 @@ export default function OrderDetail() {
   const { data: order, isLoading } = useQuery<OrderDetail>({
     queryKey: [`/api/orders/${params?.id}`],
     enabled: !!params?.id,
-    refetchInterval: 5000, // Refetch every 5 seconds to show real-time status updates
-    refetchOnWindowFocus: true, // Refetch when user returns to tab
+    // Removed polling - global invalidation on mutations provides instant updates
   });
 
   const { data: paymentsResponse } = useQuery<{ payments: any[] } | undefined>({
     queryKey: [`/api/payments/order/${params?.id}`],
     enabled: !!params?.id,
-    refetchInterval: 5000, // Refetch every 5 seconds
-    refetchOnWindowFocus: true,
+    // Removed polling - global invalidation on mutations provides instant updates
   });
   const payments = paymentsResponse?.payments ?? [];
 
   const { data: escrow } = useQuery<Escrow>({
     queryKey: [`/api/escrow/order/${params?.id}`],
     enabled: !!params?.id,
-    refetchInterval: 5000, // Refetch every 5 seconds
-    refetchOnWindowFocus: true,
+    // Removed polling - global invalidation on mutations provides instant updates
   });
 
   // Check if review exists for this order
@@ -168,8 +165,7 @@ export default function OrderDetail() {
       return apiRequest("PATCH", `/api/orders/${params?.id}`, { status: "cancelled" });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/buyer/orders"] });
-      queryClient.invalidateQueries({ queryKey: [`/api/orders/${params?.id}`] });
+      queryClient.invalidateQueries(); // Global invalidation for instant updates
       toast({
         title: "Order cancelled",
         description: "Your order has been cancelled successfully.",
@@ -189,8 +185,7 @@ export default function OrderDetail() {
       return apiRequest("PATCH", `/api/orders/${params?.id}/status`, { status: "delivered" });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/farmer/orders"] });
-      queryClient.invalidateQueries({ queryKey: [`/api/orders/${params?.id}`] });
+      queryClient.invalidateQueries(); // Global invalidation for instant updates
       toast({
         title: "Order marked as delivered",
         description: "Buyer has been notified to confirm receipt.",
@@ -210,8 +205,7 @@ export default function OrderDetail() {
       return apiRequest("PATCH", `/api/orders/${params?.id}/complete`, {});
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/buyer/orders"] });
-      queryClient.invalidateQueries({ queryKey: [`/api/orders/${params?.id}`] });
+      queryClient.invalidateQueries(); // Global invalidation for instant updates
       toast({
         title: "Order completed",
         description: "Thank you for confirming receipt!",
@@ -232,8 +226,7 @@ export default function OrderDetail() {
       return apiRequest("POST", "/api/payments/initiate", { orderId: order?.id, paymentMethod: 'paystack', returnUrl: retUrl });
     },
     onSuccess: (response: any) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/orders/", params?.id] });
-      queryClient.invalidateQueries({ queryKey: [`/api/payments/order/${params?.id}`] });
+      queryClient.invalidateQueries(); // Global invalidation for instant updates
       // If using Paystack, the response may include an authorization_url; redirect the buyer to Paystack
       const d: any = response;
       if (d && typeof d === 'object') {
@@ -260,8 +253,7 @@ export default function OrderDetail() {
       return apiRequest("POST", `/api/escrow/${escrow.id}/dispute`, { reason });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/escrow/order/${params?.id}`] });
-      queryClient.invalidateQueries({ queryKey: ["/api/escrow"] });
+      queryClient.invalidateQueries(); // Global invalidation for instant updates
       setIsDisputeDialogOpen(false);
       setDisputeReason("");
       toast({

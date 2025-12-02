@@ -83,8 +83,7 @@ export default function Messages() {
       return apiRequest("PATCH", `/api/messages/${otherUserId}/read`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/messages/conversations"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/messages/unread/count"] });
+      queryClient.invalidateQueries(); // Global invalidation for instant updates
     },
   });
 

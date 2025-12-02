@@ -61,7 +61,7 @@ export default function VerificationsList() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/verifications"] });
+      queryClient.invalidateQueries(); // Global invalidation for instant updates
       toast({
         title: "Verification Reviewed",
         description: `Verification has been ${reviewAction}`,

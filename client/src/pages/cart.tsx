@@ -87,7 +87,7 @@ export default function Cart() {
       return apiRequest("DELETE", `/api/cart/${itemId}`, {});
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/cart"] });
+      queryClient.invalidateQueries(); // Global invalidation for instant updates
       toast({
         title: "Item removed",
         description: "Item has been removed from your cart",
@@ -100,7 +100,7 @@ export default function Cart() {
       return apiRequest("PATCH", `/api/cart/${id}`, { quantity });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/cart"] });
+      queryClient.invalidateQueries(); // Global invalidation for instant updates
       toast({
         title: "Quantity updated",
         description: "Cart has been updated successfully",
@@ -122,11 +122,8 @@ export default function Cart() {
     },
     onSuccess: async (data: any) => {
 
-      // Invalidate queries and wait for them to complete
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["/api/cart"] }),
-        queryClient.invalidateQueries({ queryKey: ["/api/buyer/orders"] }),
-      ]);
+      // Global invalidation for instant real-time updates across all pages
+      await queryClient.invalidateQueries();
 
       // Redirect to order success page with order IDs
       if (data && data.orders && data.orders.length > 0) {

@@ -55,12 +55,11 @@ export function ReviewForm({ orderId, revieweeName, revieweeRole, onSuccess }: R
       return response.json();
     },
     onSuccess: () => {
+      queryClient.invalidateQueries(); // Global invalidation for instant updates
       toast({
         title: "Review Submitted",
         description: "Thank you for your feedback!",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/buyer/orders"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/farmer/orders"] });
       onSuccess?.();
     },
     onError: (error: Error) => {
