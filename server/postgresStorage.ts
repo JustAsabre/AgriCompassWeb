@@ -128,7 +128,10 @@ export class PostgresStorage {
     const farmer = await this.getUser(l.farmerId);
     if (!farmer) return undefined;
     const tiers = await db.select().from(pricingTiers).where(eq(pricingTiers.listingId, id));
-    return { ...l as any, farmer: farmer as any, pricingTiers: tiers as any } as any;
+    // Calculate rating for THIS specific listing
+    const reviewsList = await db.select().from(reviewsTable).where(eq(reviewsTable.listingId, id));
+    const averageRating = reviewsList.length > 0 ? ((reviewsList as any[]).reduce((s: any, r: any) => s + (r.rating || 0), 0) / reviewsList.length) : undefined;
+    return { ...l as any, farmer: { ...farmer as any, averageRating, reviewCount: reviewsList.length }, pricingTiers: tiers as any } as any;
   }
 
   async getAllListingsWithFarmer(): Promise<ListingWithFarmer[]> {
@@ -139,7 +142,8 @@ export class PostgresStorage {
       const farmer = await this.getUser(l.farmerId);
       if (!farmer) continue;
       const tiers = await db.select().from(pricingTiers).where(eq(pricingTiers.listingId, l.id));
-      const reviewsList = await db.select().from(reviewsTable).where(eq(reviewsTable.revieweeId, farmer.id));
+      // Calculate rating for THIS specific listing, not all farmer reviews
+      const reviewsList = await db.select().from(reviewsTable).where(eq(reviewsTable.listingId, l.id));
       const averageRating = reviewsList.length > 0 ? ((reviewsList as any[]).reduce((s: any, r: any) => s + (r.rating || 0), 0) / reviewsList.length) : undefined;
       result.push({ ...l as any, farmer: { ...farmer as any, averageRating, reviewCount: reviewsList.length }, pricingTiers: tiers as any });
     }

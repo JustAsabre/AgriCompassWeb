@@ -6,7 +6,7 @@ import { getRevenueAggregated, getActiveSellers, getAdminTotals } from './adminA
 import { sessionStore } from "./session";
 import { hashPassword, comparePassword, sanitizeUser, SessionUser } from "./auth";
 import { insertUserSchema, insertListingSchema, insertOrderSchema, insertCartItemSchema, insertPricingTierSchema, insertReviewSchema } from "@shared/schema";
-import { sendPasswordResetEmail, sendWelcomeEmail, sendPasswordChangedEmail, sendOrderConfirmationEmail, sendNewOrderNotificationToFarmer, sendVerificationStatusEmail, getSmtpStatus } from "./email";
+import { sendPasswordResetEmail, sendWelcomeEmail, sendPasswordChangedEmail, sendOrderConfirmationEmail, sendNewOrderNotificationToFarmer, sendVerificationStatusEmail, getSmtpStatus, sendOrderAcceptedEmail, sendOrderRejectedEmail, sendOrderDeliveredEmail, sendOrderCompletedEmail, sendWithdrawalRequestedEmail, sendWithdrawalProcessingEmail, sendWithdrawalCompletedEmail, sendWithdrawalFailedEmail, sendPaymentFailedEmail, sendPaymentRefundedEmail, sendEscrowReleasedEmail } from "./email";
 import { upload, getFileUrl, deleteUploadedFile, isValidFilename } from "./upload";
 import { sendNotificationToUser, broadcastNewListing } from "./socket";
 import { enqueuePayout } from './jobs/payoutQueue';
@@ -1196,6 +1196,33 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
                   relatedId: order.id,
                   relatedType: 'order',
                 }, io);
+
+                // Send refund and rejection emails
+                if (orderDetails) {
+                  const buyer = await storage.getUser(order.buyerId);
+                  if (buyer && buyer.email) {
+                    try {
+                      // Send rejection email
+                      await sendOrderRejectedEmail(buyer.email, buyer.fullName || "Buyer", {
+                        orderId: order.id,
+                        productName: orderDetails.listing.productName,
+                        quantity: orderDetails.quantity,
+                        totalPrice: Number(orderDetails.totalPrice),
+                        farmerName: orderDetails.farmer.fullName || "Unknown Farmer",
+                        rejectionReason: undefined,
+                      });
+                      // Send refund email
+                      await sendPaymentRefundedEmail(buyer.email, buyer.fullName || "Buyer", {
+                        orderId: order.id,
+                        amount: Number(orderDetails.totalPrice),
+                        productName: orderDetails.listing.productName,
+                        refundReason: "Order was rejected by the farmer",
+                      });
+                    } catch (emailErr) {
+                      console.error(`Failed to send rejection/refund emails for order ${order.id}:`, emailErr);
+                    }
+                  }
+                }
               } else {
                 const errorText = await refundRes.text();
                 console.error(`[Refund] Paystack refund failed: ${errorText}`);
@@ -1231,6 +1258,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       if (statusMessages[status]) {
         const orderDetails = await storage.getOrderWithDetails(req.params.id);
         if (orderDetails) {
+          // Send in-app notification
           await sendNotificationToUser(order.buyerId, {
             userId: order.buyerId,
             type: "order_update",
@@ -1239,6 +1267,29 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
             relatedId: order.id,
             relatedType: "order",
           }, io);
+
+          // Send email notifications based on status
+          const buyer = await storage.getUser(order.buyerId);
+          if (buyer && buyer.email) {
+            const emailData = {
+              orderId: order.id,
+              productName: orderDetails.listing.productName,
+              quantity: orderDetails.quantity,
+              totalPrice: Number(orderDetails.totalPrice),
+              farmerName: orderDetails.farmer.fullName || "Unknown Farmer",
+            };
+
+            try {
+              if (status === 'accepted') {
+                await sendOrderAcceptedEmail(buyer.email, buyer.fullName || "Buyer", emailData);
+              } else if (status === 'delivered') {
+                await sendOrderDeliveredEmail(buyer.email, buyer.fullName || "Buyer", emailData);
+              }
+              // Note: rejected orders handle email in the refund section above
+            } catch (emailErr) {
+              console.error(`Failed to send ${status} email for order ${order.id}:`, emailErr);
+            }
+          }
         }
       }
 
@@ -1303,6 +1354,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       // Notify farmer about completion
       const orderDetails = await storage.getOrderWithDetails(req.params.id);
       if (orderDetails) {
+        // In-app notifications
         await sendNotificationToUser(order.farmerId, {
           userId: order.farmerId,
           type: "order_update",
@@ -1319,6 +1371,37 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           relatedId: order.id,
           relatedType: "order",
         }, io);
+
+        // Email notifications
+        const buyer = await storage.getUser(order.buyerId);
+        const farmer = await storage.getUser(order.farmerId);
+        
+        if (buyer && buyer.email) {
+          try {
+            await sendOrderCompletedEmail(buyer.email, buyer.fullName || "Buyer", {
+              orderId: order.id,
+              productName: orderDetails.listing.productName,
+              quantity: orderDetails.quantity,
+              totalPrice: Number(orderDetails.totalPrice),
+              farmerName: orderDetails.farmer.fullName || "Unknown Farmer",
+            });
+          } catch (emailErr) {
+            console.error(`Failed to send completion email to buyer for order ${order.id}:`, emailErr);
+          }
+        }
+
+        if (farmer && farmer.email) {
+          try {
+            await sendEscrowReleasedEmail(farmer.email, farmer.fullName || "Farmer", {
+              orderId: order.id,
+              amount: Number(orderDetails.totalPrice),
+              productName: orderDetails.listing.productName,
+              buyerName: buyer?.fullName || "Unknown Buyer",
+            });
+          } catch (emailErr) {
+            console.error(`Failed to send escrow released email to farmer for order ${order.id}:`, emailErr);
+          }
+        }
       }
 
       // Create payout now that order is completed (Legacy check, can be removed if fully migrated)
@@ -2522,6 +2605,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         orderId,
         reviewerId,
         revieweeId,
+        listingId: order.listingId, // Link review to specific product
       });
 
       const review = await storage.createReview(data);
@@ -4149,6 +4233,19 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         status: 'pending'
       });
 
+      // Send withdrawal requested email
+      if (user.email) {
+        try {
+          await sendWithdrawalRequestedEmail(user.email, user.fullName || "Farmer", {
+            amount: withdrawAmount,
+            requestedAt: new Date(),
+            mobileNumber: user.mobileNumber || undefined,
+          });
+        } catch (emailErr) {
+          console.error(`Failed to send withdrawal requested email for user ${userId}:`, emailErr);
+        }
+      }
+
       // 2. Initiate Paystack Transfer
       const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
       if (!paystackSecret) {
@@ -4190,6 +4287,19 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         // We might want to update a separate Withdrawal record status if we had one, 
         // but the wallet transaction serves as the record.
 
+        // Send withdrawal completed email
+        if (user.email) {
+          try {
+            await sendWithdrawalCompletedEmail(user.email, user.fullName || "Farmer", {
+              amount: withdrawAmount,
+              mobileNumber: user.mobileNumber || undefined,
+              completedAt: new Date(),
+            });
+          } catch (emailErr) {
+            console.error(`Failed to send withdrawal completed email for user ${userId}:`, emailErr);
+          }
+        }
+
         res.json({ message: "Withdrawal initiated successfully", reference });
 
       } catch (transferError: any) {
@@ -4205,6 +4315,18 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           referenceType: 'reversal',
           status: 'completed'
         });
+
+        // Send withdrawal failed email
+        if (user.email) {
+          try {
+            await sendWithdrawalFailedEmail(user.email, user.fullName || "Farmer", {
+              amount: withdrawAmount,
+              failureReason: transferError.message || "Payment service error",
+            });
+          } catch (emailErr) {
+            console.error(`Failed to send withdrawal failed email for user ${userId}:`, emailErr);
+          }
+        }
 
         return res.status(400).json({ message: "Withdrawal failed: " + transferError.message });
       }
