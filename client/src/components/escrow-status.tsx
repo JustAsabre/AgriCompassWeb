@@ -18,6 +18,7 @@ export function EscrowStatus({ escrow, onReportDispute, showActions = true }: Es
       pending: { variant: "secondary" as const, icon: Clock, label: "Payment Pending" },
       upfront_held: { variant: "default" as const, icon: Shield, label: "Upfront Held" },
       remaining_released: { variant: "default" as const, icon: CheckCircle, label: "Remaining Released" },
+      released: { variant: "default" as const, icon: CheckCircle, label: "Released" },
       completed: { variant: "default" as const, icon: CheckCircle, label: "Completed" },
       disputed: { variant: "destructive" as const, icon: AlertTriangle, label: "Disputed" },
       refunded: { variant: "outline" as const, icon: DollarSign, label: "Refunded" },
@@ -40,6 +41,8 @@ export function EscrowStatus({ escrow, onReportDispute, showActions = true }: Es
         return "30% upfront payment is secured. Remaining 70% will be released upon successful delivery.";
       case "remaining_released":
         return "Full payment has been released to the farmer.";
+      case "released":
+        return "Payment has been released to the farmer. Transaction completed successfully.";
       case "completed":
         return "Transaction completed successfully.";
       case "disputed":

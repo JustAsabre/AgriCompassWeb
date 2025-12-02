@@ -133,17 +133,23 @@ export default function OrderDetail() {
   const { data: order, isLoading } = useQuery<OrderDetail>({
     queryKey: [`/api/orders/${params?.id}`],
     enabled: !!params?.id,
+    refetchInterval: 5000, // Refetch every 5 seconds to show real-time status updates
+    refetchOnWindowFocus: true, // Refetch when user returns to tab
   });
 
   const { data: paymentsResponse } = useQuery<{ payments: any[] } | undefined>({
     queryKey: [`/api/payments/order/${params?.id}`],
     enabled: !!params?.id,
+    refetchInterval: 5000, // Refetch every 5 seconds
+    refetchOnWindowFocus: true,
   });
   const payments = paymentsResponse?.payments ?? [];
 
   const { data: escrow } = useQuery<Escrow>({
     queryKey: [`/api/escrow/order/${params?.id}`],
     enabled: !!params?.id,
+    refetchInterval: 5000, // Refetch every 5 seconds
+    refetchOnWindowFocus: true,
   });
 
   // Check if review exists for this order

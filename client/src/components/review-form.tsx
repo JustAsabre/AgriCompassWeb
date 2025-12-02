@@ -39,7 +39,8 @@ export function ReviewForm({ orderId, revieweeName, revieweeRole, onSuccess }: R
 
   const submitReviewMutation = useMutation({
     mutationFn: async (data: ReviewFormData) => {
-      const response = await fetch(`/api/reviews/order/${orderId}`, {
+      const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://agricompassweb.fly.dev';
+      const response = await fetch(`${API_BASE_URL}/api/reviews/order/${orderId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

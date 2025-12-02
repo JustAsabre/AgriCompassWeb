@@ -1032,10 +1032,13 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           const body = await initRes.json();
           const { authorization_url, reference } = body.data || {};
 
-          // Update transaction with Paystack reference
-          await storage.updateTransaction(transaction.id, { metadata: JSON.stringify({ ...JSON.parse(transaction.metadata || '{}'), paystackReference: reference }) });
+          // Update transaction with Paystack reference (both in reference field and metadata for lookup)
+          await storage.updateTransaction(transaction.id, { 
+            reference: reference, // Use Paystack reference as the main reference for lookup
+            metadata: JSON.stringify({ ...JSON.parse(transaction.metadata || '{}'), paystackReference: reference, originalReference: transaction.reference }) 
+          });
 
-          console.log(`[Checkout] Transaction created: ${transaction.id}`);
+          console.log(`[Checkout] Transaction created: ${transaction.id} with Paystack reference: ${reference}`);
 
           // Create a payment record for each order linked to the transaction
           const payments = [] as any[];
@@ -1051,6 +1054,22 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
               status: 'pending'
             } as any);
             payments.push(p);
+            
+            // Create escrow record immediately (status will be updated upon payment verification)
+            const existingEscrow = await storage.getEscrowByOrder(o.id);
+            if (!existingEscrow) {
+              await storage.createEscrow({
+                orderId: o.id,
+                buyerId: o.buyerId,
+                farmerId: o.farmerId,
+                amount: String(o.totalPrice),
+                upfrontAmount: String(o.totalPrice),
+                remainingAmount: '0.00',
+                status: 'pending',
+                upfrontPaymentId: p.id,
+              });
+              console.log(`[Escrow] Created escrow for order ${o.id} during checkout`);
+            }
           }
           // Notify buyer and farmers
           try {
@@ -1063,11 +1082,15 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
               } catch (err) { /* ignore individual notification errors */ }
             }
           } catch (err) { console.error('Failed to create payment notifications', err); }
+          
+          // Clear cart after successful order creation (autoPay path)
+          await storage.clearCart(buyerId);
+          
           return res.json({ orders, transaction, autoPay: { payments, authorization_url, reference } });
         }
       }
 
-      // Clear cart after successful order creation
+      // Clear cart after successful order creation (non-autoPay path)
       await storage.clearCart(buyerId);
 
       res.json({ orders, transaction });
@@ -3202,6 +3225,8 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
               buyerId: order.buyerId,
               farmerId: order.farmerId,
               amount: String(order.totalPrice),
+              upfrontAmount: String(order.totalPrice),
+              remainingAmount: '0.00',
               status: 'upfront_held',
               upfrontPaymentId: updated.id,
             });
@@ -3355,20 +3380,27 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           // Update order status to accepted
           await storage.updateOrderStatus(payment.orderId, 'accepted');
 
-          // Create Escrow Record for each order
+          // Update Escrow status (escrow should already exist from checkout)
           const order = await storage.getOrder(payment.orderId);
           if (order) {
             const existingEscrow = await storage.getEscrowByOrder(order.id);
-            if (!existingEscrow) {
+            if (existingEscrow) {
+              // Update existing escrow status to upfront_held
+              await storage.updateEscrowStatus(existingEscrow.id, 'upfront_held');
+              console.log(`[Escrow] Updated escrow ${existingEscrow.id} to upfront_held for order ${order.id}`);
+            } else {
+              // Fallback: Create escrow if it doesn't exist (shouldn't happen with new checkout flow)
               await storage.createEscrow({
                 orderId: order.id,
                 buyerId: order.buyerId,
                 farmerId: order.farmerId,
                 amount: String(order.totalPrice),
+                upfrontAmount: String(order.totalPrice),
+                remainingAmount: '0.00',
                 status: 'upfront_held',
                 upfrontPaymentId: payment.id,
               });
-              console.log(`[Escrow] Created escrow for order ${order.id} (Transaction: ${transaction.id})`);
+              console.log(`[Escrow] Created escrow for order ${order.id} (fallback - should have been created at checkout)`);
             }
           }
         }

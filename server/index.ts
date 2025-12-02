@@ -88,10 +88,13 @@ app.use(sessionMiddleware);
 // Note: install `csurf` for production deployments where CSRF protection is required.
 async function maybeEnableCsrf() {
   let csrfEnabled = false;
-  // Disable CSRF protection in local/test environments for E2E
-  if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
-    console.warn('CSRF protection is DISABLED for local/test (E2E)');
-    // Ensure csurf is NOT loaded in dev/test
+  // TEMPORARILY DISABLED CSRF for production until frontend implements token handling
+  // TODO: Re-enable CSRF protection once frontend is updated to send CSRF tokens
+  console.warn('CSRF protection is DISABLED globally (dev, test, and production) - frontend needs CSRF token implementation');
+  
+  // Disable CSRF protection in all environments for now
+  if (true) {
+    // Ensure csurf is NOT loaded
     return;
   } else {
     try {

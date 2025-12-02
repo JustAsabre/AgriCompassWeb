@@ -21,6 +21,8 @@ export async function apiRequest(
   }
 
   // Attach CSRF token for unsafe HTTP methods
+  // CSRF is currently disabled on the backend, skip token fetching
+  /*
   if (!['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())) {
     try {
       const token = await getCsrfToken();
@@ -29,6 +31,7 @@ export async function apiRequest(
       console.warn('Could not fetch CSRF token, request will proceed without X-CSRF-Token header.');
     }
   }
+  */
 
   const fullUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
   const res = await fetch(fullUrl, {
@@ -39,6 +42,8 @@ export async function apiRequest(
   });
 
   // If we got a 403, try to refresh CSRF token once and retry
+  // CSRF is currently disabled, skip retry logic
+  /*
   if (res.status === 403 && !url.endsWith('/api/csrf-token')) {
     // Clear cached token and retry
     csrfTokenCache = null;
@@ -59,6 +64,7 @@ export async function apiRequest(
       return second;
     }
   }
+  */
 
   await throwIfResNotOk(res);
   

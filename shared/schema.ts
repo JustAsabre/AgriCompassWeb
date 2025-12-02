@@ -195,12 +195,17 @@ export const escrow = pgTable("escrow", {
   buyerId: varchar("buyer_id").notNull().references(() => users.id),
   farmerId: varchar("farmer_id").notNull().references(() => users.id),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
-  status: text("status").default("held"), // held, released, refunded, disputed, completed
+  upfrontAmount: decimal("upfront_amount", { precision: 10, scale: 2 }).notNull(),
+  remainingAmount: decimal("remaining_amount", { precision: 10, scale: 2 }).notNull(),
   upfrontPaymentId: varchar("upfront_payment_id").references(() => payments.id),
-  disputeReason: text("dispute_reason"),
-  disputeResolution: text("dispute_resolution"), // buyer, farmer, split
+  remainingPaymentId: varchar("remaining_payment_id").references(() => payments.id),
+  status: text("status").default("pending"), // pending, upfront_held, remaining_held, released, refunded, disputed
+  upfrontHeldAt: timestamp("upfront_held_at"),
+  remainingReleasedAt: timestamp("remaining_released_at"),
   disputedAt: timestamp("disputed_at"),
+  disputeReason: text("dispute_reason"),
   disputeResolvedAt: timestamp("dispute_resolved_at"),
+  disputeResolution: text("dispute_resolution"), // buyer, farmer, split
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
