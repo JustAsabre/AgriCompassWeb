@@ -5,6 +5,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.2.1] - 2025-12-03
+### Fixed - Edit Listing Bug
+- **Edit Listing Form Loading** 🐛
+  - Fixed "NaN" console errors when loading edit listing form
+  - Issue: Form fields receiving NaN values for quantityAvailable and minOrderQuantity
+  - Root Cause: Incorrect query key format causing data fetch failure
+  - Solution 1: Changed queryKey from `["/api/listings", params?.id]` to `["/api/listings/${params?.id}"]`
+  - Solution 2: Added proper null/undefined handling for numeric field conversion
+  - Solution 3: Added type-safe parsing for both number and string types from database
+  - Removed debug console logs after verification
+  - Location: `client/src/pages/create-listing.tsx`
+
+- **Category & Unit Selection in Edit Mode** 🐛
+  - Fixed category and unit dropdown not showing selected values when editing listings
+  - Root Cause: Select components using `defaultValue` instead of `value` prop
+  - Solution: Changed both category and unit Select components to use controlled `value={field.value}`
+  - Now properly displays selected category/unit when editing existing listings
+  - Location: `client/src/pages/create-listing.tsx`
+
+### Added - Admin Tools
+- **Listing Deactivation Script** 🛠️
+  - Created safe script to deactivate listings without deletion
+  - Shows listing details, farmer info, and related data (orders, cart items, reviews, pricing tiers)
+  - Changes status from 'active' to 'inactive' (preserves all historical data)
+  - Listings removed from marketplace but data retained for audit trail
+  - Reversible: Can reactivate by updating status back to 'active'
+  - Usage: `node scripts/deactivate-listing.mjs <listing-id>`
+  - Location: `scripts/deactivate-listing.mjs`
+
 ## [1.2.0] - 2025-12-02
 ### Added - Payment System Improvements
 - **Payment Expiration Job** ✅

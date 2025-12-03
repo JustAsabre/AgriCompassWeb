@@ -58,9 +58,9 @@ export default function CreateListing() {
   });
 
   // Fetch existing listing if in edit mode
-  const { data: existingListing, isLoading: isLoadingListing } = useQuery<Listing>({
-    queryKey: ["/api/listings", params?.id],
-    enabled: isEditMode,
+  const { data: existingListing, isLoading: isLoadingListing, error: loadingError } = useQuery<any>({
+    queryKey: [`/api/listings/${params?.id}`],
+    enabled: isEditMode && !!params?.id,
   });
 
   const form = useForm<FormValues>({
@@ -84,17 +84,25 @@ export default function CreateListing() {
   useEffect(() => {
     if (isEditMode && existingListing) {
       form.reset({
-        productName: existingListing.productName,
-        category: existingListing.category,
+        productName: existingListing.productName || "",
+        category: existingListing.category || "",
         description: existingListing.description || "",
         price: existingListing.price ? String(existingListing.price) : "",
-        unit: existingListing.unit,
-        quantityAvailable: Number(existingListing.quantityAvailable),
-        minOrderQuantity: Number(existingListing.minOrderQuantity),
+        unit: existingListing.unit || "kg",
+        quantityAvailable: existingListing.quantityAvailable 
+          ? (typeof existingListing.quantityAvailable === 'number' 
+              ? existingListing.quantityAvailable 
+              : parseInt(String(existingListing.quantityAvailable), 10))
+          : 0,
+        minOrderQuantity: existingListing.minOrderQuantity
+          ? (typeof existingListing.minOrderQuantity === 'number'
+              ? existingListing.minOrderQuantity
+              : parseInt(String(existingListing.minOrderQuantity), 10))
+          : 0,
         harvestDate: existingListing.harvestDate || "",
-        location: existingListing.location,
+        location: existingListing.location || "",
         imageUrl: existingListing.imageUrl || "",
-        farmerId: existingListing.farmerId,
+        farmerId: existingListing.farmerId || "",
       });
     }
   }, [isEditMode, existingListing, form]);
@@ -269,7 +277,7 @@ export default function CreateListing() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Category</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger data-testid="select-category">
                             <SelectValue placeholder="Select a category" />
@@ -339,7 +347,7 @@ export default function CreateListing() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Unit</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select onValueChange={field.onChange} value={field.value}>
                           <FormControl>
                             <SelectTrigger data-testid="select-unit">
                               <SelectValue />
