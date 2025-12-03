@@ -91,7 +91,9 @@ export interface IStorage {
 
   // Pricing tier operations
   getPricingTiersByListing(listingId: string): Promise<PricingTier[]>;
+  getPricingTier(id: string): Promise<PricingTier | undefined>;
   createPricingTier(tier: InsertPricingTier): Promise<PricingTier>;
+  updatePricingTier(id: string, updates: Partial<PricingTier>): Promise<PricingTier | undefined>;
   deletePricingTier(id: string): Promise<boolean>;
 
   // Notification operations
@@ -221,8 +223,10 @@ export class MemStorage implements IStorage {
   async updateVerificationStatus(id: string, status: string, notes?: string): Promise<Verification | undefined> { const v = this.verifications.get(id); if (!v) return undefined; const updated = { ...v, status, notes: notes || null, reviewedAt: new Date() } as Verification; this.verifications.set(id, updated); return updated; }
   async getAllVerifications(): Promise<Verification[]> { return Array.from(this.verifications.values()); }
 
-  async getPricingTiersByListing(listingId: string): Promise<PricingTier[]> { return []; }
+  async getPricingTiersByListing(listingId: string): Promise<PricingTier[]> { return Array.from(this.pricingTiers.values()).filter(t => t.listingId === listingId); }
+  async getPricingTier(id: string): Promise<PricingTier | undefined> { return this.pricingTiers.get(id); }
   async createPricingTier(tier: InsertPricingTier): Promise<PricingTier> { const id = randomUUID(); const newTier = { ...tier, id } as PricingTier; this.pricingTiers.set(id, newTier); return newTier; }
+  async updatePricingTier(id: string, updates: Partial<PricingTier>): Promise<PricingTier | undefined> { const tier = this.pricingTiers.get(id); if (!tier) return undefined; const updated = { ...tier, ...updates }; this.pricingTiers.set(id, updated); return updated; }
   async deletePricingTier(id: string): Promise<boolean> { return this.pricingTiers.delete(id); }
 
   async getNotificationsByUser(userId: string): Promise<Notification[]> { return []; }

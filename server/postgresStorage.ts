@@ -136,7 +136,13 @@ export class PostgresStorage {
 
   async getAllListingsWithFarmer(): Promise<ListingWithFarmer[]> {
     if (!db) throw new Error('Database client not initialized');
-    const list = await db.select().from(listings).where(eq(listings.status, 'active'));
+    // Only show approved listings on marketplace
+    const list = await db.select().from(listings).where(
+      and(
+        eq(listings.status, 'active'),
+        eq(listings.moderationStatus, 'approved')
+      )
+    );
     const result: ListingWithFarmer[] = [];
     for (const l of list as any[]) {
       const farmer = await this.getUser(l.farmerId);
@@ -333,6 +339,18 @@ export class PostgresStorage {
   async createPricingTier(tier: InsertPricingTier): Promise<PricingTier> {
     if (!db) throw new Error('Database client not initialized');
     const [res] = await db.insert(pricingTiers).values(tier).returning();
+    return res as any;
+  }
+
+  async getPricingTier(id: string): Promise<PricingTier | undefined> {
+    if (!db) throw new Error('Database client not initialized');
+    const [res] = await db.select().from(pricingTiers).where(eq(pricingTiers.id, id));
+    return res as any;
+  }
+
+  async updatePricingTier(id: string, updates: Partial<PricingTier>): Promise<PricingTier | undefined> {
+    if (!db) throw new Error('Database client not initialized');
+    const [res] = await db.update(pricingTiers).set(updates).where(eq(pricingTiers.id, id)).returning();
     return res as any;
   }
 

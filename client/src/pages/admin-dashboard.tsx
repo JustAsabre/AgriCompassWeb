@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from '@/hooks/use-toast';
-import { Search, Filter, Calendar, BarChart3, CheckSquare, XSquare, Shield, AlertTriangle } from 'lucide-react';
+import { Search, Filter, Calendar, BarChart3, CheckSquare, XSquare, Shield, AlertTriangle, Users } from 'lucide-react';
 import { Loader } from "@/components/ui/loader";
 
 interface AdminStats {
@@ -58,9 +58,9 @@ interface Escrow {
   orderId: string;
   buyerId: string;
   farmerId: string;
-  totalAmount: number;
-  upfrontAmount: number;
-  remainingAmount: number;
+  amount: number | string;
+  upfrontAmount: number | string;
+  remainingAmount: number | string;
   status: 'pending' | 'upfront_held' | 'remaining_released' | 'completed' | 'disputed';
   disputeReason?: string;
   disputeResolution?: 'buyer' | 'farmer' | 'split';
@@ -68,6 +68,21 @@ interface Escrow {
   updatedAt: string;
   disputedAt?: string;
   disputeResolvedAt?: string;
+}
+
+interface User {
+  id: string;
+  email: string;
+  fullName: string;
+  role: 'farmer' | 'buyer' | 'field_officer' | 'admin';
+  phone?: string;
+  region?: string;
+  verified: boolean;
+  isActive: boolean;
+  createdAt: string;
+  walletBalance: string;
+  businessName?: string;
+  farmSize?: string;
 }
 
 function AdminDashboardContent() {
@@ -87,6 +102,12 @@ function AdminDashboardContent() {
   // Escrow management
   const [escrowStatusFilter, setEscrowStatusFilter] = useState('all');
   const [escrowResolution, setEscrowResolution] = useState<{ escrowId: string; resolution: 'buyer' | 'farmer' | 'split' } | null>(null);
+  const [escrowAction, setEscrowAction] = useState<{ escrowId: string; action: 'release' | 'refund'; reason?: string } | null>(null);
+
+  // User management
+  const [userSearchTerm, setUserSearchTerm] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState('all');
+  const [userStatusFilter, setUserStatusFilter] = useState('all');
 
   const queryClient = useQueryClient();
 
@@ -107,13 +128,23 @@ function AdminDashboardContent() {
     enabled: activeTab === 'escrow'
   });
 
+  // User management queries
+  const { data: usersResponse, isLoading: usersLoading } = useQuery<{ users: User[]; pagination: any }>({
+    queryKey: ['/api/admin/users'],
+    enabled: activeTab === 'users'
+  });
+  const allUsers = usersResponse?.users || [];
+
   const moderateMutation = useMutation({
     mutationFn: async ({ id, action, reason, contentType }: { id: string, action: 'approve' | 'reject', reason?: string, contentType: 'listing' | 'message' }) => {
       const endpoint = contentType === 'listing' ? `/api/listings/${id}/moderate` : `/api/messages/${id}/moderate`;
       return apiRequest('PATCH', endpoint, { action, reason });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(); // Global invalidation for instant updates
+      // Invalidate specific queries for instant updates
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/moderation/pending'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/moderation/analytics'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/listings'] });
       toast({
         title: "Content moderated successfully",
         description: "The content has been updated and the user has been notified."
@@ -135,7 +166,10 @@ function AdminDashboardContent() {
       return apiRequest('POST', '/api/admin/moderation/bulk', { items, action, reason });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(); // Global invalidation for instant updates
+      // Invalidate specific queries for instant updates
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/moderation/pending'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/moderation/analytics'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/listings'] });
       toast({
         title: "Bulk moderation completed",
         description: "Selected content has been moderated successfully."
@@ -155,10 +189,11 @@ function AdminDashboardContent() {
   // Escrow resolution mutation
   const resolveEscrowMutation = useMutation({
     mutationFn: async ({ escrowId, resolution }: { escrowId: string; resolution: 'buyer' | 'farmer' | 'split' }) => {
-      return apiRequest('PATCH', `/api/admin/escrow/${escrowId}/resolve`, { resolution });
+      return apiRequest('POST', `/api/admin/escrow/${escrowId}/resolve`, { resolution });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(); // Global invalidation for instant updates
+      // Invalidate escrow query for instant updates
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/escrow'] });
       toast({
         title: "Escrow dispute resolved",
         description: "The escrow dispute has been resolved and both parties have been notified."
@@ -169,6 +204,69 @@ function AdminDashboardContent() {
       toast({
         title: "Resolution failed",
         description: error.message || "Failed to resolve escrow dispute",
+        variant: "destructive"
+      });
+    }
+  });
+
+  const releaseEscrowMutation = useMutation({
+    mutationFn: async ({ escrowId, reason }: { escrowId: string; reason?: string }) => {
+      return apiRequest('POST', `/api/admin/escrow/${escrowId}/release`, { reason });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/escrow'] });
+      toast({
+        title: "Escrow released",
+        description: "Funds have been released to the farmer."
+      });
+      setEscrowAction(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Release failed",
+        description: error.message || "Failed to release escrow",
+        variant: "destructive"
+      });
+    }
+  });
+
+  const refundEscrowMutation = useMutation({
+    mutationFn: async ({ escrowId, reason }: { escrowId: string; reason: string }) => {
+      return apiRequest('POST', `/api/admin/escrow/${escrowId}/refund`, { reason });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/escrow'] });
+      toast({
+        title: "Escrow refunded",
+        description: "Funds have been refunded to the buyer."
+      });
+      setEscrowAction(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Refund failed",
+        description: error.message || "Failed to refund escrow",
+        variant: "destructive"
+      });
+    }
+  });
+
+  // User management mutations
+  const toggleUserStatusMutation = useMutation({
+    mutationFn: async ({ userId, isActive }: { userId: string; isActive: boolean }) => {
+      return apiRequest('PATCH', `/api/admin/users/${userId}/status`, { isActive });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
+      toast({
+        title: "User status updated",
+        description: "The user account status has been changed."
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Update failed",
+        description: error.message || "Failed to update user status",
         variant: "destructive"
       });
     }
@@ -235,8 +333,9 @@ function AdminDashboardContent() {
   };
 
   const filteredListings = pendingContent?.listings?.filter(listing =>
-  (!searchTerm || listing.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    listing.description.toLowerCase().includes(searchTerm.toLowerCase()))
+    !searchTerm || 
+    (listing.productName && listing.productName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (listing.description && listing.description.toLowerCase().includes(searchTerm.toLowerCase()))
   ) || [];
 
   const filteredMessages = pendingContent?.messages?.filter(message =>
@@ -262,17 +361,21 @@ function AdminDashboardContent() {
   };
 
   const getEscrowStatusDescription = (escrow: Escrow) => {
+    const upfront = parseFloat(escrow.upfrontAmount as any) || 0;
+    const remaining = parseFloat(escrow.remainingAmount as any) || 0;
+    const total = parseFloat(escrow.amount as any) || 0;
+    
     switch (escrow.status) {
       case 'pending':
-        return `Waiting for upfront payment of $${escrow.upfrontAmount}`;
+        return `Waiting for upfront payment of GHC ${upfront.toFixed(2)}`;
       case 'upfront_held':
-        return `Upfront payment of $${escrow.upfrontAmount} held, waiting for order acceptance`;
+        return `Upfront payment of GHC ${upfront.toFixed(2)} held, waiting for order acceptance`;
       case 'remaining_released':
-        return `Remaining payment of $${escrow.remainingAmount} released, waiting for delivery confirmation`;
+        return `Remaining payment of GHC ${remaining.toFixed(2)} released, waiting for delivery confirmation`;
       case 'completed':
         return escrow.disputeResolution
           ? `Dispute resolved in favor of ${escrow.disputeResolution}`
-          : `Order completed, full payment of $${escrow.totalAmount} released`;
+          : `Order completed, full payment of GHC ${total.toFixed(2)} released`;
       case 'disputed':
         return `Dispute filed: ${escrow.disputeReason}`;
       default:
@@ -283,6 +386,28 @@ function AdminDashboardContent() {
   const filteredEscrows = escrows?.filter(escrow =>
     escrowStatusFilter === 'all' || escrow.status === escrowStatusFilter
   ) || [];
+
+  // User management helper functions
+  const getRoleBadgeColor = (role: User['role']) => {
+    switch (role) {
+      case 'admin': return 'destructive';
+      case 'farmer': return 'default';
+      case 'buyer': return 'secondary';
+      case 'field_officer': return 'outline';
+      default: return 'secondary';
+    }
+  };
+
+  const filteredUsers = allUsers?.filter(user => {
+    const matchesSearch = !userSearchTerm || 
+      user.fullName.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
+      user.email.toLowerCase().includes(userSearchTerm.toLowerCase());
+    const matchesRole = userRoleFilter === 'all' || user.role === userRoleFilter;
+    const matchesStatus = userStatusFilter === 'all' || 
+      (userStatusFilter === 'active' && user.isActive) ||
+      (userStatusFilter === 'inactive' && !user.isActive);
+    return matchesSearch && matchesRole && matchesStatus;
+  }) || [];
 
   if (statsLoading) return <div>Loading admin dashboard...</div>;
 
@@ -299,43 +424,188 @@ function AdminDashboardContent() {
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card>
+          {/* Top Stats Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Card className="border-l-4 border-l-blue-500">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-gray-600">Total Users</CardTitle>
+                <CardTitle className="text-sm font-medium text-gray-600 flex items-center justify-between">
+                  Total Users
+                  <span className="text-2xl">👥</span>
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{stats?.totalUsers ?? '-'}</div>
-                <div className="text-xs text-gray-500 mt-1">
-                  Farmers: {stats?.usersByRole?.farmer ?? 0} | Buyers: {stats?.usersByRole?.buyer ?? 0} | Officers: {stats?.usersByRole?.field_officer ?? 0}
+                <div className="text-3xl font-bold text-blue-600">{stats?.totalUsers ?? '-'}</div>
+                <div className="text-xs text-gray-500 mt-2 space-y-1">
+                  <div>🌾 Farmers: {stats?.usersByRole?.farmer ?? 0}</div>
+                  <div>🛒 Buyers: {stats?.usersByRole?.buyer ?? 0}</div>
+                  <div>👮 Officers: {stats?.usersByRole?.field_officer ?? 0}</div>
                 </div>
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border-l-4 border-l-green-500">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-gray-600">Total Listings</CardTitle>
+                <CardTitle className="text-sm font-medium text-gray-600 flex items-center justify-between">
+                  Total Listings
+                  <span className="text-2xl">📦</span>
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{stats?.totalListings ?? '-'}</div>
-                <div className="text-xs text-gray-500 mt-1">
-                  Active: {stats?.registeredFarmers ?? 0} | Pending: {pendingContent?.listings?.length ?? 0}
+                <div className="text-3xl font-bold text-green-600">{stats?.totalListings ?? '-'}</div>
+                <div className="text-xs text-gray-500 mt-2 space-y-1">
+                  <div>✅ Approved: {(stats?.totalListings ?? 0) - (pendingContent?.listings?.length ?? 0)}</div>
+                  <div>⏳ Pending: {pendingContent?.listings?.length ?? 0}</div>
                 </div>
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border-l-4 border-l-purple-500">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-gray-600">Total Revenue</CardTitle>
+                <CardTitle className="text-sm font-medium text-gray-600 flex items-center justify-between">
+                  Total Orders
+                  <span className="text-2xl">📋</span>
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">${revenueData?.totalRevenue ?? stats?.totalRevenueFromCompleted ?? '-'}</div>
-                <div className="text-xs text-gray-500 mt-1">
-                  From {stats?.totalOrders ?? 0} completed orders
+                <div className="text-3xl font-bold text-purple-600">{stats?.totalOrders ?? '-'}</div>
+                <div className="text-xs text-gray-500 mt-2">
+                  Marketplace transactions
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-emerald-500">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-gray-600 flex items-center justify-between">
+                  Platform Revenue
+                  <span className="text-2xl">💰</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold text-emerald-600">GHC {revenueData?.totalRevenue?.toFixed(2) ?? '0.00'}</div>
+                <div className="text-xs text-gray-500 mt-2">
+                  From completed orders
                 </div>
               </CardContent>
             </Card>
           </div>
+
+          {/* Moderation Activity Summary */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Filter className="h-5 w-5 mr-2" />
+                  Content Moderation Status
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-600">Pending Approval</span>
+                    <Badge variant="secondary">{(pendingContent?.listings?.length ?? 0) + (pendingContent?.messages?.length ?? 0)}</Badge>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-600">📝 Listings</span>
+                    <span className="text-sm font-medium">{pendingContent?.listings?.length ?? 0}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-600">💬 Messages</span>
+                    <span className="text-sm font-medium">{pendingContent?.messages?.length ?? 0}</span>
+                  </div>
+                </div>
+                {analytics && (
+                  <div className="mt-4 pt-4 border-t">
+                    <div className="text-sm font-medium mb-2">Approval Rate</div>
+                    <div className="space-y-1 text-xs text-gray-600">
+                      <div>Listings: {analytics.summary.listings.total > 0 ? ((analytics.summary.listings.approved / analytics.summary.listings.total) * 100).toFixed(1) : 0}%</div>
+                      <div>Messages: {analytics.summary.messages.total > 0 ? ((analytics.summary.messages.approved / analytics.summary.messages.total) * 100).toFixed(1) : 0}%</div>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Shield className="h-5 w-5 mr-2" />
+                  Escrow Status
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-600">Total Escrows</span>
+                    <span className="text-sm font-bold">{escrows?.length ?? 0}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-600">⚠️ Disputed</span>
+                    <Badge variant="destructive">{escrows?.filter(e => e.status === 'disputed').length ?? 0}</Badge>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-600">✅ Completed</span>
+                    <span className="text-sm font-medium text-green-600">{escrows?.filter(e => e.status === 'completed').length ?? 0}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-600">🔒 Active</span>
+                    <span className="text-sm font-medium">{escrows?.filter(e => e.status === 'upfront_held' || e.status === 'remaining_released').length ?? 0}</span>
+                  </div>
+                </div>
+                <div className="mt-4 pt-4 border-t">
+                  <div className="text-sm font-medium mb-1">Total Protected Value</div>
+                  <div className="text-2xl font-bold text-emerald-600">
+                    GHC {escrows?.reduce((sum, e) => sum + (parseFloat(e.amount as any) || 0), 0)?.toFixed(2) ?? '0.00'}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Quick Actions */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <AlertTriangle className="h-5 w-5 mr-2" />
+                Requires Immediate Attention
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {(pendingContent?.listings?.length ?? 0) > 0 && (
+                  <div className="flex items-center justify-between p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                    <div className="flex items-center">
+                      <CheckSquare className="h-5 w-5 mr-3 text-yellow-600" />
+                      <div>
+                        <div className="font-medium text-sm">Pending Listings</div>
+                        <div className="text-xs text-gray-600">{pendingContent?.listings?.length ?? 0} listings waiting for approval</div>
+                      </div>
+                    </div>
+                    <Button size="sm" onClick={() => setActiveTab('moderation')}>Review</Button>
+                  </div>
+                )}
+                {(escrows?.filter(e => e.status === 'disputed').length ?? 0) > 0 && (
+                  <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-200">
+                    <div className="flex items-center">
+                      <Shield className="h-5 w-5 mr-3 text-red-600" />
+                      <div>
+                        <div className="font-medium text-sm">Disputed Escrows</div>
+                        <div className="text-xs text-gray-600">{escrows?.filter(e => e.status === 'disputed').length ?? 0} disputes require resolution</div>
+                      </div>
+                    </div>
+                    <Button size="sm" variant="destructive" onClick={() => setActiveTab('escrow')}>Resolve</Button>
+                  </div>
+                )}
+                {(pendingContent?.listings?.length ?? 0) === 0 && (escrows?.filter(e => e.status === 'disputed').length ?? 0) === 0 && (
+                  <div className="text-center py-8 text-gray-500">
+                    <CheckSquare className="h-12 w-12 mx-auto mb-3 text-green-500" />
+                    <p className="font-medium">All caught up!</p>
+                    <p className="text-sm">No pending actions require your attention.</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="moderation" className="space-y-6">
@@ -796,7 +1066,7 @@ function AdminDashboardContent() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  ${escrows?.reduce((sum, e) => sum + e.totalAmount, 0)?.toFixed(2) ?? '0.00'}
+                  GHC {escrows?.reduce((sum, e) => sum + (parseFloat(e.amount as any) || 0), 0)?.toFixed(2) ?? '0.00'}
                 </div>
                 <div className="text-xs text-gray-500 mt-1">
                   Protected by escrow
@@ -857,74 +1127,181 @@ function AdminDashboardContent() {
                         </div>
                         <p className="text-sm text-gray-600">{getEscrowStatusDescription(escrow)}</p>
                         <div className="flex gap-4 text-xs text-gray-500">
-                          <span>Total: ${escrow.totalAmount.toFixed(2)}</span>
-                          <span>Upfront: ${escrow.upfrontAmount.toFixed(2)}</span>
-                          <span>Remaining: ${escrow.remainingAmount.toFixed(2)}</span>
+                          <span>Total: GHC {(parseFloat(escrow.amount as any) || 0).toFixed(2)}</span>
+                          <span>Upfront: GHC {(parseFloat(escrow.upfrontAmount as any) || 0).toFixed(2)}</span>
+                          <span>Remaining: GHC {(parseFloat(escrow.remainingAmount as any) || 0).toFixed(2)}</span>
                         </div>
                         <div className="text-xs text-gray-500">
                           Created: {new Date(escrow.createdAt).toLocaleDateString()}
                           {escrow.disputedAt && ` | Disputed: ${new Date(escrow.disputedAt).toLocaleDateString()}`}
                         </div>
                       </div>
-                      {escrow.status === 'disputed' && (
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              size="sm"
-                              onClick={() => setEscrowResolution({ escrowId: escrow.id, resolution: 'buyer' })}
-                            >
-                              <Shield className="h-4 w-4 mr-1" />
-                              Resolve Dispute
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Resolve Escrow Dispute</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Resolve the dispute for Order #{escrow.orderId}. Choose who should receive the escrowed funds.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <div className="py-4 space-y-4">
-                              <div className="space-y-2">
-                                <Label>Dispute Reason</Label>
-                                <p className="text-sm text-gray-600 bg-gray-50 p-2 rounded">
-                                  {escrow.disputeReason}
-                                </p>
-                              </div>
-                              <div className="space-y-2">
-                                <Label>Resolution</Label>
-                                <Select
-                                  value={escrowResolution?.resolution || 'buyer'}
-                                  onValueChange={(value: 'buyer' | 'farmer' | 'split') =>
-                                    setEscrowResolution(prev => prev ? { ...prev, resolution: value } : null)
-                                  }
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="buyer">Return to Buyer</SelectItem>
-                                    <SelectItem value="farmer">Release to Farmer</SelectItem>
-                                    <SelectItem value="split">Split 50/50</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            </div>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel onClick={() => setEscrowResolution(null)}>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => resolveEscrowMutation.mutate({
-                                  escrowId: escrow.id,
-                                  resolution: escrowResolution?.resolution || 'buyer'
-                                })}
-                                disabled={resolveEscrowMutation.isPending}
+                      <div className="flex gap-2">
+                        {/* Dispute Resolution */}
+                        {escrow.status === 'disputed' && (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => setEscrowResolution({ escrowId: escrow.id, resolution: 'buyer' })}
                               >
+                                <Shield className="h-4 w-4 mr-1" />
                                 Resolve Dispute
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      )}
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Resolve Escrow Dispute</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Resolve the dispute for Order #{escrow.orderId}. Choose who should receive the escrowed funds.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <div className="py-4 space-y-4">
+                                <div className="space-y-2">
+                                  <Label>Dispute Reason</Label>
+                                  <p className="text-sm text-gray-600 bg-gray-50 p-2 rounded">
+                                    {escrow.disputeReason}
+                                  </p>
+                                </div>
+                                <div className="space-y-2">
+                                  <Label>Resolution</Label>
+                                  <Select
+                                    value={escrowResolution?.resolution || 'buyer'}
+                                    onValueChange={(value: 'buyer' | 'farmer' | 'split') =>
+                                      setEscrowResolution(prev => prev ? { ...prev, resolution: value } : null)
+                                    }
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="buyer">Return to Buyer</SelectItem>
+                                      <SelectItem value="farmer">Release to Farmer</SelectItem>
+                                      <SelectItem value="split">Split 50/50</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel onClick={() => setEscrowResolution(null)}>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => resolveEscrowMutation.mutate({
+                                    escrowId: escrow.id,
+                                    resolution: escrowResolution?.resolution || 'buyer'
+                                  })}
+                                  disabled={resolveEscrowMutation.isPending}
+                                >
+                                  Resolve Dispute
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
+
+                        {/* Release to Farmer (for UPFRONT_HELD or REMAINING_RELEASED) */}
+                        {(escrow.status === 'upfront_held' || escrow.status === 'remaining_released') && (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="default"
+                                onClick={() => setEscrowAction({ escrowId: escrow.id, action: 'release' })}
+                              >
+                                <CheckSquare className="h-4 w-4 mr-1" />
+                                Release to Farmer
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Release Escrow to Farmer</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Release GHC {(parseFloat(escrow.amount as any) || 0).toFixed(2)} to the farmer for Order #{escrow.orderId}.
+                                  This action cannot be undone.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <div className="py-4 space-y-2">
+                                <Label htmlFor="release-reason">Reason (Optional)</Label>
+                                <Input
+                                  id="release-reason"
+                                  placeholder="e.g., Order confirmed complete"
+                                  value={escrowAction?.reason || ''}
+                                  onChange={(e) => setEscrowAction(prev => prev ? { ...prev, reason: e.target.value } : null)}
+                                />
+                              </div>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel onClick={() => setEscrowAction(null)}>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => releaseEscrowMutation.mutate({
+                                    escrowId: escrow.id,
+                                    reason: escrowAction?.reason
+                                  })}
+                                  disabled={releaseEscrowMutation.isPending}
+                                >
+                                  Release Funds
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
+
+                        {/* Refund to Buyer (for UPFRONT_HELD or REMAINING_RELEASED) */}
+                        {(escrow.status === 'upfront_held' || escrow.status === 'remaining_released') && (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setEscrowAction({ escrowId: escrow.id, action: 'refund' })}
+                              >
+                                <AlertTriangle className="h-4 w-4 mr-1" />
+                                Refund to Buyer
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Refund Escrow to Buyer</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Refund GHC {(parseFloat(escrow.amount as any) || 0).toFixed(2)} to the buyer for Order #{escrow.orderId}.
+                                  This action cannot be undone.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <div className="py-4 space-y-2">
+                                <Label htmlFor="refund-reason">Reason (Required)</Label>
+                                <Input
+                                  id="refund-reason"
+                                  placeholder="e.g., Farmer cannot fulfill order"
+                                  value={escrowAction?.reason || ''}
+                                  onChange={(e) => setEscrowAction(prev => prev ? { ...prev, reason: e.target.value } : null)}
+                                  required
+                                />
+                              </div>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel onClick={() => setEscrowAction(null)}>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => {
+                                    if (!escrowAction?.reason?.trim()) {
+                                      toast({
+                                        title: "Reason required",
+                                        description: "Please provide a reason for the refund.",
+                                        variant: "destructive"
+                                      });
+                                      return;
+                                    }
+                                    refundEscrowMutation.mutate({
+                                      escrowId: escrow.id,
+                                      reason: escrowAction.reason
+                                    });
+                                  }}
+                                  disabled={refundEscrowMutation.isPending}
+                                >
+                                  Refund to Buyer
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))
@@ -936,9 +1313,213 @@ function AdminDashboardContent() {
         </TabsContent>
 
         <TabsContent value="users" className="space-y-6">
-          <div className="text-center py-8">
-            <p className="text-gray-500">User management features coming soon...</p>
+          {/* User Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-gray-600 flex items-center">
+                  <Users className="h-4 w-4 mr-2" />
+                  Total Users
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{allUsers?.length ?? 0}</div>
+                <div className="text-xs text-gray-500 mt-1">Registered accounts</div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-gray-600">Active Users</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-green-600">
+                  {allUsers?.filter(u => u.isActive).length ?? 0}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">Can access platform</div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-gray-600">Verified</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-blue-600">
+                  {allUsers?.filter(u => u.verified).length ?? 0}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">Email verified</div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-gray-600">Inactive</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-red-600">
+                  {allUsers?.filter(u => !u.isActive).length ?? 0}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">Deactivated accounts</div>
+              </CardContent>
+            </Card>
           </div>
+
+          {/* User Filters */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Users className="h-5 w-5 mr-2" />
+                User Management
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="user-search">Search Users</Label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                    <Input
+                      id="user-search"
+                      placeholder="Name or email..."
+                      value={userSearchTerm}
+                      onChange={(e) => setUserSearchTerm(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="user-role-filter">Role Filter</Label>
+                  <Select value={userRoleFilter} onValueChange={setUserRoleFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Filter by role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Roles</SelectItem>
+                      <SelectItem value="farmer">Farmers</SelectItem>
+                      <SelectItem value="buyer">Buyers</SelectItem>
+                      <SelectItem value="field_officer">Field Officers</SelectItem>
+                      <SelectItem value="admin">Admins</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="user-status-filter">Status Filter</Label>
+                  <Select value={userStatusFilter} onValueChange={setUserStatusFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Filter by status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="inactive">Inactive</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* User List */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                Users
+                <Badge variant="outline">{filteredUsers.length}</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {usersLoading ? (
+                <div className="text-center py-4">Loading users...</div>
+              ) : filteredUsers.length > 0 ? (
+                <div className="space-y-3">
+                  {filteredUsers.map((user) => (
+                    <div key={user.id} className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h3 className="font-medium">{user.fullName}</h3>
+                            <Badge variant={getRoleBadgeColor(user.role)}>
+                              {user.role.replace('_', ' ')}
+                            </Badge>
+                            {user.verified && (
+                              <Badge variant="outline" className="bg-blue-50 text-blue-700">
+                                ✓ Verified
+                              </Badge>
+                            )}
+                            {!user.isActive && (
+                              <Badge variant="destructive">
+                                Inactive
+                              </Badge>
+                            )}
+                          </div>
+                          
+                          <div className="text-sm text-gray-600 space-y-1">
+                            <div>📧 {user.email}</div>
+                            {user.phone && <div>📱 {user.phone}</div>}
+                            {user.region && <div>📍 {user.region}</div>}
+                            {user.businessName && <div>🏢 {user.businessName}</div>}
+                            {user.farmSize && <div>🌾 {user.farmSize}</div>}
+                            <div>💰 Wallet: ${parseFloat(user.walletBalance || '0').toFixed(2)}</div>
+                            <div className="text-xs text-gray-400">
+                              Joined: {new Date(user.createdAt).toLocaleDateString()}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col gap-2">
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button 
+                                size="sm" 
+                                variant={user.isActive ? "destructive" : "default"}
+                                disabled={toggleUserStatusMutation.isPending}
+                              >
+                                {user.isActive ? 'Deactivate' : 'Activate'}
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>
+                                  {user.isActive ? 'Deactivate' : 'Activate'} User Account
+                                </AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  {user.isActive 
+                                    ? `This will prevent ${user.fullName} from accessing their account. They will not be able to log in or use any platform features.`
+                                    : `This will restore ${user.fullName}'s access to their account. They will be able to log in and use all platform features.`
+                                  }
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => toggleUserStatusMutation.mutate({ 
+                                    userId: user.id, 
+                                    isActive: !user.isActive 
+                                  })}
+                                  className={user.isActive ? 'bg-red-600 hover:bg-red-700' : ''}
+                                >
+                                  {user.isActive ? 'Deactivate Account' : 'Activate Account'}
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <Users className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                  <p className="font-medium">No users found</p>
+                  <p className="text-sm">Try adjusting your search or filters</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

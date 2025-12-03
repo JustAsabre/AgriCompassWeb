@@ -1,63 +1,66 @@
 import { storage } from "../server/storage.js";
-// Simple hash function for seeding (not for production)
-async function simpleHash(password: string): Promise<string> {
-  // This is just for seeding - in production use proper bcrypt
-  const crypto = await import('crypto');
-  return crypto.createHash('sha256').update(password).digest('hex');
-}
+import bcrypt from "bcryptjs";
 
 async function seedInitialAdmin() {
   try {
     console.log("Checking for existing admin users...");
 
-    // Check if any admin already exists
-    const allUsers = await storage.getAllUsers();
-    const existingAdmin = allUsers.find(user => user.role === "admin");
+    // Check if admin already exists by email
+    const adminEmail = "rasabre211@gmail.com";
+    const existingAdmin = await storage.getUserByEmail(adminEmail);
 
     if (existingAdmin) {
-      console.log("Admin user already exists:", existingAdmin.username);
+      console.log("Admin user already exists!");
+      console.log("Email:", existingAdmin.email);
+      console.log("Username:", existingAdmin.username);
+      console.log("Role:", existingAdmin.role);
+      
+      // Update to admin role if not already
+      if (existingAdmin.role !== "admin") {
+        console.log("Updating user role to admin...");
+        await storage.updateUser(existingAdmin.id, { role: "admin", verified: true });
+        console.log("✅ User updated to admin role!");
+      }
       return;
     }
 
     console.log("Creating initial admin user...");
 
-    // Create initial admin user
-    const adminPassword = process.env.INITIAL_ADMIN_PASSWORD || "admin123";
-    const hashedPassword = await simpleHash(adminPassword);
+    // Hash password using bcrypt
+    const hashedPassword = await bcrypt.hash("TELLnobody00211", 10);
 
     const adminUser = {
-      username: "admin",
-      email: "admin@agricompass.com",
+      username: "Richard Admin",
+      email: adminEmail,
       password: hashedPassword,
-      role: "admin",
+      role: "admin" as const,
       verified: true,
       phoneNumber: null,
       location: null,
       profileImageUrl: null,
-      bio: "Initial admin user",
-      lastLogin: null,
-      createdAt: new Date(),
+      bio: "System Administrator",
+      resetToken: null,
+      resetTokenExpiry: null,
     };
 
-    // Use the storage method to create user (assuming it exists, or we need to add it)
-    // For now, we'll directly add to the users map since MemStorage doesn't have a createUser method
-    const adminId = "admin-" + Date.now();
-    (storage as any).users.set(adminId, { ...adminUser, id: adminId });
+    const newAdmin = await storage.createUser(adminUser);
 
-    console.log("Initial admin user created successfully!");
-    console.log("Username: admin");
-    console.log("Email: admin@agricompass.com");
-    console.log("Password:", adminPassword);
-    console.log("Please change the password after first login!");
+    console.log("\n✅ Initial admin user created successfully!");
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    console.log("Email:    rasabre211@gmail.com");
+    console.log("Password: TELLnobody00211");
+    console.log("Role:     admin");
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    console.log("\n⚠️  Please change the password after first login!");
 
   } catch (error) {
-    console.error("Error seeding initial admin:", error);
+    console.error("❌ Error seeding initial admin:", error);
     process.exit(1);
   }
 }
 
 // Run the seeding script
 seedInitialAdmin().then(() => {
-  console.log("Admin seeding completed.");
+  console.log("\n✅ Admin seeding completed.");
   process.exit(0);
 });

@@ -2516,6 +2516,59 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
 
+  // Update pricing tier (farmer only)
+  app.patch("/api/pricing-tiers/:id", requireRole("farmer"), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const farmerId = req.session.user!.id;
+      const { minQuantity, price } = req.body;
+
+      // Get the tier to verify ownership
+      const tier = await storage.getPricingTier(id);
+      if (!tier) {
+        return res.status(404).json({ message: "Pricing tier not found" });
+      }
+
+      // Verify listing ownership
+      const listing = await storage.getListing(tier.listingId);
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+      if (listing.farmerId !== farmerId) {
+        return res.status(403).json({ message: "Not authorized to modify this pricing tier" });
+      }
+
+      // Validate inputs if provided
+      if (minQuantity !== undefined && minQuantity < 1) {
+        return res.status(400).json({ message: "Minimum quantity must be at least 1" });
+      }
+
+      if (price !== undefined && price <= 0) {
+        return res.status(400).json({ message: "Price must be greater than 0" });
+      }
+
+      // Check for duplicate minQuantity (excluding current tier)
+      if (minQuantity !== undefined) {
+        const existingTiers = await storage.getPricingTiersByListing(tier.listingId);
+        const duplicate = existingTiers.find((t: any) => t.id !== id && t.minQuantity === minQuantity);
+        if (duplicate) {
+          return res.status(400).json({ message: "A tier with this minimum quantity already exists" });
+        }
+      }
+
+      // Update the tier
+      const updateData: any = {};
+      if (minQuantity !== undefined) updateData.minQuantity = minQuantity;
+      if (price !== undefined) updateData.price = price;
+
+      const updated = await storage.updatePricingTier(id, updateData);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Update pricing tier error:", error);
+      res.status(500).json({ message: error.message || "Failed to update pricing tier" });
+    }
+  });
+
   // ==================== REVIEWS ROUTES ====================
 
   // Get reviews for a user (reviewee)
@@ -3807,6 +3860,103 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     } catch (err: any) {
       console.error('Resolve escrow dispute error:', err);
       res.status(500).json({ message: 'Failed to resolve escrow dispute' });
+    }
+  });
+
+  // Admin: Release funds to farmer (for UPFRONT_HELD or REMAINING_RELEASED status)
+  app.post('/api/admin/escrow/:id/release', requireRole('admin'), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+
+      const escrow = await storage.getEscrow(id);
+      if (!escrow) {
+        return res.status(404).json({ message: 'Escrow not found' });
+      }
+
+      if (!escrow.status || !['upfront_held', 'remaining_released'].includes(escrow.status)) {
+        return res.status(400).json({ message: 'Can only release funds from active escrow' });
+      }
+
+      const updated = await storage.updateEscrowStatus(id, 'completed', {
+        disputeReason: reason || 'Admin released funds to farmer',
+        disputeResolvedAt: new Date(),
+      });
+
+      // Notify both parties
+      await sendNotificationToUser(escrow.farmerId, {
+        userId: escrow.farmerId,
+        type: 'escrow_update',
+        title: 'Escrow Released',
+        message: `Admin has released your escrow funds. Reason: ${reason || 'Order approved'}`,
+        relatedId: escrow.id,
+        relatedType: 'escrow',
+      }, io);
+
+      await sendNotificationToUser(escrow.buyerId, {
+        userId: escrow.buyerId,
+        type: 'escrow_update',
+        title: 'Escrow Completed',
+        message: `Admin has released escrow to farmer. Reason: ${reason || 'Order approved'}`,
+        relatedId: escrow.id,
+        relatedType: 'escrow',
+      }, io);
+
+      res.json(updated);
+    } catch (err: any) {
+      console.error('Release escrow error:', err);
+      res.status(500).json({ message: 'Failed to release escrow' });
+    }
+  });
+
+  // Admin: Refund to buyer (for UPFRONT_HELD or REMAINING_RELEASED status)
+  app.post('/api/admin/escrow/:id/refund', requireRole('admin'), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+
+      if (!reason || reason.trim().length === 0) {
+        return res.status(400).json({ message: 'Reason is required for refunds' });
+      }
+
+      const escrow = await storage.getEscrow(id);
+      if (!escrow) {
+        return res.status(404).json({ message: 'Escrow not found' });
+      }
+
+      if (!escrow.status || !['upfront_held', 'remaining_released', 'disputed'].includes(escrow.status)) {
+        return res.status(400).json({ message: 'Cannot refund escrow in current status' });
+      }
+
+      const updated = await storage.updateEscrowStatus(id, 'completed', {
+        disputeReason: reason,
+        disputeResolution: 'buyer',
+        disputeResolvedAt: new Date(),
+      });
+
+      // Notify both parties
+      await sendNotificationToUser(escrow.buyerId, {
+        userId: escrow.buyerId,
+        type: 'escrow_update',
+        title: 'Escrow Refunded',
+        message: `Admin has refunded your escrow payment. Reason: ${reason}`,
+        relatedId: escrow.id,
+        relatedType: 'escrow',
+      }, io);
+
+      await sendNotificationToUser(escrow.farmerId, {
+        userId: escrow.farmerId,
+        type: 'escrow_update',
+        title: 'Escrow Refunded to Buyer',
+        message: `Admin refunded escrow to buyer. Reason: ${reason}`,
+        relatedId: escrow.id,
+        relatedType: 'escrow',
+      }, io);
+
+      res.json(updated);
+    } catch (err: any) {
+      console.error('Refund escrow error:', err);
+      res.status(500).json({ message: 'Failed to refund escrow' });
     }
   });
 

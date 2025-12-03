@@ -5,6 +5,150 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.2.3] - 2025-12-03
+### Fixed - Admin Dashboard Critical Fixes 🚨
+- **User Management Crash** 💥
+  - Fixed TypeError: "ve.filter is not a function" when clicking User Management tab
+  - Root Cause: Backend returns `{ users: [], pagination: {} }` but frontend expected plain array
+  - Solution: Updated query to extract `users` array from response object
+  - Location: `client/src/pages/admin-dashboard.tsx` line 125-130
+
+- **Listings Filter Syntax Error** 🐛
+  - Fixed broken filter causing JSX parsing errors
+  - Root Cause: Multi-line filter with incorrect parentheses placement
+  - Solution: Reformatted filter with proper null checks and safe property access
+  - Location: `client/src/pages/admin-dashboard.tsx` line 291-295
+
+### Added - Escrow Admin Actions 🛡️
+- **Release Funds to Farmer** ✅
+  - Admin can release escrow funds for UPFRONT_HELD or REMAINING_RELEASED statuses
+  - Endpoint: `POST /api/admin/escrow/:id/release`
+  - UI: Green "Release to Farmer" button with optional reason input
+  - Updates escrow status to COMPLETED
+  - Notifies both buyer and farmer via real-time notifications
+  - Use case: Approve order when buyer hasn't confirmed delivery
+  - Location: `server/routes.ts` line 3868, `client/src/pages/admin-dashboard.tsx` line 1147
+
+- **Refund to Buyer** 💰
+  - Admin can refund escrow funds to buyer for active or disputed escrows
+  - Endpoint: `POST /api/admin/escrow/:id/refund`
+  - UI: Outline "Refund to Buyer" button with required reason input
+  - Updates escrow status to COMPLETED with disputeResolution='buyer'
+  - Notifies both buyer and farmer via real-time notifications
+  - Use case: Farmer cannot fulfill or product unsatisfactory
+  - Requires mandatory reason for audit trail
+  - Location: `server/routes.ts` line 3918, `client/src/pages/admin-dashboard.tsx` line 1189
+
+- **Resolve Dispute** (Enhanced) ⚖️
+  - Existing dispute resolution now styled as red button for urgency
+  - Three options: Return to Buyer, Release to Farmer, Split 50/50
+  - Shows dispute reason in dialog for context
+  - Location: `client/src/pages/admin-dashboard.tsx` line 1099
+
+### Changed - Currency Symbol Update 💱
+- **Replaced $ with GHC** (Ghanaian Cedi)
+  - Changed all currency displays throughout admin dashboard
+  - Affected sections:
+    * Platform Revenue card: `GHC X.XX`
+    * Total Protected Value: `GHC X.XX`
+    * Escrow transaction details: `Total: GHC X.XX`, `Upfront: GHC X.XX`, `Remaining: GHC X.XX`
+    * Escrow status descriptions: All amounts now show GHC
+    * Escrow Total Value card: `GHC X.XX`
+  - Reflects actual marketplace currency (Ghana-based platform)
+  - Location: Multiple locations in `client/src/pages/admin-dashboard.tsx`
+
+### Documentation 📚
+- **Escrow Admin Logic Guide** (NEW)
+  - Created comprehensive escrow management documentation
+  - Explains all 5 escrow statuses and their workflows
+  - Documents admin actions by status with safety rules
+  - Includes recommendations for future enhancements
+  - Location: `ESCROW_ADMIN_LOGIC.md`
+
+### Technical Details
+- **TypeScript Compliance**: All code passes `npm run check` with 0 errors
+- **Build Success**: Production build completes successfully (1.4MB bundle)
+- **Schema Compatibility**: Uses existing escrow fields (no migration required)
+  - `disputeReason` stores admin action reason
+  - `disputeResolution` stores refund target ('buyer' for refunds)
+  - `disputeResolvedAt` stores admin action timestamp
+
+
+## [1.2.2] - 2025-12-03
+### Fixed - Admin Dashboard Critical Issues 🚨
+- **Marketplace Listing Visibility Bug** 🐛
+  - Fixed unapproved listings showing on marketplace
+  - Root Cause: `getAllListingsWithFarmer()` only filtered by `status='active'`, didn't check `moderationStatus`
+  - Solution: Added compound filter `status='active' AND moderationStatus='approved'`
+  - Impact: Pending/rejected listings now properly hidden from buyers
+  - Location: `server/postgresStorage.ts` line 139
+
+- **Escrow Tab Crash** 💥
+  - Fixed TypeError: "Cannot read properties of undefined (reading 'toFixed')"
+  - Root Cause: Code using non-existent `totalAmount` field instead of `amount`
+  - Solution 1: Updated Escrow interface to use correct schema fields (`amount`, `upfrontAmount`, `remainingAmount`)
+  - Solution 2: Added safe parsing `parseFloat(escrow.amount as any) || 0` for decimal values from database
+  - Solution 3: Fixed all escrow calculations in status descriptions and totals
+  - Location: `client/src/pages/admin-dashboard.tsx` lines 60-75, 277, 793
+
+- **Moderation Status Not Updating** 🔄
+  - Fixed approved listings still showing as "pending" in UI after admin approval
+  - Root Cause: Global `invalidateQueries()` was too broad and slow
+  - Solution: Changed to specific query invalidation for instant UI updates
+  - Now invalidates: `/api/admin/moderation/pending`, `/api/admin/moderation/analytics`, `/api/listings`
+  - Applies to: single moderation, bulk moderation, and escrow resolution mutations
+  - Location: `client/src/pages/admin-dashboard.tsx` lines 121-134, 142-155, 164-177
+
+### Enhanced - Admin Dashboard UI 🎨
+- **Overview Tab Redesign**
+  - Added colorful cards with left-border accent (blue, green, purple, emerald)
+  - Increased font sizes: stats now 3xl, revenue 2xl for better hierarchy
+  - Added emoji icons for visual clarity (👥, 📦, 📋, 💰)
+  - Created two-column layout: Moderation Status & Escrow Status summaries
+  - Added "Requires Immediate Attention" section with:
+    * Yellow alert for pending listings with direct "Review" button
+    * Red alert for disputed escrows with "Resolve" button
+    * Green "All caught up!" message when no actions needed
+  - Shows approval rates, active escrows, total protected value
+  - Location: `client/src/pages/admin-dashboard.tsx` lines 340-497
+
+- **User Management Tab Implementation** 👥
+  - Built complete user management interface (was "coming soon" placeholder)
+  - Stats Cards:
+    * Total Users (all registered accounts)
+    * Active Users (can access platform)
+    * Verified Users (email confirmed)
+    * Inactive Users (deactivated accounts)
+  - Advanced Filtering:
+    * Search by name or email (real-time)
+    * Filter by role (farmer, buyer, field_officer, admin)
+    * Filter by status (active/inactive)
+  - User Details Display:
+    * Color-coded role badges
+    * Verification status badge
+    * Contact info (email, phone, region)
+    * Business details (businessName, farmSize)
+    * Wallet balance
+    * Account creation date
+  - Admin Actions:
+    * Activate/Deactivate accounts with confirmation dialog
+    * Explains consequences of action to admin
+    * Instant UI update after status change
+  - Empty state with helpful message when no users match filters
+  - Backend: Uses existing `/api/admin/users` and `/api/admin/users/:id/status` endpoints
+  - Location: `client/src/pages/admin-dashboard.tsx` lines 95-117, 180-192, 324-336
+
+### Technical Improvements
+- **Query Optimization**
+  - Changed from global query invalidation to targeted invalidation
+  - Faster UI updates after admin actions
+  - Reduced unnecessary API calls
+
+- **Type Safety**
+  - Added User interface for admin user management
+  - Updated Escrow interface to match actual database schema
+  - Proper decimal handling for monetary fields
+
 ## [1.2.1] - 2025-12-03
 ### Fixed - Edit Listing Bug
 - **Edit Listing Form Loading** 🐛
