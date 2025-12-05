@@ -9,11 +9,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { FileUpload } from "@/components/ui/file-upload";
 import { useToast } from "@/hooks/use-toast";
 import { insertListingSchema, Listing } from "@shared/schema";
 import { z } from "zod";
-import { ChevronLeft, Loader2, X } from "lucide-react";
+import { ChevronLeft, Loader2, X, Info } from "lucide-react";
 import { apiRequest, queryClient, getCsrfToken } from "@/lib/queryClient";
 import { PricingTierForm } from "@/components/pricing-tier-form";
 
@@ -128,7 +129,7 @@ export default function CreateListing() {
         title: "Success!",
         description: isEditMode
           ? "Your listing has been updated successfully."
-          : "Your listing has been created successfully.",
+          : "Your listing has been created and is pending admin approval. It will be visible to buyers once approved.",
       });
       setLocation("/farmer/dashboard");
     },
@@ -255,6 +256,14 @@ export default function CreateListing() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {!isEditMode && (
+              <Alert className="mb-6 border-blue-200 bg-blue-50">
+                <Info className="h-4 w-4 text-blue-600" />
+                <AlertDescription className="text-blue-900">
+                  <strong>Admin Approval Required:</strong> New listings will be reviewed by our admin team before appearing on the marketplace. This helps maintain quality and trust in our platform.
+                </AlertDescription>
+              </Alert>
+            )}
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                 <FormField
