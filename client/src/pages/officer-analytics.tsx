@@ -33,7 +33,7 @@ export default function OfficerAnalytics() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-gradient-subtle">
         <div className="container mx-auto px-4 py-8 max-w-screen-2xl">
           <div className="mb-8">
             <Skeleton className="h-10 w-64 mb-2" />
@@ -50,7 +50,7 @@ export default function OfficerAnalytics() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-gradient-subtle">
       <div className="container mx-auto px-4 py-8 max-w-screen-2xl">
         <div className="mb-8">
           <h1 className="text-3xl md:text-4xl font-bold text-foreground">Officer Analytics</h1>

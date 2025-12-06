@@ -420,7 +420,7 @@ function AdminDashboardContent() {
 
   return (
     <motion.div 
-      className="p-6"
+      className="p-6 min-h-screen bg-gradient-subtle"
       initial="hidden"
       animate="visible"
       variants={staggerContainer}

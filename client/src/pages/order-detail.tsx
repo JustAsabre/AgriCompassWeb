@@ -305,7 +305,7 @@ export default function OrderDetail() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-subtle flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4"></div>
           <p className="text-muted-foreground">Loading order details...</p>
@@ -316,7 +316,7 @@ export default function OrderDetail() {
 
   if (!order) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-subtle flex items-center justify-center">
         <Card className="max-w-md">
           <CardContent className="p-8 text-center">
             <Package className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
@@ -347,7 +347,7 @@ export default function OrderDetail() {
 
   return (
       <motion.div 
-        className="min-h-screen bg-background print:bg-white"
+        className="min-h-screen bg-gradient-subtle print:bg-white"
         initial="hidden"
         animate="visible"
         variants={staggerContainer}

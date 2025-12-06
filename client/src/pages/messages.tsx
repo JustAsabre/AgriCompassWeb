@@ -211,7 +211,7 @@ export default function Messages() {
 
   return (
     <motion.div 
-      className="min-h-screen bg-background"
+      className="min-h-screen bg-gradient-subtle"
       initial="hidden"
       animate="visible"
       variants={staggerContainer}
@@ -224,16 +224,19 @@ export default function Messages() {
           </p>
         </motion.div>
 
-        <motion.div className="grid lg:grid-cols-3 gap-6 h-[calc(100vh-12rem)] min-h-[500px]" variants={staggerItem}>
+        <motion.div 
+          className="grid lg:grid-cols-3 gap-4 md:gap-6 h-[calc(100vh-12rem)] min-h-[500px]" 
+          variants={staggerItem}
+        >
           {/* Conversations List */}
-          <Card className="lg:col-span-1">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <MessageSquare className="h-5 w-5" />
+          <Card className="lg:col-span-1 glass-effect">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <MessageSquare className="h-5 w-5 text-primary" />
                 Conversations
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-0 flex flex-col h-full">
+            <CardContent className="p-0 flex flex-col h-[calc(100%-4rem)]">
               <ScrollArea className="flex-1">
                 {conversationsLoading ? (
                   <div className="space-y-2 p-4">
@@ -247,29 +250,30 @@ export default function Messages() {
                       <button
                         key={conversation.otherUser.id}
                         onClick={() => handleSelectConversation(conversation.otherUser.id)}
-                        className={`w-full p-4 text-left hover:bg-accent transition-colors ${selectedConversation === conversation.otherUser.id
-                          ? "bg-accent"
-                          : ""
-                          }`}
+                        className={`w-full p-3 md:p-4 text-left hover:bg-accent/50 transition-all duration-200 ${
+                          selectedConversation === conversation.otherUser.id
+                            ? "bg-accent/70 border-l-4 border-primary"
+                            : ""
+                        }`}
                       >
                         <div className="flex items-center gap-3">
-                          <Avatar>
-                            <AvatarFallback>
+                          <Avatar className="h-10 w-10 md:h-12 md:w-12 ring-2 ring-primary/20">
+                            <AvatarFallback className="bg-primary/10 text-primary font-semibold">
                               {conversation.otherUser.fullName.charAt(0)}
                             </AvatarFallback>
                           </Avatar>
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="font-semibold truncate">
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <p className="font-semibold truncate text-sm md:text-base">
                                 {conversation.otherUser.fullName}
                               </p>
                               {conversation.unreadCount > 0 && (
-                                <Badge variant="default" className="shrink-0">
+                                <Badge variant="default" className="shrink-0 h-5 min-w-5 px-1.5 text-xs">
                                   {conversation.unreadCount}
                                 </Badge>
                               )}
                             </div>
-                            <p className="text-sm text-muted-foreground truncate">
+                            <p className="text-xs md:text-sm text-muted-foreground truncate">
                               {conversation.lastMessage.content}
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
@@ -285,7 +289,8 @@ export default function Messages() {
                 ) : (
                   <div className="p-8 text-center text-muted-foreground">
                     <MessageSquare className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                    <p>No conversations yet</p>
+                    <p className="font-medium">No conversations yet</p>
+                    <p className="text-sm mt-1">Start chatting to see your conversations here</p>
                   </div>
                 )}
               </ScrollArea>
@@ -293,19 +298,21 @@ export default function Messages() {
           </Card>
 
           {/* Chat Area */}
-          <Card className="lg:col-span-2">
+          <Card className="lg:col-span-2 glass-effect">
             {selectedConversation && effectiveConversationData ? (
               <>
-                <CardHeader className="border-b">
+                <CardHeader className="border-b bg-gradient-radial py-3 md:py-4">
                   <div className="flex items-center gap-3">
-                    <Avatar>
-                      <AvatarFallback>
+                    <Avatar className="h-10 w-10 md:h-12 md:w-12 ring-2 ring-primary/20">
+                      <AvatarFallback className="bg-primary/10 text-primary font-semibold">
                         {effectiveConversationData.otherUser.fullName.charAt(0)}
                       </AvatarFallback>
                     </Avatar>
                     <div>
-                      <CardTitle>{effectiveConversationData.otherUser.fullName}</CardTitle>
-                      <p className="text-sm text-muted-foreground capitalize">
+                      <CardTitle className="text-base md:text-lg">
+                        {effectiveConversationData.otherUser.fullName}
+                      </CardTitle>
+                      <p className="text-xs md:text-sm text-muted-foreground capitalize">
                         {effectiveConversationData.otherUser.role}
                       </p>
                     </div>
@@ -313,7 +320,7 @@ export default function Messages() {
                 </CardHeader>
                 <CardContent className="p-0 flex flex-col h-[calc(100%-5rem)]">
                   {/* Messages */}
-                  <ScrollArea className="flex-1 p-4">
+                  <ScrollArea className="flex-1 p-3 md:p-4 bg-mesh-pattern">
                     {messagesLoading ? (
                       <div className="space-y-4">
                         {[...Array(3)].map((_, i) => (
@@ -321,45 +328,53 @@ export default function Messages() {
                         ))}
                       </div>
                     ) : (
-                      <div className="space-y-4">
+                      <div className="space-y-3 md:space-y-4">
                         {(messages && messages.length > 0) ? messages.map((message) => {
                           const isOwn = message.senderId === user?.id;
                           return (
-                            <div
+                            <motion.div
                               key={message.id}
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
                               className={`flex ${isOwn ? "justify-end" : "justify-start"}`}
                             >
                               <div
-                                className={`max-w-[70%] rounded-lg p-3 ${isOwn
-                                  ? "bg-primary text-primary-foreground"
-                                  : "bg-muted"
-                                  }`}
+                                className={`max-w-[85%] md:max-w-[70%] rounded-lg p-3 shadow-sm ${
+                                  isOwn
+                                    ? "bg-primary text-primary-foreground rounded-br-sm"
+                                    : "bg-card text-card-foreground rounded-bl-sm border"
+                                }`}
                               >
-                                <p className="text-sm">{message.content}</p>
+                                <p className="text-sm md:text-base break-words">{message.content}</p>
                                 <p
-                                  className={`text-xs mt-1 ${isOwn
-                                    ? "text-primary-foreground/70"
-                                    : "text-muted-foreground"
-                                    }`}
+                                  className={`text-xs mt-1 ${
+                                    isOwn
+                                      ? "text-primary-foreground/70"
+                                      : "text-muted-foreground"
+                                  }`}
                                 >
                                   {formatDistanceToNow(new Date(message.createdAt!), {
                                     addSuffix: true,
                                   })}
                                 </p>
                               </div>
-                            </div>
+                            </motion.div>
                           );
                         }) : (
                           <div className="text-center text-muted-foreground py-8">
                             <MessageSquare className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                            <p>No messages yet</p>
-                            <p className="text-sm">Start the conversation below</p>
+                            <p className="font-medium">No messages yet</p>
+                            <p className="text-sm mt-1">Start the conversation below</p>
                           </div>
                         )}
                         {isTyping && (
                           <div className="flex justify-start">
-                            <div className="bg-muted rounded-lg p-3">
-                              <p className="text-sm text-muted-foreground">typing...</p>
+                            <div className="bg-muted rounded-lg p-3 rounded-bl-sm">
+                              <div className="flex gap-1">
+                                <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                                <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                                <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                              </div>
                             </div>
                           </div>
                         )}
@@ -369,7 +384,7 @@ export default function Messages() {
                   </ScrollArea>
 
                   {/* Message Input */}
-                  <div className="p-4 border-t">
+                  <div className="p-3 md:p-4 border-t bg-background/50">
                     <div className="flex gap-2">
                       <Input
                         value={messageInput}
@@ -390,6 +405,7 @@ export default function Messages() {
                         onClick={handleSendMessage}
                         disabled={!messageInput.trim()}
                         size="icon"
+                        className="shrink-0"
                       >
                         <Send className="h-4 w-4" />
                       </Button>
@@ -398,11 +414,11 @@ export default function Messages() {
                 </CardContent>
               </>
             ) : (
-              <CardContent className="flex items-center justify-center h-full">
+              <CardContent className="flex items-center justify-center h-full bg-mesh-pattern">
                 <div className="text-center text-muted-foreground">
                   <MessageSquare className="h-16 w-16 mx-auto mb-4 opacity-50" />
                   <p className="text-lg font-semibold">No conversation selected</p>
-                  <p className="text-sm">Choose a conversation to start messaging</p>
+                  <p className="text-sm mt-1">Choose a conversation to start messaging</p>
                 </div>
               </CardContent>
             )}

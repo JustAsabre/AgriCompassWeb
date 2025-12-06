@@ -85,7 +85,7 @@ export default function AdminReviews() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-gradient-subtle">
         <div className="container mx-auto px-4 py-8">
           <h1 className="text-3xl md:text-4xl font-bold text-foreground mb-8">Review Moderation</h1>
           <div className="space-y-4">
@@ -110,7 +110,7 @@ export default function AdminReviews() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-gradient-subtle">
       <div className="container mx-auto px-4 py-8 max-w-6xl">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
           <h1 className="text-3xl md:text-4xl font-bold text-foreground">Review Moderation</h1>

@@ -28,6 +28,8 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { PricingTierDisplay } from "@/components/pricing-tier-display";
 import { RatingStars } from "@/components/rating-stars";
+import { motion } from "framer-motion";
+import { fadeIn, staggerContainer } from "@/lib/animations";
 
 export default function ProductDetail() {
   const { id } = useParams();
@@ -123,10 +125,8 @@ export default function ProductDetail() {
           </div>
         </div>
       </div>
-    );
-  }
-
-  if (!listing) {
+  );
+}  if (!listing) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Card className="p-12">
@@ -143,7 +143,12 @@ export default function ProductDetail() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <motion.div 
+      className="min-h-screen bg-gradient-subtle"
+      initial="hidden"
+      animate="visible"
+      variants={staggerContainer}
+    >
       <div className="container mx-auto px-4 py-8">
         {/* Back Button */}
         <Button
@@ -378,6 +383,6 @@ export default function ProductDetail() {
           </TabsContent>
         </Tabs>
       </div>
-    </div>
+    </motion.div>
   );
 }

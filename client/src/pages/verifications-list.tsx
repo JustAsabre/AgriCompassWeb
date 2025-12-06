@@ -11,6 +11,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { ShieldCheck, User, MapPin, Calendar, FileText, CheckCircle, XCircle, Clock } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { motion } from "framer-motion";
+import { fadeIn, staggerContainer } from "@/lib/animations";
 
 interface Verification {
   id: string;
@@ -197,7 +199,12 @@ export default function VerificationsList() {
   }
 
   return (
-    <div className="min-h-screen bg-background py-8">
+    <motion.div 
+      className="min-h-screen bg-gradient-subtle py-8"
+      initial="hidden"
+      animate="visible"
+      variants={staggerContainer}
+    >
       <div className="container mx-auto px-4">
         <div className="mb-8">
           <div className="flex items-center gap-2 mb-2">
@@ -326,6 +333,6 @@ export default function VerificationsList() {
           </DialogContent>
         </Dialog>
       </div>
-    </div>
+    </motion.div>
   );
 }

@@ -46,7 +46,7 @@ export default function FarmerAnalytics() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20">
+      <div className="min-h-screen bg-gradient-subtle">
         <div className="container mx-auto px-4 py-8">
           <Skeleton className="h-12 w-64 mb-8" />
           <div className="grid md:grid-cols-3 gap-6 mb-8">
@@ -105,7 +105,7 @@ export default function FarmerAnalytics() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20">
+    <div className="min-h-screen bg-gradient-subtle">
       <div className="container mx-auto px-4 py-8 max-w-screen-2xl">
         {/* Header */}
         <div className="flex items-center gap-4 mb-8">

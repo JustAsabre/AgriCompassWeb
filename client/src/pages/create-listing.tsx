@@ -17,6 +17,8 @@ import { z } from "zod";
 import { ChevronLeft, Loader2, X, Info } from "lucide-react";
 import { apiRequest, queryClient, getCsrfToken } from "@/lib/queryClient";
 import { PricingTierForm } from "@/components/pricing-tier-form";
+import { motion } from "framer-motion";
+import { fadeIn } from "@/lib/animations";
 
 const categories = [
   "Vegetables",
@@ -232,7 +234,12 @@ export default function CreateListing() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <motion.div 
+      className="min-h-screen bg-gradient-subtle"
+      initial="hidden"
+      animate="visible"
+      variants={fadeIn}
+    >
       <div className="container mx-auto px-4 py-8 max-w-2xl">
         <Button
           variant="ghost"
@@ -574,6 +581,6 @@ export default function CreateListing() {
           </Card>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }

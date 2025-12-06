@@ -14,6 +14,8 @@ import { useAuth } from "@/lib/auth";
 import { apiRequest, getCsrfToken, queryClient } from "@/lib/queryClient";
 import { ShieldCheck, Upload, CheckCircle, AlertCircle, XCircle } from "lucide-react";
 import type { Verification } from "@shared/schema";
+import { motion } from "framer-motion";
+import { fadeIn } from "@/lib/animations";
 
 interface VerificationFormData {
   farmSize: string;
@@ -205,7 +207,12 @@ export default function VerificationRequest() {
   }
 
   return (
-    <div className="min-h-screen bg-background py-8">
+    <motion.div 
+      className="min-h-screen bg-gradient-subtle py-8"
+      initial="hidden"
+      animate="visible"
+      variants={fadeIn}
+    >
       <div className="container mx-auto px-4 max-w-2xl">
         <Card>
           <CardHeader>
@@ -324,6 +331,6 @@ export default function VerificationRequest() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </motion.div>
   );
 }

@@ -12,6 +12,8 @@ import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { Sprout } from "lucide-react";
 import { Link } from "wouter";
+import { motion } from "framer-motion";
+import { fadeIn } from "@/lib/animations";
 
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email"),
@@ -82,7 +84,12 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30 px-4 py-12">
+    <motion.div 
+      className="min-h-screen flex items-center justify-center bg-gradient-subtle px-4 py-12"
+      initial="hidden"
+      animate="visible"
+      variants={fadeIn}
+    >
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
           <Link href="/">
@@ -170,6 +177,6 @@ export default function Login() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </motion.div>
   );
 }

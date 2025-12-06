@@ -72,7 +72,7 @@ export default function BuyerDashboard() {
 
   return (
     <motion.div 
-      className="min-h-screen bg-background"
+      className="min-h-screen bg-gradient-subtle"
       initial="hidden"
       animate="visible"
       variants={staggerContainer}

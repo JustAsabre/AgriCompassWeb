@@ -154,14 +154,14 @@ export default function FarmerDashboard() {
 
   return (
     <motion.div 
-      className="min-h-screen bg-background"
+      className="min-h-screen bg-gradient-subtle"
       initial="hidden"
       animate="visible"
       variants={staggerContainer}
     >
       <div className="container mx-auto px-4 py-8 max-w-screen-2xl">
         {/* Header */}
-        <motion.div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8" variants={fadeInUp}>
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
           <div>
             <h1 className="text-3xl md:text-4xl font-bold text-foreground">Farmer Dashboard</h1>
             <p className="text-muted-foreground mt-1">
@@ -178,7 +178,7 @@ export default function FarmerDashboard() {
               Create Listing
             </Button>
           </div>
-        </motion.div>
+        </div>
 
         {/* Verification Alert */}
         {!user?.verified && (

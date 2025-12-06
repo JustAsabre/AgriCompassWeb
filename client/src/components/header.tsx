@@ -34,7 +34,7 @@ export function Header() {
   const messageCount = messageData?.count || 0;
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 print:hidden">
+    <header className="sticky top-0 z-50 w-full border-b border-border/40 backdrop-blur-md bg-gradient-to-b from-background/80 to-background/60 supports-[backdrop-filter]:bg-background/40 print:hidden">
       <div className="container mx-auto flex h-16 md:h-20 items-center justify-between px-4">
         <Link href="/">
           <div className="flex items-center gap-2 hover-elevate rounded-md px-3 py-2 cursor-pointer" data-testid="link-home">
