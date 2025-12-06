@@ -5,6 +5,144 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.3.1] - 2025-12-06
+### Added - Stats API Endpoints for Landing Pages 📊
+
+#### New Stats Endpoints
+- **`GET /api/farmer/stats`** - Returns farmer dashboard statistics:
+  - `totalListings`: Total number of farmer's listings
+  - `activeListings`: Listings that are active with stock available
+  - `pendingOrders`: Orders in pending/accepted status
+  - `completedOrders`: Orders marked as completed
+  - `totalRevenue`: Sum of completed order amounts
+  - `walletBalance`: Current wallet balance
+  - `pendingBalance`: Amount held in escrow
+  - `isVerified`: Farmer verification status
+
+- **`GET /api/buyer/stats`** - Returns buyer dashboard statistics:
+  - `activeOrders`: Orders in pending/accepted/shipped status
+  - `completedOrders`: Orders marked as completed
+  - `totalSpent`: Sum of completed order amounts
+  - `cartItems`: Total items in cart
+  - `savedItems`: Wishlist count (placeholder)
+  - `totalOrders`: Total number of orders
+
+- **`GET /api/officer/stats`** - Returns field officer statistics:
+  - `pendingVerifications`: Total pending verification requests
+  - `completedVerifications`: Verifications completed by this officer
+  - `totalFarmersVerified`: Farmers approved by this officer
+  - `regionsAssigned`: Number of regions assigned
+  - `thisWeekVerifications`: Verifications completed in last 7 days
+  - `averageVerificationTime`: Average time to complete verifications
+
+### Fixed
+- **Farmer Landing Page** - Button now shows "Create Another Listing" when farmer has active listings, "Create Your First Listing" otherwise
+- **Admin Landing Page** - Updated interface to match actual API response structure:
+  - Uses `usersByRole.farmer`/`usersByRole.buyer` instead of deprecated properties
+  - Uses `totalRevenueFromCompleted` instead of `totalRevenue`
+  - Removed non-existent `systemHealth` and `flaggedReviews` properties
+- **TypeScript Errors** - Fixed property name mismatches:
+  - `isActive` → `status === 'active'` for listings
+  - `quantity` → `quantityAvailable` for listings
+  - `totalAmount` → `totalPrice` for orders
+  - `walletBalance.balance` → `parseFloat(walletBalance)` (returns string)
+
+### Deployed
+- Successfully deployed to Fly.io production
+- All stats endpoints verified working in production
+
+
+## [1.3.0] - 2025-12-03
+### Added - Role-Based Landing Pages & Enhanced Profile 🎨
+
+#### Role-Based Dynamic Landing Pages
+- **RoleLanding Router** (`client/src/pages/role-landing.tsx`)
+  - Smart component that displays different landing pages based on user authentication and role
+  - Unauthenticated users see the public landing page
+  - Authenticated users see role-specific dashboards
+
+- **Farmer Landing Page** (`client/src/pages/farmer-landing.tsx`)
+  - Personalized welcome message with farmer's name
+  - Quick stats: Active Listings, Pending Orders, Total Revenue, Wallet Balance
+  - Quick actions: Create Listing, View Orders, My Wallet, Analytics
+  - Verification status badge with call-to-action for unverified farmers
+  - Animated illustration section with framer-motion
+
+- **Buyer Landing Page** (`client/src/pages/buyer-landing.tsx`)
+  - Personalized welcome with shopping-focused messaging
+  - Quick stats: Active Orders, Completed, Total Spent, Cart Items
+  - Category browsing section with emojis
+  - Quick actions: Browse Marketplace, My Cart, Track Orders, Analytics
+  - Animated product categories with hover effects
+
+- **Field Officer Landing Page** (`client/src/pages/officer-landing.tsx`)
+  - Verification-focused dashboard
+  - Urgent alert banner for pending verifications
+  - Quick stats: Pending, Completed, Farmers Verified, This Week
+  - Quick actions: Pending Verifications, Dashboard, Analytics, Review Disputes
+
+- **Admin Landing Page** (`client/src/pages/admin-landing.tsx`)
+  - Platform-wide overview with system status indicators
+  - Alert cards for pending verifications and flagged reviews
+  - Platform stats: Total Users, Active Listings, Total Orders, Total Revenue
+  - System status monitoring (Database, API, Payments)
+  - Administrator badge with crown icon
+
+#### Enhanced Profile Page
+- **Tabbed Interface** with three sections:
+  - **Personal Info**: Edit fullName, phone, region, businessName (buyers), farmSize (farmers)
+  - **Security**: Change password with current/new/confirm fields and visibility toggles
+  - **Account**: Deactivate account option with confirmation dialog
+
+- **New API Endpoints**:
+  - `POST /api/user/deactivate` - Soft delete user account (sets isActive=false)
+  - Fixed `PATCH /api/user/profile` - Now uses `sanitizeUser()` for proper session update
+  - Fixed `POST /api/user/change-password` - Now uses `comparePassword()` and `hashPassword()` from auth module
+
+- **Animations & UX**:
+  - Smooth tab transitions with AnimatePresence
+  - Form field stagger animations
+  - Button hover/tap feedback
+  - Avatar hover scale effect
+  - Verified badge spring animation
+
+#### Animation Library (`client/src/lib/animations.ts`)
+- Created comprehensive animation variants for framer-motion:
+  - Fade animations: fadeIn, fadeInUp, fadeInDown, fadeInLeft, fadeInRight
+  - Scale animations: scaleIn, scaleInBounce, popIn
+  - Slide animations: slideInFromLeft, slideInFromRight, slideUp, slideDown
+  - Container animations: staggerContainer, staggerContainerFast, staggerContainerSlow
+  - Item animations: staggerItem, staggerItemScale
+  - Interaction animations: cardHover, cardHoverGlow, buttonPress
+  - Page transitions: pageTransition, overlayFade
+  - Spring animations: springBounce, smoothSpring
+  - Duration and easing presets for consistency
+
+#### Notification System Improvements
+- **Fixed notification click handlers** (`client/src/components/notification-bell.tsx`):
+  - Added handlers for escrow, transaction, and payment notification types
+  - All payment-related notifications now redirect to `/orders/{orderId}`
+  - Order notifications now correctly use `relatedId` for redirect
+  - Role detection now uses `useAuth()` instead of parsing URL
+  - Added framer-motion animations to notification popover
+
+### Fixed
+- **Server-side Type Errors**:
+  - Added `User` type import from shared/schema in routes.ts
+  - Fixed bcrypt usage by using already-imported `comparePassword` and `hashPassword` functions
+  - Fixed session user assignment by using `sanitizeUser()` instead of manual destructuring
+
+### Changed
+- **App.tsx Router**: Home route `/` now uses `RoleLanding` instead of static `Landing`
+- **Profile Page**: Complete redesign from simple display to interactive tabbed form
+
+### Technical Notes
+- framer-motion package installed for animations
+- All landing pages use consistent animation patterns from the shared animation library
+- Profile mutations use TanStack Query for proper caching and invalidation
+- Password visibility toggles with eye icons for better UX
+
+
 ## [1.2.3] - 2025-12-03
 ### Fixed - Admin Dashboard Critical Fixes 🚨
 - **User Management Crash** 💥

@@ -11,6 +11,7 @@ import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
 
 // Pages
+import RoleLanding from "@/pages/role-landing";
 import Landing from "@/pages/landing";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
@@ -80,7 +81,7 @@ function Router() {
       <Header />
       <div className="flex-1">
         <Switch>
-          <Route path="/" component={Landing} />
+          <Route path="/" component={RoleLanding} />
           <Route path="/login" component={Login} />
           <Route path="/register" component={Register} />
           <Route path="/forgot-password" component={ForgotPassword} />

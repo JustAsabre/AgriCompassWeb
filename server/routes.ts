@@ -5,7 +5,7 @@ import { storage } from "./storage";
 import { getRevenueAggregated, getActiveSellers, getAdminTotals } from './adminAnalytics';
 import { sessionStore } from "./session";
 import { hashPassword, comparePassword, sanitizeUser, SessionUser } from "./auth";
-import { insertUserSchema, insertListingSchema, insertOrderSchema, insertCartItemSchema, insertPricingTierSchema, insertReviewSchema } from "@shared/schema";
+import { insertUserSchema, insertListingSchema, insertOrderSchema, insertCartItemSchema, insertPricingTierSchema, insertReviewSchema, User } from "@shared/schema";
 import { sendPasswordResetEmail, sendWelcomeEmail, sendPasswordChangedEmail, sendOrderConfirmationEmail, sendNewOrderNotificationToFarmer, sendVerificationStatusEmail, getSmtpStatus, sendOrderAcceptedEmail, sendOrderRejectedEmail, sendOrderDeliveredEmail, sendOrderCompletedEmail, sendWithdrawalRequestedEmail, sendWithdrawalProcessingEmail, sendWithdrawalCompletedEmail, sendWithdrawalFailedEmail, sendPaymentFailedEmail, sendPaymentRefundedEmail, sendEscrowReleasedEmail } from "./email";
 import { upload, getFileUrl, deleteUploadedFile, isValidFilename } from "./upload";
 import { sendNotificationToUser, broadcastNewListing } from "./socket";
@@ -656,6 +656,50 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
 
+  // Farmer stats for landing page
+  app.get("/api/farmer/stats", requireRole("farmer"), async (req, res) => {
+    try {
+      const farmerId = req.session.user!.id;
+      
+      // Get listings
+      const listings = await storage.getListingsByFarmer(farmerId);
+      const activeListings = listings.filter(l => l.status === 'active' && l.quantityAvailable > 0).length;
+      
+      // Get orders
+      const orders = await storage.getOrdersByFarmer(farmerId);
+      const pendingOrders = orders.filter(o => o.status === 'pending' || o.status === 'accepted').length;
+      const completedOrders = orders.filter(o => o.status === 'completed').length;
+      
+      // Calculate total revenue from completed orders
+      const totalRevenue = orders
+        .filter(o => o.status === 'completed')
+        .reduce((sum, o) => sum + parseFloat(o.totalPrice || '0'), 0);
+      
+      // Get wallet balance
+      const walletBalance = await storage.getWalletBalance(farmerId);
+      
+      // Get pending balance from escrow
+      const escrows = await storage.getEscrowsByFarmer(farmerId);
+      const pendingBalance = escrows
+        .filter(e => e.status !== 'COMPLETED' && e.status !== 'REFUNDED')
+        .reduce((sum, e) => sum + parseFloat(e.amount || '0'), 0);
+      
+      res.json({
+        totalListings: listings.length,
+        activeListings,
+        pendingOrders,
+        completedOrders,
+        totalRevenue,
+        walletBalance: parseFloat(walletBalance) || 0,
+        pendingBalance,
+        isVerified: req.session.user!.verified
+      });
+    } catch (error: any) {
+      console.error("Get farmer stats error:", error);
+      res.status(500).json({ message: "Failed to fetch farmer stats" });
+    }
+  });
+
   // Buyer-specific routes
   app.get("/api/buyer/orders", requireRole("buyer"), async (req, res) => {
     try {
@@ -665,6 +709,41 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     } catch (error: any) {
       console.error("Get buyer orders error:", error);
       res.status(500).json({ message: "Failed to fetch orders" });
+    }
+  });
+
+  // Buyer stats for landing page
+  app.get("/api/buyer/stats", requireRole("buyer"), async (req, res) => {
+    try {
+      const buyerId = req.session.user!.id;
+      
+      // Get orders
+      const orders = await storage.getOrdersByBuyer(buyerId);
+      const activeOrders = orders.filter(o => 
+        o.status === 'pending' || o.status === 'accepted' || o.status === 'shipped'
+      ).length;
+      const completedOrders = orders.filter(o => o.status === 'completed').length;
+      
+      // Calculate total spent from completed orders
+      const totalSpent = orders
+        .filter(o => o.status === 'completed')
+        .reduce((sum, o) => sum + parseFloat(o.totalPrice || '0'), 0);
+      
+      // Get cart items count
+      const cartItems = await storage.getCartItemsByBuyer(buyerId);
+      const cartItemsCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+      
+      res.json({
+        activeOrders,
+        completedOrders,
+        totalSpent,
+        cartItems: cartItemsCount,
+        savedItems: 0, // Wishlist not implemented yet
+        totalOrders: orders.length
+      });
+    } catch (error: any) {
+      console.error("Get buyer stats error:", error);
+      res.status(500).json({ message: "Failed to fetch buyer stats" });
     }
   });
 
@@ -1540,6 +1619,45 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
   // VERIFICATION ROUTES
   // ====================
 
+  // Officer stats for landing page
+  app.get("/api/officer/stats", requireRole("field_officer"), async (req, res) => {
+    try {
+      const officerId = req.session.user!.id;
+      
+      // Get all verifications
+      const allVerifications = await storage.getAllVerifications();
+      
+      // Filter by officer
+      const officerVerifications = allVerifications.filter((v: any) => v.reviewedBy === officerId);
+      const pendingVerifications = allVerifications.filter((v: any) => v.status === 'pending').length;
+      const completedVerifications = officerVerifications.filter((v: any) => 
+        v.status === 'approved' || v.status === 'rejected'
+      ).length;
+      
+      // Get farmers this officer has verified
+      const totalFarmersVerified = officerVerifications.filter((v: any) => v.status === 'approved').length;
+      
+      // Calculate this week's verifications
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      const thisWeekVerifications = officerVerifications.filter((v: any) => 
+        v.reviewedAt && new Date(v.reviewedAt) >= oneWeekAgo
+      ).length;
+      
+      res.json({
+        pendingVerifications,
+        completedVerifications,
+        totalFarmersVerified,
+        regionsAssigned: 1, // Default for now
+        thisWeekVerifications,
+        averageVerificationTime: "2 days" // Placeholder
+      });
+    } catch (error: any) {
+      console.error("Get officer stats error:", error);
+      res.status(500).json({ message: "Failed to fetch officer stats" });
+    }
+  });
+
   // Get all verifications for field officers
   app.get("/api/verifications", requireRole("field_officer"), async (req: Request, res: Response) => {
     try {
@@ -1969,6 +2087,98 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     } catch (error: any) {
       console.error("Get user error:", error);
       res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
+  // Update current user's profile
+  app.patch("/api/user/profile", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.user!.id;
+      const { fullName, phone, region, businessName, farmSize } = req.body;
+
+      // Only allow updating specific fields
+      const updates: Partial<User> = {};
+      if (fullName) updates.fullName = fullName;
+      if (phone !== undefined) updates.phone = phone;
+      if (region) updates.region = region;
+      if (businessName !== undefined) updates.businessName = businessName;
+      if (farmSize !== undefined) updates.farmSize = farmSize;
+
+      const updatedUser = await storage.updateUser(userId, updates);
+      if (!updatedUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Update session with sanitized user
+      req.session.user = sanitizeUser(updatedUser);
+
+      const { password, ...userWithoutPassword } = updatedUser;
+      res.json(userWithoutPassword);
+    } catch (error: any) {
+      console.error("Update profile error:", error);
+      res.status(500).json({ message: "Failed to update profile" });
+    }
+  });
+
+  // Change password
+  app.post("/api/user/change-password", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.user!.id;
+      const { currentPassword, newPassword } = req.body;
+
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ message: "Current password and new password are required" });
+      }
+
+      if (newPassword.length < 6) {
+        return res.status(400).json({ message: "New password must be at least 6 characters" });
+      }
+
+      // Get current user with password
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Verify current password
+      const validPassword = await comparePassword(currentPassword, user.password);
+      if (!validPassword) {
+        return res.status(401).json({ message: "Current password is incorrect" });
+      }
+
+      // Hash new password and update
+      const hashedPassword = await hashPassword(newPassword);
+      await storage.updateUser(userId, { password: hashedPassword });
+
+      // Send confirmation email
+      await sendPasswordChangedEmail(user.email, user.fullName);
+
+      res.json({ message: "Password changed successfully" });
+    } catch (error: any) {
+      console.error("Change password error:", error);
+      res.status(500).json({ message: "Failed to change password" });
+    }
+  });
+
+  // Deactivate own account (soft delete)
+  app.post("/api/user/deactivate", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.user!.id;
+
+      // Deactivate account
+      await storage.updateUser(userId, { isActive: false });
+
+      // Clear session
+      req.session.destroy((err) => {
+        if (err) {
+          console.error("Session destroy error:", err);
+        }
+      });
+
+      res.json({ message: "Account deactivated successfully" });
+    } catch (error: any) {
+      console.error("Deactivate account error:", error);
+      res.status(500).json({ message: "Failed to deactivate account" });
     }
   });
 
