@@ -48,6 +48,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { formatCurrency } from "@/lib/currency";
 
 // Types
 interface WalletTransaction {
@@ -185,7 +186,7 @@ export default function FarmerWallet() {
                             ) : (
                                 <div className="space-y-4">
                                     <div className="text-4xl font-bold">
-                                        GHS {Number(balanceData?.balance || 0).toFixed(2)}
+                                        {formatCurrency(Number(balanceData?.balance || 0))}
                                     </div>
                                     <Dialog open={isWithdrawOpen} onOpenChange={setIsWithdrawOpen}>
                                         <DialogTrigger asChild>
@@ -211,10 +212,10 @@ export default function FarmerWallet() {
                                                         name="amount"
                                                         render={({ field }) => (
                                                             <FormItem>
-                                                                <FormLabel>Amount (GHS)</FormLabel>
+                                                                <FormLabel>Amount (GH₵)</FormLabel>
                                                                 <FormControl>
                                                                     <div className="relative">
-                                                                        <span className="absolute left-3 top-2.5 text-muted-foreground">GHS</span>
+                                                                        <span className="absolute left-3 top-2.5 text-muted-foreground">GH₵</span>
                                                                         <Input className="pl-12" placeholder="0.00" {...field} />
                                                                     </div>
                                                                 </FormControl>
@@ -289,10 +290,9 @@ export default function FarmerWallet() {
                             </CardHeader>
                             <CardContent>
                                 <div className="text-2xl font-bold">
-                                    GHS {transactions
+                                    {formatCurrency(transactions
                                         ?.filter((t: WalletTransaction) => t.type === 'credit')
-                                        .reduce((acc: number, t: WalletTransaction) => acc + Number(t.amount), 0)
-                                        .toFixed(2) || "0.00"}
+                                        .reduce((acc: number, t: WalletTransaction) => acc + Number(t.amount), 0) || 0)}
                                 </div>
                                 <p className="text-xs text-muted-foreground mt-1">
                                     Lifetime earnings from sales
@@ -312,10 +312,9 @@ export default function FarmerWallet() {
                             </CardHeader>
                             <CardContent>
                                 <div className="text-2xl font-bold">
-                                    GHS {withdrawals
+                                    {formatCurrency(withdrawals
                                         ?.filter((w: Withdrawal) => w.status === 'pending' || w.status === 'processing')
-                                        .reduce((acc: number, w: Withdrawal) => acc + Number(w.amount), 0)
-                                        .toFixed(2) || "0.00"}
+                                        .reduce((acc: number, w: Withdrawal) => acc + Number(w.amount), 0) || 0)}
                                 </div>
                                 <p className="text-xs text-muted-foreground mt-1">
                                     Currently being processed
@@ -384,7 +383,7 @@ export default function FarmerWallet() {
                                             <div className={`font-bold ${transaction.type === 'credit' ? 'text-green-600' : 'text-red-600'
                                                 }`}>
                                                 {transaction.type === 'credit' ? '+' : '-'}
-                                                GHS {Number(transaction.amount).toFixed(2)}
+                                                {formatCurrency(Number(transaction.amount))}
                                             </div>
                                         </motion.div>
                                     ))}
@@ -442,7 +441,7 @@ export default function FarmerWallet() {
                                             </div>
                                             <div className="text-right">
                                                 <div className="font-bold">
-                                                    GHS {Number(withdrawal.amount).toFixed(2)}
+                                                    {formatCurrency(Number(withdrawal.amount))}
                                                 </div>
                                                 <div className={`text-xs font-medium uppercase mt-1 ${withdrawal.status === 'completed' ? 'text-green-600' :
                                                     withdrawal.status === 'failed' ? 'text-red-600' :

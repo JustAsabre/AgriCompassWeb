@@ -11,6 +11,8 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, Download, MessageCircle, ArrowRight, Package } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { motion } from "framer-motion";
+import { fadeIn, fadeInUp, staggerContainer, staggerItem } from "@/lib/animations";
 
 interface OrderWithDetails {
   id: string;
@@ -152,10 +154,15 @@ export default function OrderSuccess() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
+    <motion.div 
+      className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5"
+      initial="hidden"
+      animate="visible"
+      variants={staggerContainer}
+    >
       <div className="container mx-auto px-4 py-8 max-w-4xl">
         {/* Success Header */}
-        <div className="text-center mb-8 print:mb-4">
+        <motion.div className="text-center mb-8 print:mb-4" variants={fadeInUp}>
           <div className="inline-flex items-center justify-center w-20 h-20 bg-green-500/10 rounded-full mb-4 print:hidden">
             <CheckCircle2 className="h-10 w-10 text-green-500" />
           </div>
@@ -165,9 +172,10 @@ export default function OrderSuccess() {
           <p className="text-muted-foreground text-lg">
             Thank you for your order. We've notified the farmers.
           </p>
-        </div>
+        </motion.div>
 
         {/* Order Summary Card */}
+        <motion.div variants={staggerItem}>
         <Card className="mb-6">
           <CardHeader className="bg-gradient-to-r from-primary/5 to-primary/10">
             <div className="flex items-center justify-between">
@@ -247,8 +255,10 @@ export default function OrderSuccess() {
             </div>
           </CardContent>
         </Card>
+        </motion.div>
 
         {/* Next Steps */}
+        <motion.div variants={staggerItem}>
         <Card className="mb-6 print:hidden">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -294,9 +304,10 @@ export default function OrderSuccess() {
             </ol>
           </CardContent>
         </Card>
+        </motion.div>
 
         {/* Action Buttons */}
-        <div className="flex flex-col sm:flex-row gap-4 print:hidden">
+        <motion.div className="flex flex-col sm:flex-row gap-4 print:hidden" variants={fadeInUp}>
           <Button
             onClick={handlePrintReceipt}
             variant="outline"
@@ -313,7 +324,7 @@ export default function OrderSuccess() {
           >
             View All Orders
           </Button>
-        </div>
+        </motion.div>
 
         {/* Print-only footer */}
         <div className="hidden print:block mt-8 pt-4 border-t text-center text-sm text-muted-foreground">
@@ -321,6 +332,6 @@ export default function OrderSuccess() {
           <p className="mt-1">For support, contact us at support@agricompass.com</p>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

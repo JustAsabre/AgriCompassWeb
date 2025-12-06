@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useDebounce } from "use-debounce";
+import { motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,11 +17,16 @@ import {
   ShieldCheck,
   Package,
   X,
-  DollarSign,
   Calendar
 } from "lucide-react";
 import { ListingWithFarmer } from "@shared/schema";
 import { formatCurrency } from '@/lib/currency';
+import {
+  fadeInUp,
+  staggerContainer,
+  staggerItem,
+  cardHover
+} from "@/lib/animations";
 import {
   Sheet,
   SheetContent,
@@ -128,15 +134,9 @@ export default function Marketplace() {
             className="mb-2"
           />
           <div className="flex items-center justify-between text-sm">
-            <div className="flex items-center gap-1">
-              <DollarSign className="h-3 w-3" />
-              <span>{formatCurrency(priceRange[0])}</span>
-            </div>
+            <span>{formatCurrency(priceRange[0])}</span>
             <span className="text-muted-foreground">to</span>
-            <div className="flex items-center gap-1">
-              <DollarSign className="h-3 w-3" />
-              <span>{formatCurrency(priceRange[1])}</span>
-            </div>
+            <span>{formatCurrency(priceRange[1])}</span>
           </div>
         </div>
       </div>
@@ -223,15 +223,20 @@ export default function Marketplace() {
   );
 
   return (
-    <div className="min-h-screen bg-background">
+    <motion.div 
+      className="min-h-screen bg-background"
+      initial="hidden"
+      animate="visible"
+      variants={staggerContainer}
+    >
       <div className="container mx-auto px-4 py-8">
         {/* Page Header */}
-        <div className="mb-8">
+        <motion.div className="mb-8" variants={fadeInUp}>
           <h1 className="text-3xl md:text-4xl font-bold text-foreground mb-2">Marketplace</h1>
           <p className="text-muted-foreground">
             Browse quality agricultural products from verified farmers
           </p>
-        </div>
+        </motion.div>
 
         {/* Search and Sort Bar */}
         <div className="mb-6 flex flex-col sm:flex-row gap-4">
@@ -319,8 +324,7 @@ export default function Marketplace() {
               )}
               {(priceRange[0] !== 0 || priceRange[1] !== maxPrice) && (
                 <Badge variant="secondary" className="gap-1">
-                  <DollarSign className="h-3 w-3" />
-                  ${priceRange[0]} - ${priceRange[1]}
+                  {formatCurrency(priceRange[0])} - {formatCurrency(priceRange[1])}
                   <X
                     className="h-3 w-3 cursor-pointer"
                     onClick={() => setPriceRange([0, maxPrice])}
@@ -385,9 +389,18 @@ export default function Marketplace() {
                 <div className="mb-4 text-sm text-muted-foreground">
                   Showing {filteredListings.length} {filteredListings.length === 1 ? 'product' : 'products'}
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {filteredListings.map((listing) => (
-                    <Link key={listing.id} href={`/marketplace/${listing.id}`}>
+                <motion.div 
+                  className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+                  variants={staggerContainer}
+                >
+                  {filteredListings.map((listing, index) => (
+                    <motion.div
+                      key={listing.id}
+                      variants={staggerItem}
+                      whileHover={{ scale: 1.02, y: -5 }}
+                      transition={{ type: "spring", stiffness: 300 }}
+                    >
+                    <Link href={`/marketplace/${listing.id}`}>
                       <Card className="hover-elevate h-full cursor-pointer overflow-hidden" data-testid={`card-listing-${listing.id}`}>
                         <div className="relative">
                           <div className="aspect-square bg-muted flex items-center justify-center">
@@ -446,8 +459,9 @@ export default function Marketplace() {
                         </CardContent>
                       </Card>
                     </Link>
+                    </motion.div>
                   ))}
-                </div>
+                </motion.div>
               </>
             ) : (
               <Card className="p-12">
@@ -475,6 +489,6 @@ export default function Marketplace() {
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
+import { motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +20,11 @@ import { formatCurrency } from '@/lib/currency';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EscrowStatus } from "@/components/escrow-status";
 import { Escrow } from "@shared/schema";
+import {
+  fadeInUp,
+  staggerContainer,
+  staggerItem
+} from "@/lib/animations";
 
 export default function BuyerDashboard() {
   const { user } = useAuth();
@@ -65,10 +71,15 @@ export default function BuyerDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <motion.div 
+      className="min-h-screen bg-background"
+      initial="hidden"
+      animate="visible"
+      variants={staggerContainer}
+    >
       <div className="container mx-auto px-4 py-8 max-w-screen-2xl">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
+        <motion.div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8" variants={fadeInUp}>
           <div>
             <h1 className="text-3xl md:text-4xl font-bold text-foreground">Buyer Dashboard</h1>
             <p className="text-muted-foreground mt-1">
@@ -89,52 +100,58 @@ export default function BuyerDashboard() {
               Browse Products
             </Button>
           </div>
-        </div>
+        </motion.div>
 
         {/* Stats Cards */}
-        <div className="grid md:grid-cols-3 gap-6 mb-8">
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Total Orders</p>
-                  <p className="text-3xl font-bold text-foreground mt-2" data-testid="stat-total-orders">
-                    {isLoading ? "-" : orders?.length || 0}
-                  </p>
+        <motion.div className="grid md:grid-cols-3 gap-6 mb-8" variants={staggerContainer}>
+          <motion.div variants={staggerItem}>
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Total Orders</p>
+                    <p className="text-3xl font-bold text-foreground mt-2" data-testid="stat-total-orders">
+                      {isLoading ? "-" : orders?.length || 0}
+                    </p>
+                  </div>
+                  <Package className="h-12 w-12 text-primary" />
                 </div>
-                <Package className="h-12 w-12 text-primary" />
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </motion.div>
 
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Pending Orders</p>
-                  <p className="text-3xl font-bold text-foreground mt-2" data-testid="stat-pending">
-                    {isLoading ? "-" : pendingOrders.length}
-                  </p>
+          <motion.div variants={staggerItem}>
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Pending Orders</p>
+                    <p className="text-3xl font-bold text-foreground mt-2" data-testid="stat-pending">
+                      {isLoading ? "-" : pendingOrders.length}
+                    </p>
+                  </div>
+                  <Clock className="h-12 w-12 text-primary" />
                 </div>
-                <Clock className="h-12 w-12 text-primary" />
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </motion.div>
 
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Total Spent</p>
-                  <p className="text-3xl font-bold text-foreground mt-2" data-testid="stat-spent">
-                      {formatCurrency(totalSpent)}
+          <motion.div variants={staggerItem}>
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Total Spent</p>
+                    <p className="text-3xl font-bold text-foreground mt-2" data-testid="stat-spent">
+                        {formatCurrency(totalSpent)}
                     </p>
                 </div>
                 <TrendingUp className="h-12 w-12 text-primary" />
               </div>
             </CardContent>
           </Card>
-        </div>
+          </motion.div>
+        </motion.div>
 
         {/* Orders */}
         <Tabs defaultValue="all" className="space-y-6">
@@ -292,6 +309,6 @@ export default function BuyerDashboard() {
           </TabsContent>
         </Tabs>
       </div>
-    </div>
+    </motion.div>
   );
 }

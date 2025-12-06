@@ -5,6 +5,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.4.0] - 2025-12-06
+### Added - Site-Wide Animations, Admin Email Notifications & Currency Fixes 🎨📧💰
+
+#### Site-Wide Framer Motion Animations
+Added smooth page transitions and animations to all remaining pages:
+- **cart.tsx** - Staggered fade-in for cart items, animated header
+- **farmer-dashboard.tsx** - Animated stats cards with stagger effect
+- **buyer-dashboard.tsx** - Animated stats cards with stagger effect  
+- **admin-dashboard.tsx** - Fade-in animation for dashboard content
+- **officer-dashboard.tsx** - Animated stats cards with stagger effect
+- **messages.tsx** - Fade-in animation for header and content
+- **order-detail.tsx** - Staggered animations with fadeInUp for header
+- **order-success.tsx** - Animated success header, order cards, and action buttons
+
+#### Admin Email Notifications
+Implemented comprehensive email notifications for all admin activities:
+
+**New Email Functions (server/email.ts):**
+- `sendAdminDisputeAlertEmail()` - Notifies admin when disputes are filed
+- `sendDisputeResolutionEmail()` - Notifies users when disputes are resolved
+- `sendAdminEscrowReleaseEmail()` - Notifies farmer when escrow is released
+- `sendAdminEscrowRefundEmail()` - Notifies buyer when escrow is refunded
+- `sendRoleChangeEmail()` - Notifies users of role changes
+- `sendAccountStatusEmail()` - Notifies users of account status changes
+
+**Routes Updated with Email Notifications:**
+- `/api/admin/moderation/bulk` - Listing and message moderation
+- `/api/admin/users/:userId/role` - Role changes (single user)
+- `/api/admin/users/bulk/role` - Bulk role changes
+- `/api/admin/users/:id/status` - Account status changes
+- `/api/admin/users/bulk` - Bulk status changes
+- `/api/listings/:id/moderate` - Single listing moderation
+- `/api/messages/:id/moderate` - Single message moderation
+- `/api/admin/escrow/:id/resolve` - Dispute resolution
+- `/api/admin/escrow/:id/release` - Escrow release
+- `/api/admin/escrow/:id/refund` - Escrow refund
+- `/api/escrow/:id/dispute` - Dispute filing (alerts admin)
+
+### Fixed
+- **Currency Symbol Consistency** - Replaced all hardcoded currency symbols (GHC, $, etc.) with `formatCurrency()` function across:
+  - `admin-dashboard.tsx`
+  - `farmer-wallet.tsx`
+  - `marketplace.tsx`
+  - `pricing-tier-form.tsx`
+  - `pricing-tier-display.tsx`
+  - `cart.tsx`
+- All currency values now display correctly as **GH₵** (Ghanaian Cedi symbol)
+
+---
+
 ## [1.3.1] - 2025-12-06
 ### Added - Stats API Endpoints for Landing Pages 📊
 

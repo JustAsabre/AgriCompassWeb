@@ -1,5 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
+import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -22,6 +23,12 @@ import { useAuth } from "@/lib/auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { formatCurrency } from '@/lib/currency';
 import { useState, useEffect } from "react";
+import {
+  fadeInUp,
+  staggerContainer,
+  staggerItem,
+  scaleIn
+} from "@/lib/animations";
 
 export default function Cart() {
   const [, setLocation] = useLocation();
@@ -209,7 +216,12 @@ export default function Cart() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <motion.div 
+      className="min-h-screen bg-background"
+      initial="hidden"
+      animate="visible"
+      variants={staggerContainer}
+    >
       <div className="container mx-auto px-4 py-8 max-w-4xl">
         <Button
           variant="ghost"
@@ -221,21 +233,22 @@ export default function Cart() {
           Continue Shopping
         </Button>
 
-        <div className="flex items-center gap-3 mb-8">
+        <motion.div className="flex items-center gap-3 mb-8" variants={fadeInUp}>
           <ShoppingCart className="h-8 w-8 text-primary" />
           <h1 className="text-3xl md:text-4xl font-bold text-foreground">Shopping Cart</h1>
-        </div>
+        </motion.div>
 
         {cartItems && cartItems.length > 0 ? (
-          <div className="grid lg:grid-cols-3 gap-8">
+          <motion.div className="grid lg:grid-cols-3 gap-8" variants={staggerContainer}>
             <div className="lg:col-span-2 space-y-6">
               {Object.entries(groupedByFarmer || {}).map(([farmerId, group]) => (
-                <Card key={farmerId}>
-                  <CardContent className="p-6">
-                    <div className="mb-4">
-                      <h3 className="font-semibold text-lg">From {group.farmer.fullName}</h3>
-                      <p className="text-sm text-muted-foreground">{group.farmer.region}</p>
-                    </div>
+                <motion.div key={farmerId} variants={staggerItem}>
+                  <Card>
+                    <CardContent className="p-6">
+                      <div className="mb-4">
+                        <h3 className="font-semibold text-lg">From {group.farmer.fullName}</h3>
+                        <p className="text-sm text-muted-foreground">{group.farmer.region}</p>
+                      </div>
                     <Separator className="mb-4" />
                     <div className="space-y-4">
                       {group.items.map((item) => {
@@ -337,7 +350,7 @@ export default function Cart() {
                               <div className="text-right">
                                 {savings > 0 && (
                                   <p className="text-xs text-muted-foreground line-through">
-                                    {formatCurrency((basePrice * item.quantity).toFixed(2))}
+                                    {formatCurrency(basePrice * item.quantity)}
                                   </p>
                                 )}
                                 <p className="font-semibold text-primary">
@@ -367,10 +380,11 @@ export default function Cart() {
                     </div>
                   </CardContent>
                 </Card>
+              </motion.div>
               ))}
             </div>
 
-            <div className="lg:col-span-1">
+            <motion.div className="lg:col-span-1" variants={scaleIn}>
               <Card className="sticky top-20">
                 <CardContent className="p-6 space-y-4">
                   <h3 className="font-semibold text-lg">Order Summary</h3>
@@ -426,23 +440,25 @@ export default function Cart() {
                   </div>
                 </CardContent>
               </Card>
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
         ) : (
-          <Card className="p-12">
-            <div className="text-center space-y-4">
-              <ShoppingCart className="h-16 w-16 mx-auto text-muted-foreground" />
-              <h3 className="text-lg font-semibold">Your cart is empty</h3>
-              <p className="text-muted-foreground">
-                Start adding products to your cart from the marketplace
-              </p>
-              <Button onClick={() => setLocation("/marketplace")} data-testid="button-browse">
-                Browse Products
-              </Button>
-            </div>
-          </Card>
+          <motion.div variants={fadeInUp}>
+            <Card className="p-12">
+              <div className="text-center space-y-4">
+                <ShoppingCart className="h-16 w-16 mx-auto text-muted-foreground" />
+                <h3 className="text-lg font-semibold">Your cart is empty</h3>
+                <p className="text-muted-foreground">
+                  Start adding products to your cart from the marketplace
+                </p>
+                <Button onClick={() => setLocation("/marketplace")} data-testid="button-browse">
+                  Browse Products
+                </Button>
+              </div>
+            </Card>
+          </motion.div>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }

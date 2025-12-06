@@ -6,7 +6,7 @@ import { getRevenueAggregated, getActiveSellers, getAdminTotals } from './adminA
 import { sessionStore } from "./session";
 import { hashPassword, comparePassword, sanitizeUser, SessionUser } from "./auth";
 import { insertUserSchema, insertListingSchema, insertOrderSchema, insertCartItemSchema, insertPricingTierSchema, insertReviewSchema, User } from "@shared/schema";
-import { sendPasswordResetEmail, sendWelcomeEmail, sendPasswordChangedEmail, sendOrderConfirmationEmail, sendNewOrderNotificationToFarmer, sendVerificationStatusEmail, getSmtpStatus, sendOrderAcceptedEmail, sendOrderRejectedEmail, sendOrderDeliveredEmail, sendOrderCompletedEmail, sendWithdrawalRequestedEmail, sendWithdrawalProcessingEmail, sendWithdrawalCompletedEmail, sendWithdrawalFailedEmail, sendPaymentFailedEmail, sendPaymentRefundedEmail, sendEscrowReleasedEmail } from "./email";
+import { sendPasswordResetEmail, sendWelcomeEmail, sendPasswordChangedEmail, sendOrderConfirmationEmail, sendNewOrderNotificationToFarmer, sendVerificationStatusEmail, getSmtpStatus, sendOrderAcceptedEmail, sendOrderRejectedEmail, sendOrderDeliveredEmail, sendOrderCompletedEmail, sendWithdrawalRequestedEmail, sendWithdrawalProcessingEmail, sendWithdrawalCompletedEmail, sendWithdrawalFailedEmail, sendPaymentFailedEmail, sendPaymentRefundedEmail, sendEscrowReleasedEmail, sendEscrowDisputeResolvedEmail, sendAdminEscrowReleaseEmail, sendAdminEscrowRefundEmail, sendContentModerationEmail, sendNewDisputeNotificationToAdmin, sendRoleChangeEmail, sendAccountStatusEmail } from "./email";
 import { upload, getFileUrl, deleteUploadedFile, isValidFilename } from "./upload";
 import { sendNotificationToUser, broadcastNewListing } from "./socket";
 import { enqueuePayout } from './jobs/payoutQueue';
@@ -2993,6 +2993,16 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
                 relatedId: listing.id,
                 relatedType: "listing",
               }, io);
+              
+              // Send email notification to farmer
+              if (farmer.email) {
+                sendContentModerationEmail(farmer.email, farmer.fullName, {
+                  contentType: 'listing',
+                  contentTitle: listing.productName || `Listing #${listing.id}`,
+                  action: moderationStatus as 'approved' | 'rejected',
+                  reason: reason || undefined,
+                }).catch(err => console.error('Failed to send listing moderation email:', err));
+              }
             }
 
             results.push({ id, type: "listing", action, status: "success" });
@@ -3026,6 +3036,16 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
                 relatedId: message.id,
                 relatedType: "message",
               }, io);
+              
+              // Send email notification to sender
+              if (sender.email) {
+                sendContentModerationEmail(sender.email, sender.fullName, {
+                  contentType: 'message',
+                  contentTitle: message.content?.substring(0, 50) || `Message #${message.id}`,
+                  action: moderationStatus as 'approved' | 'rejected',
+                  reason: reason || undefined,
+                }).catch(err => console.error('Failed to send message moderation email:', err));
+              }
             }
 
             results.push({ id, type: "message", action, status: "success" });
@@ -3205,6 +3225,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         return res.status(400).json({ message: "Cannot change your own admin role" });
       }
 
+      const oldRole = user.role;
       await storage.updateUserRole(userId, role);
 
       // Notify the user about role change
@@ -3222,6 +3243,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       // Emit socket notification
       if (io) {
         io.to(userId).emit("notification", notification);
+      }
+
+      // Send email notification about role change
+      if (user.email) {
+        sendRoleChangeEmail(user.email, user.fullName, {
+          oldRole,
+          newRole: role,
+        }).catch(err => console.error('Failed to send role change email:', err));
       }
 
       res.json({ message: "User role updated successfully" });
@@ -3261,6 +3290,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
             continue;
           }
 
+          const oldRole = user.role;
           await storage.updateUserRole(userId, role);
 
           // Notify the user about role change
@@ -3278,6 +3308,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           // Emit socket notification
           if (io) {
             io.to(userId).emit("notification", notification);
+          }
+
+          // Send email notification about role change
+          if (user.email) {
+            sendRoleChangeEmail(user.email, user.fullName, {
+              oldRole,
+              newRole: role,
+            }).catch(err => console.error('Failed to send role change email:', err));
           }
 
           results.push({ userId, success: true });
@@ -3339,6 +3377,16 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           relatedId: listing.id,
           relatedType: "listing",
         }, io);
+
+        // Send email notification for listing moderation
+        if (farmer.email) {
+          sendContentModerationEmail(farmer.email, farmer.fullName, {
+            contentType: 'listing',
+            contentTitle: listing.productName || `Listing #${listing.id}`,
+            action: moderationStatus as 'approved' | 'rejected',
+            reason: reason || undefined,
+          }).catch(err => console.error('Failed to send listing moderation email:', err));
+        }
       }
 
       res.json(updated);
@@ -3390,6 +3438,16 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           relatedId: message.id,
           relatedType: "message",
         }, io);
+
+        // Send email notification for message moderation
+        if (sender.email) {
+          sendContentModerationEmail(sender.email, sender.fullName, {
+            contentType: 'message',
+            contentTitle: message.content?.substring(0, 50) || `Message #${message.id}`,
+            action: moderationStatus as 'approved' | 'rejected',
+            reason: reason || undefined,
+          }).catch(err => console.error('Failed to send message moderation email:', err));
+        }
       }
 
       res.json(updated);
@@ -4047,7 +4105,16 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         disputeResolvedAt: new Date(),
       });
 
-      // Notify both parties
+      // Get order details for email
+      const order = escrow.orderId ? await storage.getOrder(escrow.orderId) : null;
+      let productName = 'Order';
+      if (order?.listingId) {
+        const listing = await storage.getListing(order.listingId);
+        productName = listing?.productName || 'Order';
+      }
+      const escrowAmount = parseFloat(escrow.amount as any) || 0;
+
+      // Notify both parties via socket
       await sendNotificationToUser(escrow.buyerId, {
         userId: escrow.buyerId,
         type: 'escrow_update',
@@ -4065,6 +4132,30 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         relatedId: escrow.id,
         relatedType: 'escrow',
       }, io);
+
+      // Send email notifications to both parties
+      const buyer = await storage.getUser(escrow.buyerId);
+      const farmer = await storage.getUser(escrow.farmerId);
+
+      if (buyer?.email) {
+        sendEscrowDisputeResolvedEmail(buyer.email, buyer.fullName, {
+          orderId: escrow.orderId || id,
+          resolution,
+          amount: escrowAmount,
+          productName,
+          isWinner: resolution === 'buyer',
+        }).catch(err => console.error('Failed to send dispute resolved email to buyer:', err));
+      }
+
+      if (farmer?.email) {
+        sendEscrowDisputeResolvedEmail(farmer.email, farmer.fullName, {
+          orderId: escrow.orderId || id,
+          resolution,
+          amount: escrowAmount,
+          productName,
+          isWinner: resolution === 'farmer',
+        }).catch(err => console.error('Failed to send dispute resolved email to farmer:', err));
+      }
 
       res.json(updated);
     } catch (err: any) {
@@ -4093,12 +4184,22 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         disputeResolvedAt: new Date(),
       });
 
-      // Notify both parties
+      // Get order details for email
+      const order = escrow.orderId ? await storage.getOrder(escrow.orderId) : null;
+      let productName = 'Order';
+      if (order?.listingId) {
+        const listing = await storage.getListing(order.listingId);
+        productName = listing?.productName || 'Order';
+      }
+      const escrowAmount = parseFloat(escrow.amount as any) || 0;
+      const releaseReason = reason || 'Order approved';
+
+      // Notify both parties via socket
       await sendNotificationToUser(escrow.farmerId, {
         userId: escrow.farmerId,
         type: 'escrow_update',
         title: 'Escrow Released',
-        message: `Admin has released your escrow funds. Reason: ${reason || 'Order approved'}`,
+        message: `Admin has released your escrow funds. Reason: ${releaseReason}`,
         relatedId: escrow.id,
         relatedType: 'escrow',
       }, io);
@@ -4107,10 +4208,34 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         userId: escrow.buyerId,
         type: 'escrow_update',
         title: 'Escrow Completed',
-        message: `Admin has released escrow to farmer. Reason: ${reason || 'Order approved'}`,
+        message: `Admin has released escrow to farmer. Reason: ${releaseReason}`,
         relatedId: escrow.id,
         relatedType: 'escrow',
       }, io);
+
+      // Send email notifications
+      const buyer = await storage.getUser(escrow.buyerId);
+      const farmer = await storage.getUser(escrow.farmerId);
+
+      if (farmer?.email) {
+        sendAdminEscrowReleaseEmail(farmer.email, farmer.fullName, {
+          orderId: escrow.orderId || id,
+          amount: escrowAmount,
+          productName,
+          reason: releaseReason,
+          isFarmer: true,
+        }).catch(err => console.error('Failed to send escrow release email to farmer:', err));
+      }
+
+      if (buyer?.email) {
+        sendAdminEscrowReleaseEmail(buyer.email, buyer.fullName, {
+          orderId: escrow.orderId || id,
+          amount: escrowAmount,
+          productName,
+          reason: releaseReason,
+          isFarmer: false,
+        }).catch(err => console.error('Failed to send escrow release email to buyer:', err));
+      }
 
       res.json(updated);
     } catch (err: any) {
@@ -4144,7 +4269,16 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         disputeResolvedAt: new Date(),
       });
 
-      // Notify both parties
+      // Get order details for email
+      const order = escrow.orderId ? await storage.getOrder(escrow.orderId) : null;
+      let productName = 'Order';
+      if (order?.listingId) {
+        const listing = await storage.getListing(order.listingId);
+        productName = listing?.productName || 'Order';
+      }
+      const escrowAmount = parseFloat(escrow.amount as any) || 0;
+
+      // Notify both parties via socket
       await sendNotificationToUser(escrow.buyerId, {
         userId: escrow.buyerId,
         type: 'escrow_update',
@@ -4162,6 +4296,30 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         relatedId: escrow.id,
         relatedType: 'escrow',
       }, io);
+
+      // Send email notifications
+      const buyer = await storage.getUser(escrow.buyerId);
+      const farmer = await storage.getUser(escrow.farmerId);
+
+      if (buyer?.email) {
+        sendAdminEscrowRefundEmail(buyer.email, buyer.fullName, {
+          orderId: escrow.orderId || id,
+          amount: escrowAmount,
+          productName,
+          reason,
+          isBuyer: true,
+        }).catch(err => console.error('Failed to send escrow refund email to buyer:', err));
+      }
+
+      if (farmer?.email) {
+        sendAdminEscrowRefundEmail(farmer.email, farmer.fullName, {
+          orderId: escrow.orderId || id,
+          amount: escrowAmount,
+          productName,
+          reason,
+          isBuyer: false,
+        }).catch(err => console.error('Failed to send escrow refund email to farmer:', err));
+      }
 
       res.json(updated);
     } catch (err: any) {
@@ -4207,7 +4365,18 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         disputedAt: new Date(),
       });
 
-      // Notify admin and other party
+      // Get order and user details for email
+      const order = escrow.orderId ? await storage.getOrder(escrow.orderId) : null;
+      let productName = 'Order';
+      if (order?.listingId) {
+        const listing = await storage.getListing(order.listingId);
+        productName = listing?.productName || 'Order';
+      }
+      const escrowAmount = parseFloat(escrow.amount as any) || 0;
+      const buyer = await storage.getUser(escrow.buyerId);
+      const farmer = await storage.getUser(escrow.farmerId);
+
+      // Notify admin and other party via socket and email
       const adminUsers = await storage.getUsersByRole('admin');
       for (const admin of adminUsers) {
         await sendNotificationToUser(admin.id, {
@@ -4218,6 +4387,18 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           relatedId: escrow.id,
           relatedType: 'escrow',
         }, io);
+
+        // Send email to admin
+        if (admin.email) {
+          sendNewDisputeNotificationToAdmin(admin.email, admin.fullName, {
+            orderId: escrow.orderId || id,
+            disputeReason: reason,
+            buyerName: buyer?.fullName || 'Unknown Buyer',
+            farmerName: farmer?.fullName || 'Unknown Farmer',
+            productName,
+            amount: escrowAmount,
+          }).catch(err => console.error('Failed to send dispute notification email to admin:', err));
+        }
       }
 
       const otherPartyId = escrow.buyerId === userId ? escrow.farmerId : escrow.buyerId;
@@ -4461,6 +4642,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         relatedType: "user",
       }, io);
 
+      // Send email notification about account status change
+      if (user.email) {
+        sendAccountStatusEmail(user.email, user.fullName, {
+          isActive,
+          reason: reason || undefined,
+        }).catch(err => console.error('Failed to send account status email:', err));
+      }
+
       res.json({
         user: await storage.getUser(id),
         message: `User ${statusMessage} successfully`
@@ -4508,6 +4697,13 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
                 relatedId: userId,
                 relatedType: "user",
               }, io);
+              // Send email notification
+              if (user.email) {
+                sendAccountStatusEmail(user.email, user.fullName, {
+                  isActive: true,
+                  reason: reason || undefined,
+                }).catch(err => console.error('Failed to send account activation email:', err));
+              }
               results.push({ userId, operation: "activated" });
               break;
 
@@ -4521,6 +4717,13 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
                 relatedId: userId,
                 relatedType: "user",
               }, io);
+              // Send email notification
+              if (user.email) {
+                sendAccountStatusEmail(user.email, user.fullName, {
+                  isActive: false,
+                  reason: reason || undefined,
+                }).catch(err => console.error('Failed to send account deactivation email:', err));
+              }
               results.push({ userId, operation: "deactivated" });
               break;
 

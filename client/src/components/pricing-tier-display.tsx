@@ -157,11 +157,11 @@ export function PricingTierDisplay({ basePrice, tiers, unit, selectedQuantity = 
               </p>
               <div className="pt-2 mt-2 border-t border-white/20">
                 <p className={`text-lg font-bold ${applicableTier ? 'text-white' : 'text-foreground'}`}>
-                  Total: {formatCurrency((parseFloat(currentPrice) * selectedQuantity).toFixed(2))}
+                  Total: {formatCurrency(parseFloat(currentPrice) * selectedQuantity)}
                 </p>
                 {applicableTier && (
                   <p className="text-xs text-white/80">
-                    You're saving {formatCurrency(((basePriceNum - parseFloat(currentPrice)) * selectedQuantity).toFixed(2))} with bulk pricing!
+                    You're saving {formatCurrency((basePriceNum - parseFloat(currentPrice)) * selectedQuantity)} with bulk pricing!
                   </p>
                 )}
               </div>

@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +22,11 @@ import { useAuth } from "@/lib/auth";
 import { apiRequest } from "@/lib/queryClient";
 import { User as UserType } from "@shared/schema";
 import { Link, useLocation } from "wouter";
+import {
+  fadeInUp,
+  staggerContainer,
+  staggerItem
+} from "@/lib/animations";
 
 export default function OfficerDashboard() {
   const { user } = useAuth();
@@ -42,10 +48,15 @@ export default function OfficerDashboard() {
   });
 
   return (
-    <div className="min-h-screen bg-background">
+    <motion.div 
+      className="min-h-screen bg-background"
+      initial="hidden"
+      animate="visible"
+      variants={staggerContainer}
+    >
       <div className="container mx-auto px-4 py-8 max-w-screen-2xl">
         {/* Header */}
-        <div className="mb-8 flex items-center justify-between">
+        <motion.div className="mb-8 flex items-center justify-between" variants={fadeInUp}>
           <div>
             <h1 className="text-3xl md:text-4xl font-bold text-foreground">Field Officer Dashboard</h1>
             <p className="text-muted-foreground mt-1">
@@ -72,52 +83,58 @@ export default function OfficerDashboard() {
               </Button>
             </Link>
           </div>
-        </div>
+        </motion.div>
 
         {/* Stats Cards */}
-        <div className="grid md:grid-cols-3 gap-6 mb-8">
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Total Farmers</p>
-                  <p className="text-3xl font-bold text-foreground mt-2" data-testid="stat-total">
-                    {isLoading ? "-" : farmers?.length || 0}
-                  </p>
+        <motion.div className="grid md:grid-cols-3 gap-6 mb-8" variants={staggerContainer}>
+          <motion.div variants={staggerItem}>
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Total Farmers</p>
+                    <p className="text-3xl font-bold text-foreground mt-2" data-testid="stat-total">
+                      {isLoading ? "-" : farmers?.length || 0}
+                    </p>
+                  </div>
+                  <User className="h-12 w-12 text-primary" />
                 </div>
-                <User className="h-12 w-12 text-primary" />
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </motion.div>
 
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Pending Verification</p>
-                  <p className="text-3xl font-bold text-foreground mt-2" data-testid="stat-pending">
-                    {isLoading ? "-" : (verifications?.filter(v => v.status === 'pending').length ?? 0)}
-                  </p>
+          <motion.div variants={staggerItem}>
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Pending Verification</p>
+                    <p className="text-3xl font-bold text-foreground mt-2" data-testid="stat-pending">
+                      {isLoading ? "-" : (verifications?.filter(v => v.status === 'pending').length ?? 0)}
+                    </p>
+                  </div>
+                  <Clock className="h-12 w-12 text-primary" />
                 </div>
-                <Clock className="h-12 w-12 text-primary" />
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </motion.div>
 
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Verified Farmers</p>
-                  <p className="text-3xl font-bold text-foreground mt-2" data-testid="stat-verified">
-                    {isLoading ? "-" : verifiedFarmers.length}
-                  </p>
+          <motion.div variants={staggerItem}>
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Verified Farmers</p>
+                    <p className="text-3xl font-bold text-foreground mt-2" data-testid="stat-verified">
+                      {isLoading ? "-" : verifiedFarmers.length}
+                    </p>
+                  </div>
+                  <ShieldCheck className="h-12 w-12 text-primary" />
                 </div>
-                <ShieldCheck className="h-12 w-12 text-primary" />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        </motion.div>
 
         {/* Farmers List */}
         <div className="space-y-6">
@@ -263,6 +280,6 @@ export default function OfficerDashboard() {
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

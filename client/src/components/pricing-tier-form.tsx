@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Plus, Trash2, Edit2, Check, X, TrendingDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { formatCurrency } from "@/lib/currency";
 import { PricingTier } from "@shared/schema";
 
 const pricingTierSchema = z.object({
@@ -342,7 +343,7 @@ export function PricingTierForm({ listingId, basePrice }: PricingTierFormProps) 
                           <div className="flex flex-col items-center bg-white rounded-lg p-3 flex-1">
                             <div className="text-xs text-muted-foreground mb-1">Regular Price</div>
                             <div className="text-lg font-semibold text-muted-foreground line-through">
-                              ${basePrice.toFixed(2)}
+                              {formatCurrency(basePrice)}
                             </div>
                           </div>
                           
@@ -351,7 +352,7 @@ export function PricingTierForm({ listingId, basePrice }: PricingTierFormProps) 
                           <div className="flex flex-col items-center bg-white rounded-lg p-3 flex-1">
                             <div className="text-xs text-muted-foreground mb-1">Bulk Price</div>
                             <div className="text-2xl font-bold text-green-600">
-                              ${Number(tier.price).toFixed(2)}
+                              {formatCurrency(Number(tier.price))}
                             </div>
                           </div>
                           
@@ -370,7 +371,7 @@ export function PricingTierForm({ listingId, basePrice }: PricingTierFormProps) 
                           <div className="flex justify-between items-center">
                             <span className="text-muted-foreground">Savings on {tier.minQuantity} units:</span>
                             <span className="font-bold text-green-600">
-                              ${((basePrice - Number(tier.price)) * tier.minQuantity).toFixed(2)}
+                              {formatCurrency((basePrice - Number(tier.price)) * tier.minQuantity)}
                             </span>
                           </div>
                         </div>

@@ -81,7 +81,7 @@ export default function ContactPage() {
                   <Phone className="h-5 w-5 text-primary" />
                   <div>
                     <p className="font-medium">Phone</p>
-                    <p className="text-sm text-muted-foreground">+233 XX XXX XXXX</p>
+                    <p className="text-sm text-muted-foreground">+233 25 642 3896</p>
                   </div>
                 </div>
 
@@ -174,7 +174,7 @@ export default function ContactPage() {
                       value={formData.email}
                       onChange={handleChange}
                       required
-                      placeholder="your.email@example.com"
+                      placeholder="agricompass.info@gmail.com"
                     />
                   </div>
                 </div>

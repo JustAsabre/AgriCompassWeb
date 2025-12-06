@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { motion } from "framer-motion";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +14,11 @@ import { Send, MessageSquare } from "lucide-react";
 import { useNotifications } from "@/lib/notifications";
 import type { Conversation, MessageWithUsers } from "@shared/schema";
 import { formatDistanceToNow } from "date-fns";
+import {
+  fadeInUp,
+  staggerContainer,
+  staggerItem
+} from "@/lib/animations";
 
 export default function Messages() {
   const { user } = useAuth();
@@ -204,16 +210,21 @@ export default function Messages() {
   } : null);
 
   return (
-    <div className="min-h-screen bg-background">
+    <motion.div 
+      className="min-h-screen bg-background"
+      initial="hidden"
+      animate="visible"
+      variants={staggerContainer}
+    >
       <div className="container mx-auto px-4 py-8 max-w-screen-2xl">
-        <div className="mb-8">
+        <motion.div className="mb-8" variants={fadeInUp}>
           <h1 className="text-3xl md:text-4xl font-bold text-foreground">Messages</h1>
           <p className="text-muted-foreground mt-1">
             Chat with buyers and farmers
           </p>
-        </div>
+        </motion.div>
 
-        <div className="grid lg:grid-cols-3 gap-6 h-[calc(100vh-12rem)] min-h-[500px]">
+        <motion.div className="grid lg:grid-cols-3 gap-6 h-[calc(100vh-12rem)] min-h-[500px]" variants={staggerItem}>
           {/* Conversations List */}
           <Card className="lg:col-span-1">
             <CardHeader>
@@ -396,8 +407,8 @@ export default function Messages() {
               </CardContent>
             )}
           </Card>
-        </div>
+        </motion.div>
       </div>
-    </div>
+    </motion.div>
   );
 }

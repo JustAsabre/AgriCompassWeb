@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { motion } from 'framer-motion';
 import { queryClient, apiRequest } from '@/lib/queryClient';
+import { formatCurrency } from '@/lib/currency';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -14,6 +16,11 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from '@/hooks/use-toast';
 import { Search, Filter, Calendar, BarChart3, CheckSquare, XSquare, Shield, AlertTriangle, Users } from 'lucide-react';
 import { Loader } from "@/components/ui/loader";
+import {
+  fadeInUp,
+  staggerContainer,
+  staggerItem
+} from "@/lib/animations";
 
 interface AdminStats {
   totalUsers: number;
@@ -367,15 +374,15 @@ function AdminDashboardContent() {
     
     switch (escrow.status) {
       case 'pending':
-        return `Waiting for upfront payment of GHC ${upfront.toFixed(2)}`;
+        return `Waiting for upfront payment of ${formatCurrency(upfront)}`;
       case 'upfront_held':
-        return `Upfront payment of GHC ${upfront.toFixed(2)} held, waiting for order acceptance`;
+        return `Upfront payment of ${formatCurrency(upfront)} held, waiting for order acceptance`;
       case 'remaining_released':
-        return `Remaining payment of GHC ${remaining.toFixed(2)} released, waiting for delivery confirmation`;
+        return `Remaining payment of ${formatCurrency(remaining)} released, waiting for delivery confirmation`;
       case 'completed':
         return escrow.disputeResolution
           ? `Dispute resolved in favor of ${escrow.disputeResolution}`
-          : `Order completed, full payment of GHC ${total.toFixed(2)} released`;
+          : `Order completed, full payment of ${formatCurrency(total)} released`;
       case 'disputed':
         return `Dispute filed: ${escrow.disputeReason}`;
       default:
@@ -412,8 +419,13 @@ function AdminDashboardContent() {
   if (statsLoading) return <div>Loading admin dashboard...</div>;
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">Admin Dashboard</h1>
+    <motion.div 
+      className="p-6"
+      initial="hidden"
+      animate="visible"
+      variants={staggerContainer}
+    >
+      <motion.h1 className="text-2xl font-bold mb-6" variants={fadeInUp}>Admin Dashboard</motion.h1>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-4">
@@ -425,70 +437,78 @@ function AdminDashboardContent() {
 
         <TabsContent value="overview" className="space-y-6">
           {/* Top Stats Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <Card className="border-l-4 border-l-blue-500">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-gray-600 flex items-center justify-between">
-                  Total Users
-                  <span className="text-2xl">👥</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-blue-600">{stats?.totalUsers ?? '-'}</div>
-                <div className="text-xs text-gray-500 mt-2 space-y-1">
-                  <div>🌾 Farmers: {stats?.usersByRole?.farmer ?? 0}</div>
-                  <div>🛒 Buyers: {stats?.usersByRole?.buyer ?? 0}</div>
-                  <div>👮 Officers: {stats?.usersByRole?.field_officer ?? 0}</div>
-                </div>
-              </CardContent>
-            </Card>
+          <motion.div className="grid grid-cols-1 md:grid-cols-4 gap-4" variants={staggerContainer}>
+            <motion.div variants={staggerItem}>
+              <Card className="border-l-4 border-l-blue-500">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-gray-600 flex items-center justify-between">
+                    Total Users
+                    <span className="text-2xl">👥</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-blue-600">{stats?.totalUsers ?? '-'}</div>
+                  <div className="text-xs text-gray-500 mt-2 space-y-1">
+                    <div>🌾 Farmers: {stats?.usersByRole?.farmer ?? 0}</div>
+                    <div>🛒 Buyers: {stats?.usersByRole?.buyer ?? 0}</div>
+                    <div>👮 Officers: {stats?.usersByRole?.field_officer ?? 0}</div>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
 
-            <Card className="border-l-4 border-l-green-500">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-gray-600 flex items-center justify-between">
-                  Total Listings
-                  <span className="text-2xl">📦</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-green-600">{stats?.totalListings ?? '-'}</div>
-                <div className="text-xs text-gray-500 mt-2 space-y-1">
-                  <div>✅ Approved: {(stats?.totalListings ?? 0) - (pendingContent?.listings?.length ?? 0)}</div>
-                  <div>⏳ Pending: {pendingContent?.listings?.length ?? 0}</div>
-                </div>
-              </CardContent>
-            </Card>
+            <motion.div variants={staggerItem}>
+              <Card className="border-l-4 border-l-green-500">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-gray-600 flex items-center justify-between">
+                    Total Listings
+                    <span className="text-2xl">📦</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-green-600">{stats?.totalListings ?? '-'}</div>
+                  <div className="text-xs text-gray-500 mt-2 space-y-1">
+                    <div>✅ Approved: {(stats?.totalListings ?? 0) - (pendingContent?.listings?.length ?? 0)}</div>
+                    <div>⏳ Pending: {pendingContent?.listings?.length ?? 0}</div>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
 
-            <Card className="border-l-4 border-l-purple-500">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-gray-600 flex items-center justify-between">
-                  Total Orders
-                  <span className="text-2xl">📋</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-purple-600">{stats?.totalOrders ?? '-'}</div>
-                <div className="text-xs text-gray-500 mt-2">
-                  Marketplace transactions
-                </div>
-              </CardContent>
-            </Card>
+            <motion.div variants={staggerItem}>
+              <Card className="border-l-4 border-l-purple-500">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-gray-600 flex items-center justify-between">
+                    Total Orders
+                    <span className="text-2xl">📋</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-purple-600">{stats?.totalOrders ?? '-'}</div>
+                  <div className="text-xs text-gray-500 mt-2">
+                    Marketplace transactions
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
 
-            <Card className="border-l-4 border-l-emerald-500">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-gray-600 flex items-center justify-between">
-                  Platform Revenue
-                  <span className="text-2xl">💰</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-emerald-600">GHC {revenueData?.totalRevenue?.toFixed(2) ?? '0.00'}</div>
-                <div className="text-xs text-gray-500 mt-2">
-                  From completed orders
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+            <motion.div variants={staggerItem}>
+              <Card className="border-l-4 border-l-emerald-500">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-gray-600 flex items-center justify-between">
+                    Platform Revenue
+                    <span className="text-2xl">💰</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-emerald-600">{formatCurrency(revenueData?.totalRevenue ?? 0)}</div>
+                  <div className="text-xs text-gray-500 mt-2">
+                    From completed orders
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          </motion.div>
 
           {/* Moderation Activity Summary */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -555,7 +575,7 @@ function AdminDashboardContent() {
                 <div className="mt-4 pt-4 border-t">
                   <div className="text-sm font-medium mb-1">Total Protected Value</div>
                   <div className="text-2xl font-bold text-emerald-600">
-                    GHC {escrows?.reduce((sum, e) => sum + (parseFloat(e.amount as any) || 0), 0)?.toFixed(2) ?? '0.00'}
+                    {formatCurrency(escrows?.reduce((sum, e) => sum + (parseFloat(e.amount as any) || 0), 0) ?? 0)}
                   </div>
                 </div>
               </CardContent>
@@ -1066,7 +1086,7 @@ function AdminDashboardContent() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  GHC {escrows?.reduce((sum, e) => sum + (parseFloat(e.amount as any) || 0), 0)?.toFixed(2) ?? '0.00'}
+                  {formatCurrency(escrows?.reduce((sum, e) => sum + (parseFloat(e.amount as any) || 0), 0) ?? 0)}
                 </div>
                 <div className="text-xs text-gray-500 mt-1">
                   Protected by escrow
@@ -1127,9 +1147,9 @@ function AdminDashboardContent() {
                         </div>
                         <p className="text-sm text-gray-600">{getEscrowStatusDescription(escrow)}</p>
                         <div className="flex gap-4 text-xs text-gray-500">
-                          <span>Total: GHC {(parseFloat(escrow.amount as any) || 0).toFixed(2)}</span>
-                          <span>Upfront: GHC {(parseFloat(escrow.upfrontAmount as any) || 0).toFixed(2)}</span>
-                          <span>Remaining: GHC {(parseFloat(escrow.remainingAmount as any) || 0).toFixed(2)}</span>
+                          <span>Total: {formatCurrency(parseFloat(escrow.amount as any) || 0)}</span>
+                          <span>Upfront: {formatCurrency(parseFloat(escrow.upfrontAmount as any) || 0)}</span>
+                          <span>Remaining: {formatCurrency(parseFloat(escrow.remainingAmount as any) || 0)}</span>
                         </div>
                         <div className="text-xs text-gray-500">
                           Created: {new Date(escrow.createdAt).toLocaleDateString()}
@@ -1216,7 +1236,7 @@ function AdminDashboardContent() {
                               <AlertDialogHeader>
                                 <AlertDialogTitle>Release Escrow to Farmer</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  Release GHC {(parseFloat(escrow.amount as any) || 0).toFixed(2)} to the farmer for Order #{escrow.orderId}.
+                                  Release {formatCurrency(parseFloat(escrow.amount as any) || 0)} to the farmer for Order #{escrow.orderId}.
                                   This action cannot be undone.
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
@@ -1262,7 +1282,7 @@ function AdminDashboardContent() {
                               <AlertDialogHeader>
                                 <AlertDialogTitle>Refund Escrow to Buyer</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  Refund GHC {(parseFloat(escrow.amount as any) || 0).toFixed(2)} to the buyer for Order #{escrow.orderId}.
+                                  Refund {formatCurrency(parseFloat(escrow.amount as any) || 0)} to the buyer for Order #{escrow.orderId}.
                                   This action cannot be undone.
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
@@ -1462,7 +1482,7 @@ function AdminDashboardContent() {
                             {user.region && <div>📍 {user.region}</div>}
                             {user.businessName && <div>🏢 {user.businessName}</div>}
                             {user.farmSize && <div>🌾 {user.farmSize}</div>}
-                            <div>💰 Wallet: ${parseFloat(user.walletBalance || '0').toFixed(2)}</div>
+                            <div>💰 Wallet: {formatCurrency(parseFloat(user.walletBalance || '0'))}</div>
                             <div className="text-xs text-gray-400">
                               Joined: {new Date(user.createdAt).toLocaleDateString()}
                             </div>
@@ -1522,7 +1542,7 @@ function AdminDashboardContent() {
           </Card>
         </TabsContent>
       </Tabs>
-    </div>
+    </motion.div>
   );
 }
 

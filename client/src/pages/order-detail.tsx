@@ -1,6 +1,7 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useRoute, useLocation } from "wouter";
+import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +46,11 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import {
+  fadeInUp,
+  staggerContainer,
+  staggerItem
+} from "@/lib/animations";
 
 interface OrderDetail {
   id: string;
@@ -340,7 +346,12 @@ export default function OrderDetail() {
   };
 
   return (
-      <div className="min-h-screen bg-background print:bg-white">
+      <motion.div 
+        className="min-h-screen bg-background print:bg-white"
+        initial="hidden"
+        animate="visible"
+        variants={staggerContainer}
+      >
       <div className="container mx-auto px-4 py-8 max-w-4xl print:px-0 print:py-4">
         {/* Back Button */}
         <Button
@@ -351,7 +362,7 @@ export default function OrderDetail() {
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to Orders
         </Button>        {/* Header */}
-        <div className="mb-6 print:mb-4">
+        <motion.div className="mb-6 print:mb-4" variants={fadeInUp}>
           <div className="flex items-start justify-between mb-2 print:flex-col print:gap-2">
             <div>
               <h1 className="text-3xl font-bold mb-1 print:text-2xl">Order Details</h1>
@@ -370,7 +381,7 @@ export default function OrderDetail() {
               minute: '2-digit',
             })}
           </p>
-        </div>
+        </motion.div>
 
         {/* Status Timeline */}
         <Card className="mb-6 print:shadow-none print:border">
@@ -733,6 +744,6 @@ export default function OrderDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </motion.div>
   );
 }

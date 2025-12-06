@@ -1448,3 +1448,592 @@ export async function sendEscrowReleasedEmail(
   }
 }
 
+// ==================== ADMIN ACTIVITY EMAIL NOTIFICATIONS ====================
+
+/**
+ * Send email when admin resolves an escrow dispute
+ */
+export async function sendEscrowDisputeResolvedEmail(
+  email: string,
+  userName: string,
+  details: {
+    orderId: string;
+    resolution: string;
+    amount: number;
+    productName: string;
+    isWinner: boolean;
+  }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const resolutionText = details.isWinner 
+      ? 'The dispute has been resolved in your favor.' 
+      : 'The dispute has been resolved in favor of the other party.';
+    
+    return await sendEmail({
+      to: email,
+      subject: `Escrow Dispute Resolved - Order #${details.orderId}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background: ${details.isWinner ? '#10b981' : '#f59e0b'}; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+              .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
+              .details-box { background: white; padding: 20px; margin: 20px 0; border-radius: 5px; border: 1px solid #e5e7eb; }
+              .resolution-box { background: ${details.isWinner ? '#ecfdf5' : '#fffbeb'}; border-left: 4px solid ${details.isWinner ? '#10b981' : '#f59e0b'}; padding: 15px; margin: 15px 0; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>⚖️ Dispute Resolved</h1>
+              </div>
+              <div class="content">
+                <p>Hello ${userName},</p>
+                
+                <div class="resolution-box">
+                  <strong>${resolutionText}</strong>
+                </div>
+                
+                <div class="details-box">
+                  <h3>Resolution Details</h3>
+                  <p><strong>Order:</strong> ${details.productName}</p>
+                  <p><strong>Amount:</strong> GH₵${details.amount.toFixed(2)}</p>
+                  <p><strong>Resolution:</strong> Funds released to ${details.resolution}</p>
+                  <p><strong>Order ID:</strong> ${details.orderId}</p>
+                </div>
+
+                <p>If you have any questions about this resolution, please contact our support team.</p>
+                
+                <div style="text-align: center; margin-top: 20px; font-size: 12px; color: #666;">
+                  <p>&copy; 2025 AgriCompass. All rights reserved.</p>
+                </div>
+              </div>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+  } catch (error: any) {
+    console.error('Escrow dispute resolved email error:', error);
+    return { success: false, error: error.message || 'Failed to send email' };
+  }
+}
+
+/**
+ * Send email when admin releases escrow funds to farmer
+ */
+export async function sendAdminEscrowReleaseEmail(
+  email: string,
+  userName: string,
+  details: {
+    orderId: string;
+    amount: number;
+    productName: string;
+    reason: string;
+    isFarmer: boolean;
+  }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const subjectLine = details.isFarmer 
+      ? `Payment Released to Your Account - Order #${details.orderId}`
+      : `Admin Released Payment for Order #${details.orderId}`;
+    
+    return await sendEmail({
+      to: email,
+      subject: subjectLine,
+      html: `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background: #10b981; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+              .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
+              .details-box { background: white; padding: 20px; margin: 20px 0; border-radius: 5px; border: 2px solid #10b981; }
+              .info-box { background: #ecfdf5; border-left: 4px solid #10b981; padding: 15px; margin: 15px 0; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>💰 ${details.isFarmer ? 'Payment Released!' : 'Payment Released'}</h1>
+              </div>
+              <div class="content">
+                <p>Hello ${userName},</p>
+                
+                <div class="info-box">
+                  ${details.isFarmer 
+                    ? '<strong>Great news!</strong> An admin has released your escrow payment.'
+                    : '<strong>Notice:</strong> An admin has released the escrow payment for your order to the farmer.'}
+                </div>
+                
+                <div class="details-box">
+                  <h3>Release Details</h3>
+                  <p><strong>Order:</strong> ${details.productName}</p>
+                  <p><strong>Amount:</strong> GH₵${details.amount.toFixed(2)}</p>
+                  <p><strong>Admin Reason:</strong> ${details.reason}</p>
+                  <p><strong>Order ID:</strong> ${details.orderId}</p>
+                </div>
+
+                ${details.isFarmer 
+                  ? '<p>The funds have been added to your wallet balance and are available for withdrawal.</p>'
+                  : '<p>If you have any concerns about this action, please contact our support team.</p>'}
+                
+                <div style="text-align: center; margin-top: 20px; font-size: 12px; color: #666;">
+                  <p>&copy; 2025 AgriCompass. All rights reserved.</p>
+                </div>
+              </div>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+  } catch (error: any) {
+    console.error('Admin escrow release email error:', error);
+    return { success: false, error: error.message || 'Failed to send email' };
+  }
+}
+
+/**
+ * Send email when admin refunds escrow to buyer
+ */
+export async function sendAdminEscrowRefundEmail(
+  email: string,
+  userName: string,
+  details: {
+    orderId: string;
+    amount: number;
+    productName: string;
+    reason: string;
+    isBuyer: boolean;
+  }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const subjectLine = details.isBuyer 
+      ? `Refund Processed - Order #${details.orderId}`
+      : `Admin Refunded Payment for Order #${details.orderId}`;
+    
+    return await sendEmail({
+      to: email,
+      subject: subjectLine,
+      html: `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background: #3b82f6; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+              .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
+              .details-box { background: white; padding: 20px; margin: 20px 0; border-radius: 5px; border: 2px solid #3b82f6; }
+              .info-box { background: #eff6ff; border-left: 4px solid #3b82f6; padding: 15px; margin: 15px 0; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>💳 ${details.isBuyer ? 'Refund Processed' : 'Payment Refunded'}</h1>
+              </div>
+              <div class="content">
+                <p>Hello ${userName},</p>
+                
+                <div class="info-box">
+                  ${details.isBuyer 
+                    ? '<strong>Good news!</strong> An admin has processed a refund for your order.'
+                    : '<strong>Notice:</strong> An admin has refunded the escrow payment to the buyer.'}
+                </div>
+                
+                <div class="details-box">
+                  <h3>Refund Details</h3>
+                  <p><strong>Order:</strong> ${details.productName}</p>
+                  <p><strong>Amount:</strong> GH₵${details.amount.toFixed(2)}</p>
+                  <p><strong>Admin Reason:</strong> ${details.reason}</p>
+                  <p><strong>Order ID:</strong> ${details.orderId}</p>
+                </div>
+
+                ${details.isBuyer 
+                  ? '<p>The refund will be processed to your original payment method within 5-10 business days.</p>'
+                  : '<p>If you have any questions about this action, please contact our support team.</p>'}
+                
+                <div style="text-align: center; margin-top: 20px; font-size: 12px; color: #666;">
+                  <p>&copy; 2025 AgriCompass. All rights reserved.</p>
+                </div>
+              </div>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+  } catch (error: any) {
+    console.error('Admin escrow refund email error:', error);
+    return { success: false, error: error.message || 'Failed to send email' };
+  }
+}
+
+/**
+ * Send email when content (listing/message) is moderated by admin
+ */
+export async function sendContentModerationEmail(
+  email: string,
+  userName: string,
+  details: {
+    contentType: 'listing' | 'message';
+    contentTitle: string;
+    action: 'approved' | 'rejected';
+    reason?: string;
+  }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const isApproved = details.action === 'approved';
+    const contentLabel = details.contentType === 'listing' ? 'Listing' : 'Message';
+    
+    return await sendEmail({
+      to: email,
+      subject: `Your ${contentLabel} Has Been ${isApproved ? 'Approved' : 'Rejected'}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background: ${isApproved ? '#10b981' : '#ef4444'}; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+              .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
+              .status-box { background: ${isApproved ? '#ecfdf5' : '#fef2f2'}; border-left: 4px solid ${isApproved ? '#10b981' : '#ef4444'}; padding: 15px; margin: 15px 0; }
+              .details-box { background: white; padding: 20px; margin: 20px 0; border-radius: 5px; border: 1px solid #e5e7eb; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>${isApproved ? '✅' : '❌'} ${contentLabel} ${isApproved ? 'Approved' : 'Rejected'}</h1>
+              </div>
+              <div class="content">
+                <p>Hello ${userName},</p>
+                
+                <div class="status-box">
+                  ${isApproved 
+                    ? `<strong>Good news!</strong> Your ${contentLabel.toLowerCase()} has been approved and is now live on AgriCompass.`
+                    : `<strong>Unfortunately,</strong> your ${contentLabel.toLowerCase()} did not meet our community guidelines and has been rejected.`}
+                </div>
+                
+                <div class="details-box">
+                  <h3>${contentLabel} Details</h3>
+                  <p><strong>${contentLabel}:</strong> ${details.contentTitle}</p>
+                  <p><strong>Status:</strong> ${isApproved ? 'Approved' : 'Rejected'}</p>
+                  ${details.reason ? `<p><strong>Reason:</strong> ${details.reason}</p>` : ''}
+                </div>
+
+                ${!isApproved ? `
+                  <p><strong>What you can do:</strong></p>
+                  <ul>
+                    <li>Review the rejection reason above</li>
+                    <li>Make necessary changes to comply with our guidelines</li>
+                    <li>Resubmit your ${contentLabel.toLowerCase()} for review</li>
+                    <li>Contact support if you believe this was a mistake</li>
+                  </ul>
+                ` : `
+                  <p>Thank you for contributing to AgriCompass! Your content helps connect farmers and buyers across Ghana.</p>
+                `}
+                
+                <div style="text-align: center; margin-top: 20px; font-size: 12px; color: #666;">
+                  <p>&copy; 2025 AgriCompass. All rights reserved.</p>
+                </div>
+              </div>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+  } catch (error: any) {
+    console.error('Content moderation email error:', error);
+    return { success: false, error: error.message || 'Failed to send email' };
+  }
+}
+
+/**
+ * Send email to admin when a new dispute is filed
+ */
+export async function sendNewDisputeNotificationToAdmin(
+  email: string,
+  adminName: string,
+  details: {
+    orderId: string;
+    disputeReason: string;
+    buyerName: string;
+    farmerName: string;
+    productName: string;
+    amount: number;
+  }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    return await sendEmail({
+      to: email,
+      subject: `⚠️ New Escrow Dispute - Order #${details.orderId}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background: #ef4444; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+              .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
+              .alert-box { background: #fef2f2; border-left: 4px solid #ef4444; padding: 15px; margin: 15px 0; }
+              .details-box { background: white; padding: 20px; margin: 20px 0; border-radius: 5px; border: 1px solid #e5e7eb; }
+              .action-btn { display: inline-block; background: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; margin-top: 15px; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>⚠️ New Escrow Dispute</h1>
+              </div>
+              <div class="content">
+                <p>Hello ${adminName},</p>
+                
+                <div class="alert-box">
+                  <strong>Action Required:</strong> A new escrow dispute has been filed and requires your attention.
+                </div>
+                
+                <div class="details-box">
+                  <h3>Dispute Details</h3>
+                  <p><strong>Order ID:</strong> ${details.orderId}</p>
+                  <p><strong>Product:</strong> ${details.productName}</p>
+                  <p><strong>Amount:</strong> GH₵${details.amount.toFixed(2)}</p>
+                  <p><strong>Buyer:</strong> ${details.buyerName}</p>
+                  <p><strong>Farmer:</strong> ${details.farmerName}</p>
+                  <p><strong>Dispute Reason:</strong></p>
+                  <blockquote style="background: #f3f4f6; padding: 10px; border-left: 3px solid #6b7280; margin: 10px 0;">
+                    ${details.disputeReason}
+                  </blockquote>
+                </div>
+
+                <p><strong>Next Steps:</strong></p>
+                <ul>
+                  <li>Review the dispute details in the admin dashboard</li>
+                  <li>Contact both parties if needed for more information</li>
+                  <li>Make a fair resolution decision</li>
+                  <li>Resolve the dispute within 24-48 hours</li>
+                </ul>
+
+                <a href="${process.env.FRONTEND_URL || 'http://localhost:5000'}/admin/dashboard" class="action-btn">Go to Admin Dashboard</a>
+                
+                <div style="text-align: center; margin-top: 20px; font-size: 12px; color: #666;">
+                  <p>&copy; 2025 AgriCompass. All rights reserved.</p>
+                </div>
+              </div>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+  } catch (error: any) {
+    console.error('New dispute admin notification email error:', error);
+    return { success: false, error: error.message || 'Failed to send email' };
+  }
+}
+
+/**
+ * Send email notification when user role is changed by admin
+ */
+export async function sendRoleChangeEmail(
+  email: string,
+  userName: string,
+  details: {
+    oldRole: string;
+    newRole: string;
+  }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const roleLabels: Record<string, string> = {
+      farmer: 'Farmer',
+      buyer: 'Buyer',
+      field_officer: 'Field Officer',
+      admin: 'Administrator'
+    };
+    
+    const newRoleLabel = roleLabels[details.newRole] || details.newRole;
+    const isPromotion = details.newRole === 'admin' || details.newRole === 'field_officer';
+    
+    return await sendEmail({
+      to: email,
+      subject: `Your AgriCompass Role Has Been Updated to ${newRoleLabel}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background: #2563eb; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+              .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
+              .role-box { background: #eff6ff; border-left: 4px solid #2563eb; padding: 15px; margin: 15px 0; }
+              .details-box { background: white; padding: 20px; margin: 20px 0; border-radius: 5px; border: 1px solid #e5e7eb; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>👤 Role Updated</h1>
+              </div>
+              <div class="content">
+                <p>Hello ${userName},</p>
+                
+                <div class="role-box">
+                  <strong>Your role on AgriCompass has been updated!</strong>
+                  <p>You are now a <strong>${newRoleLabel}</strong>.</p>
+                </div>
+                
+                <div class="details-box">
+                  <h3>What This Means</h3>
+                  ${details.newRole === 'admin' ? `
+                    <p>As an <strong>Administrator</strong>, you now have access to:</p>
+                    <ul>
+                      <li>User management and moderation tools</li>
+                      <li>System analytics and reports</li>
+                      <li>Dispute resolution controls</li>
+                      <li>Platform configuration settings</li>
+                    </ul>
+                  ` : details.newRole === 'field_officer' ? `
+                    <p>As a <strong>Field Officer</strong>, you can now:</p>
+                    <ul>
+                      <li>Verify farmer identities in the field</li>
+                      <li>Conduct farm inspections</li>
+                      <li>Submit verification reports</li>
+                      <li>Support farmers with platform usage</li>
+                    </ul>
+                  ` : details.newRole === 'farmer' ? `
+                    <p>As a <strong>Farmer</strong>, you can now:</p>
+                    <ul>
+                      <li>Create and manage product listings</li>
+                      <li>Receive orders from buyers</li>
+                      <li>Access your farmer wallet and payouts</li>
+                      <li>Communicate with buyers directly</li>
+                    </ul>
+                  ` : `
+                    <p>As a <strong>Buyer</strong>, you can now:</p>
+                    <ul>
+                      <li>Browse and purchase products</li>
+                      <li>Place orders with verified farmers</li>
+                      <li>Track your order history</li>
+                      <li>Communicate with farmers directly</li>
+                    </ul>
+                  `}
+                </div>
+
+                <p>If you believe this change was made in error, please contact our support team immediately.</p>
+                
+                <div style="text-align: center; margin-top: 20px; font-size: 12px; color: #666;">
+                  <p>&copy; 2025 AgriCompass. All rights reserved.</p>
+                </div>
+              </div>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+  } catch (error: any) {
+    console.error('Role change email error:', error);
+    return { success: false, error: error.message || 'Failed to send email' };
+  }
+}
+
+/**
+ * Send email notification when account status is changed by admin
+ */
+export async function sendAccountStatusEmail(
+  email: string,
+  userName: string,
+  details: {
+    isActive: boolean;
+    reason?: string;
+  }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const isActivated = details.isActive;
+    
+    return await sendEmail({
+      to: email,
+      subject: `Your AgriCompass Account Has Been ${isActivated ? 'Activated' : 'Deactivated'}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background: ${isActivated ? '#10b981' : '#ef4444'}; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+              .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
+              .status-box { background: ${isActivated ? '#ecfdf5' : '#fef2f2'}; border-left: 4px solid ${isActivated ? '#10b981' : '#ef4444'}; padding: 15px; margin: 15px 0; }
+              .details-box { background: white; padding: 20px; margin: 20px 0; border-radius: 5px; border: 1px solid #e5e7eb; }
+              .action-btn { display: inline-block; padding: 12px 24px; background: #2563eb; color: white; text-decoration: none; border-radius: 6px; margin: 15px 0; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>${isActivated ? '✅ Account Activated' : '⚠️ Account Deactivated'}</h1>
+              </div>
+              <div class="content">
+                <p>Hello ${userName},</p>
+                
+                <div class="status-box">
+                  ${isActivated 
+                    ? `<strong>Great news!</strong> Your AgriCompass account has been activated. You now have full access to the platform.`
+                    : `<strong>Important Notice:</strong> Your AgriCompass account has been deactivated. You will not be able to access the platform until your account is reactivated.`}
+                </div>
+                
+                ${details.reason ? `
+                  <div class="details-box">
+                    <h3>Reason</h3>
+                    <p>${details.reason}</p>
+                  </div>
+                ` : ''}
+
+                ${isActivated ? `
+                  <p>You can now:</p>
+                  <ul>
+                    <li>Log in to your account</li>
+                    <li>Access all platform features</li>
+                    <li>Continue your activities on AgriCompass</li>
+                  </ul>
+                  
+                  <a href="${process.env.FRONTEND_URL || 'http://localhost:5000'}/login" class="action-btn">Log In Now</a>
+                ` : `
+                  <p><strong>What you can do:</strong></p>
+                  <ul>
+                    <li>Contact our support team for more information</li>
+                    <li>Review any violations of our terms of service</li>
+                    <li>Request a review of this decision</li>
+                  </ul>
+                  
+                  <p>If you believe this was a mistake, please contact support at <a href="mailto:support@agricompass.com">support@agricompass.com</a></p>
+                `}
+                
+                <div style="text-align: center; margin-top: 20px; font-size: 12px; color: #666;">
+                  <p>&copy; 2025 AgriCompass. All rights reserved.</p>
+                </div>
+              </div>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+  } catch (error: any) {
+    console.error('Account status email error:', error);
+    return { success: false, error: error.message || 'Failed to send email' };
+  }
+}
+

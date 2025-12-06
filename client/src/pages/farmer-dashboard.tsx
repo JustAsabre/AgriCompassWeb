@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Link, useLocation } from "wouter";
+import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +41,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEffect } from "react";
 import { EscrowStatus } from "@/components/escrow-status";
 import { Escrow } from "@shared/schema";
+import {
+  fadeInUp,
+  staggerContainer,
+  staggerItem,
+  scaleIn
+} from "@/lib/animations";
 
 export default function FarmerDashboard() {
   const { user, refreshUser } = useAuth();
@@ -146,10 +153,15 @@ export default function FarmerDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <motion.div 
+      className="min-h-screen bg-background"
+      initial="hidden"
+      animate="visible"
+      variants={staggerContainer}
+    >
       <div className="container mx-auto px-4 py-8 max-w-screen-2xl">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
+        <motion.div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8" variants={fadeInUp}>
           <div>
             <h1 className="text-3xl md:text-4xl font-bold text-foreground">Farmer Dashboard</h1>
             <p className="text-muted-foreground mt-1">
@@ -166,7 +178,7 @@ export default function FarmerDashboard() {
               Create Listing
             </Button>
           </div>
-        </div>
+        </motion.div>
 
         {/* Verification Alert */}
         {!user?.verified && (
@@ -189,49 +201,55 @@ export default function FarmerDashboard() {
         )}
 
         {/* Stats Cards */}
-        <div className="grid md:grid-cols-3 gap-6 mb-8">
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Active Listings</p>
-                  <p className="text-3xl font-bold text-foreground mt-2" data-testid="stat-active-listings">
-                    {listingsLoading ? "-" : activeListings.length}
-                  </p>
+        <motion.div className="grid md:grid-cols-3 gap-6 mb-8" variants={staggerContainer}>
+          <motion.div variants={staggerItem}>
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Active Listings</p>
+                    <p className="text-3xl font-bold text-foreground mt-2" data-testid="stat-active-listings">
+                      {listingsLoading ? "-" : activeListings.length}
+                    </p>
+                  </div>
+                  <Package className="h-12 w-12 text-primary" />
                 </div>
-                <Package className="h-12 w-12 text-primary" />
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </motion.div>
 
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Pending Orders</p>
-                  <p className="text-3xl font-bold text-foreground mt-2" data-testid="stat-pending-orders">
-                    {ordersLoading ? "-" : pendingOrders.length}
-                  </p>
+          <motion.div variants={staggerItem}>
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Pending Orders</p>
+                    <p className="text-3xl font-bold text-foreground mt-2" data-testid="stat-pending-orders">
+                      {ordersLoading ? "-" : pendingOrders.length}
+                    </p>
+                  </div>
+                  <ShoppingBag className="h-12 w-12 text-primary" />
                 </div>
-                <ShoppingBag className="h-12 w-12 text-primary" />
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </motion.div>
 
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Total Revenue</p>
-                  <p className="text-3xl font-bold text-foreground mt-2" data-testid="stat-revenue">
-                    {formatCurrency(totalRevenue)}
-                  </p>
+          <motion.div variants={staggerItem}>
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Total Revenue</p>
+                    <p className="text-3xl font-bold text-foreground mt-2" data-testid="stat-revenue">
+                      {formatCurrency(totalRevenue)}
+                    </p>
+                  </div>
+                  <TrendingUp className="h-12 w-12 text-primary" />
                 </div>
-                <TrendingUp className="h-12 w-12 text-primary" />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        </motion.div>
 
         {/* Tabs */}
         <Tabs defaultValue="listings" className="space-y-6">
@@ -466,6 +484,6 @@ export default function FarmerDashboard() {
         </Tabs>
 
       </div>
-    </div>
+    </motion.div>
   );
 }
