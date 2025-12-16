@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from "react
 import { apiRequest } from "@/lib/queryClient";
 import { User } from "@shared/schema";
 import { useQueryClient } from "@tanstack/react-query";
+import { setSentryUser } from "@/sentry";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://agricompassweb.fly.dev';
 
@@ -34,6 +35,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.ok) {
         const data = await response.json();
         setUser(data.user);
+        // Set Sentry user context
+        if (data.user) {
+          setSentryUser({
+            id: data.user.id,
+            email: data.user.email,
+            role: data.user.role,
+          });
+        }
       }
     } catch (error) {
       console.error("Session check failed:", error);
@@ -51,6 +60,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.ok) {
         const data = await response.json();
         setUser(data.user);
+        // Set Sentry user context
+        if (data.user) {
+          setSentryUser({
+            id: data.user.id,
+            email: data.user.email,
+            role: data.user.role,
+          });
+        }
       }
     } catch (error) {
       console.error("User refresh failed:", error);
@@ -59,6 +76,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = (user: User) => {
     setUser(user);
+    // Set Sentry user context on login
+    setSentryUser({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+    });
   };
 
   const logout = async () => {
@@ -68,6 +91,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error("Logout failed:", error);
     } finally {
       setUser(null);
+      // Clear Sentry user context on logout
+      setSentryUser(null);
       // Clear all React Query cache to prevent data leakage between users
       queryClient.clear();
     }

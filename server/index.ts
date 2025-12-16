@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express, { type Request, Response, NextFunction } from "express";
+import { initSentry, setupSentryErrorHandler } from "./sentry";
 import { log } from "./log";
 import sessionMiddleware, { sessionStore } from "./session";
 import helmet from "helmet";
@@ -17,6 +18,9 @@ import cors from "cors";
 
 const app = express();
 const httpServer = createServer(app);
+
+// Initialize Sentry FIRST
+initSentry(app);
 
 // Configure trust proxy to ensure req.protocol and secure cookies work behind proxies/load-balancers.
 // Can be configured via TRUST_PROXY env var. Defaults to 1 (typical single proxy/load-balancer).
@@ -215,6 +219,9 @@ app.use((req, res, next) => {
   
   // Start payment expiration job (runs daily at 3 AM)
   try { startPaymentExpirationJob(); } catch (err) { console.error('Failed to start payment expiration job', err); }
+
+  // Sentry error handler - MUST be after all routes but before other error handlers
+  setupSentryErrorHandler(app);
 
   // Specific handler for CSRF errors
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
