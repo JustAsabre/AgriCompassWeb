@@ -1,6 +1,7 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { useState, useEffect } from "react";
 import { 
   ShieldCheck, 
   TrendingUp, 
@@ -14,6 +15,25 @@ import {
 import { formatCurrency } from '@/lib/currency';
 
 export default function Landing() {
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  
+  const heroImages = [
+    { src: "/images/tractor.jpg", alt: "Modern farming with technology" },
+    { src: "/images/plants.jpg", alt: "Fresh agricultural plants" },
+    { src: "/images/vegetables-for-sale-sell-buy.jpg", alt: "Fresh vegetables for sale" },
+    { src: "/images/female farmer.jpg", alt: "Woman farmer" },
+    { src: "/images/AI FARM image.jpg", alt: "Smart farming technology" }
+  ];
+
+  // Auto-slide every 4 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentImageIndex((prev) => (prev + 1) % heroImages.length);
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [heroImages.length]);
+
   const features = [
     {
       icon: ShieldCheck,
@@ -115,10 +135,34 @@ export default function Landing() {
               </div>
             </div>
 
-            <div className="relative h-[400px] lg:h-[600px]">
-              <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-primary/5 rounded-lg"></div>
-              <div className="absolute inset-0 flex items-center justify-center">
-                <Sprout className="h-48 w-48 text-primary/30" />
+            <div className="relative h-[400px] lg:h-[600px] overflow-hidden rounded-lg">
+              {heroImages.map((image, index) => (
+                <img 
+                  key={index}
+                  src={image.src} 
+                  alt={image.alt} 
+                  className={`absolute inset-0 w-full h-full object-cover shadow-2xl transition-opacity duration-1000 ${
+                    index === currentImageIndex ? 'opacity-100' : 'opacity-0'
+                  }`}
+                  loading={index === 0 ? "eager" : "lazy"}
+                />
+              ))}
+              <div className="absolute inset-0 bg-gradient-to-br from-primary/30 to-transparent"></div>
+              
+              {/* Slider Indicators */}
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-10">
+                {heroImages.map((_, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setCurrentImageIndex(index)}
+                    className={`w-2 h-2 rounded-full transition-all ${
+                      index === currentImageIndex 
+                        ? 'bg-white w-8' 
+                        : 'bg-white/50 hover:bg-white/75'
+                    }`}
+                    aria-label={`Go to slide ${index + 1}`}
+                  />
+                ))}
               </div>
             </div>
           </div>

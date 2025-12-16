@@ -5,6 +5,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.8.1] - 2025-01-17
+### Added
+- **Site Images Integration:**
+  - Added 8 professional images across the platform:
+    - Main landing hero: tractor.jpg (1.1MB, lazy loaded)
+    - Farmer landing: Male farmer.jpg portrait
+    - Buyer landing: female buyer.jpg portrait
+    - Marketplace: Markeplace.jpg banner
+    - About page: plants.jpg background (575KB, lazy loaded)
+    - Create listing: AI FARM image.jpg in header
+    - Cart page: vegetables-for-sale-sell-buy.jpg header
+  - All large images (>500KB) use lazy loading for performance
+  - Responsive design: images hidden on mobile, visible on desktop
+  - Strategic placement for visual appeal without performance impact
+
+### Fixed
+- **Admin Role Management UI:**
+  - Added missing role change UI to admin dashboard
+  - New `changeUserRoleMutation` for PATCH `/api/admin/users/:userId/role`
+  - Added role selector dropdown with 4 options: Farmer (🌾), Buyer (🛒), Field Officer (👮), Admin (👑)
+  - Backend API was functional, UI was completely missing
+  - Admins can now promote/change user roles from dashboard
+  - Prevents self-demotion (backend validation)
+  - Sends email and Socket.IO notifications on role change
+
+
 ## [1.8.0] - 2025-01-16
 ### Added - Performance Optimization ⚡
 

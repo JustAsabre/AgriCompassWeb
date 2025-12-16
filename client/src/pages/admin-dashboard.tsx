@@ -279,6 +279,26 @@ function AdminDashboardContent() {
     }
   });
 
+  const changeUserRoleMutation = useMutation({
+    mutationFn: async ({ userId, role }: { userId: string; role: string }) => {
+      return apiRequest('PATCH', `/api/admin/users/${userId}/role`, { role });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
+      toast({
+        title: "Role updated",
+        description: "User role has been changed successfully."
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Role change failed",
+        description: error.message || "Failed to change user role",
+        variant: "destructive"
+      });
+    }
+  });
+
   const handleModerate = (id: string, action: 'approve' | 'reject', contentType: 'listing' | 'message') => {
     if (action === 'reject' && !moderationReason.trim()) {
       toast({
@@ -1490,6 +1510,26 @@ function AdminDashboardContent() {
                         </div>
 
                         <div className="flex flex-col gap-2">
+                          <Select 
+                            value={user.role} 
+                            onValueChange={(newRole) => {
+                              if (newRole !== user.role) {
+                                changeUserRoleMutation.mutate({ userId: user.id, role: newRole });
+                              }
+                            }}
+                            disabled={changeUserRoleMutation.isPending}
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="farmer">🌾 Farmer</SelectItem>
+                              <SelectItem value="buyer">🛒 Buyer</SelectItem>
+                              <SelectItem value="field_officer">👮 Officer</SelectItem>
+                              <SelectItem value="admin">👑 Admin</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
                               <Button 

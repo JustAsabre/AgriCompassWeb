@@ -16,8 +16,18 @@ export default function AboutPage() {
 
         <div className="space-y-8">
           {/* Hero Section */}
-          <Card>
-            <CardHeader className="text-center">
+          <Card className="relative overflow-hidden">
+            {/* Background Image */}
+            <div className="absolute inset-0 opacity-10">
+              <img 
+                src="/images/plants.jpg" 
+                alt="Agricultural plants" 
+                className="w-full h-full object-cover"
+                loading="lazy"
+              />
+            </div>
+            
+            <CardHeader className="text-center relative z-10">
               <div className="flex items-center justify-center gap-2 mb-4">
                 <Heart className="h-8 w-8 text-primary" />
                 <CardTitle className="text-4xl">About AgriCompass</CardTitle>
@@ -26,7 +36,7 @@ export default function AboutPage() {
                 Connecting farmers and buyers to build a sustainable agricultural ecosystem
               </p>
             </CardHeader>
-            <CardContent className="text-center">
+            <CardContent className="text-center relative z-10">
               <p className="text-muted-foreground">
                 AgriCompass is a digital marketplace platform designed to revolutionize agricultural commerce
                 by connecting verified farmers directly with buyers, ensuring fair pricing, quality assurance,
