@@ -118,14 +118,25 @@ export const getQueryFn: <T>(options: {
     return await res.json();
   };
 
+// Different stale times for different data types
+export const STALE_TIMES = {
+  STATIC: 5 * 60 * 1000, // 5 minutes for rarely changing data
+  LISTINGS: 2 * 60 * 1000, // 2 minutes for listings
+  USER_DATA: 60 * 1000, // 1 minute for user-specific data
+  STATS: 30 * 1000, // 30 seconds for stats
+  REALTIME: 10 * 1000, // 10 seconds for frequently changing data
+} as const;
+
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
       refetchOnWindowFocus: true, // Refetch when user returns to tab
-      staleTime: 30000, // Consider data stale after 30 seconds
-      retry: false,
+      staleTime: STALE_TIMES.USER_DATA, // Default: 1 minute
+      gcTime: 10 * 60 * 1000, // Keep unused data in cache for 10 minutes
+      retry: 1, // Retry once on failure
+      retryDelay: 1000, // Wait 1 second before retry
     },
     mutations: {
       retry: false,

@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express, { type Request, Response, NextFunction } from "express";
+import compression from "compression";
 import { initSentry, setupSentryErrorHandler } from "./sentry";
 import { log } from "./log";
 import sessionMiddleware, { sessionStore } from "./session";
@@ -21,6 +22,21 @@ const httpServer = createServer(app);
 
 // Initialize Sentry FIRST
 initSentry(app);
+
+// Enable gzip/brotli compression for all responses
+// This significantly reduces payload size for API responses and static assets
+app.use(compression({
+  level: 6, // Balanced compression level (1-9, higher = more compression but slower)
+  threshold: 1024, // Only compress responses larger than 1KB
+  filter: (req, res) => {
+    // Don't compress server-sent events
+    if (req.headers['accept'] === 'text/event-stream') {
+      return false;
+    }
+    // Use compression filter defaults
+    return compression.filter(req, res);
+  }
+}));
 
 // Configure trust proxy to ensure req.protocol and secure cookies work behind proxies/load-balancers.
 // Can be configured via TRUST_PROXY env var. Defaults to 1 (typical single proxy/load-balancer).

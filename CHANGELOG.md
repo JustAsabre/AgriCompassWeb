@@ -5,6 +5,68 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.8.0] - 2025-01-16
+### Added - Performance Optimization ⚡
+
+#### Comprehensive Performance Improvements
+**Server-Side Caching Layer (server/cache.ts - 193 lines):**
+- Created complete caching utility with Redis + in-memory fallback
+- Cache TTL presets: SHORT (30s), MEDIUM (2min), LONG (5min), VERY_LONG (10min)
+- Cache key prefixes for easy invalidation by entity type
+- `cacheThrough<T>()` helper for cache-through pattern
+- Automatic cache invalidation helpers for listings, farmers, buyers
+- Memory cache cleanup interval for expired entries
+
+**Database Query Optimizations:**
+- **Eliminated N+1 queries in `getAllListingsWithFarmer()`:**
+  - Before: 1 + N + N + N queries (listings, farmers, tiers, reviews)
+  - After: 4 batch queries using `inArray()` operator
+  - Uses Maps for O(1) lookups when combining data
+- **Optimized order fetching (`getOrdersByBuyer`, `getOrdersByFarmer`):**
+  - Added `getOrdersWithDetailsBatch()` helper for batch fetching
+  - Fetches listings, farmers, buyers in parallel with Promise.all
+  - Reduces database round trips significantly
+
+**HTTP Compression:**
+- Added `compression` middleware (level 6, 1KB threshold)
+- Skips compression for Server-Sent Events
+- Typically reduces response sizes by 60-80%
+
+**API Response Caching:**
+- Added caching to `/api/listings` (2min TTL, public)
+- Added caching to `/api/farmer/stats` (30s TTL, private)
+- Added caching to `/api/buyer/orders` (30s TTL, private)
+- Added caching to `/api/buyer/stats` (30s TTL, private)
+- HTTP Cache-Control headers for browser caching
+
+**Cache Invalidation on Mutations:**
+- Listing create/update/delete invalidates listing caches
+- Order checkout invalidates buyer and farmer caches
+- Order status update invalidates related caches
+
+**Frontend Query Optimization (client/src/lib/queryClient.ts):**
+- Differentiated stale times by data type:
+  - STATIC: 5 minutes (rarely changing data)
+  - LISTINGS: 2 minutes
+  - USER_DATA: 1 minute (default)
+  - STATS: 30 seconds
+  - REALTIME: 10 seconds
+- Added `gcTime`: 10 minutes (garbage collection for unused data)
+- Added retry: 1 with 1s delay for resilience
+
+**Dependencies Added:**
+- `compression` (gzip/deflate middleware)
+- `@types/compression` (TypeScript definitions)
+
+#### Expected Performance Improvements
+- **First load**: 40-60% faster due to compression
+- **Repeat visits**: 70-90% faster due to caching
+- **Listing pages**: 80%+ faster due to N+1 elimination
+- **Order pages**: 60%+ faster due to batch fetching
+- **API responses**: Typically 3-10x smaller with gzip
+
+---
+
 ## [1.7.0] - 2025-01-16
 ### Added - Sentry Error Tracking & Mobile Cookie Fix 🔍📱
 

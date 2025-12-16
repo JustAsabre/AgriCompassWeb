@@ -7,6 +7,7 @@ server/uploads/*
 vite.config.ts.*
 *.tar.gz
 *.env
+*.env.*
 server/.trash/
 server/tests/login.json
 .vercel

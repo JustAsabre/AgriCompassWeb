@@ -136,23 +136,69 @@ export class PostgresStorage {
 
   async getAllListingsWithFarmer(): Promise<ListingWithFarmer[]> {
     if (!db) throw new Error('Database client not initialized');
-    // Only show approved listings on marketplace
+    
+    // OPTIMIZED: Batch fetch all data instead of N+1 queries
+    // Step 1: Get all active, approved listings in one query
     const list = await db.select().from(listings).where(
       and(
         eq(listings.status, 'active'),
         eq(listings.moderationStatus, 'approved')
       )
     );
+    
+    if (list.length === 0) return [];
+    
+    // Step 2: Get unique farmer IDs and batch fetch all farmers
+    const farmerIds = [...new Set((list as any[]).map(l => l.farmerId))];
+    const farmersData = farmerIds.length > 0 
+      ? await db.select().from(users).where(inArray(users.id, farmerIds))
+      : [];
+    const farmersMap = new Map((farmersData as any[]).map(f => [f.id, f]));
+    
+    // Step 3: Batch fetch all pricing tiers for all listings
+    const listingIds = (list as any[]).map(l => l.id);
+    const allTiers = listingIds.length > 0
+      ? await db.select().from(pricingTiers).where(inArray(pricingTiers.listingId, listingIds))
+      : [];
+    const tiersMap = new Map<string, any[]>();
+    for (const tier of allTiers as any[]) {
+      if (!tiersMap.has(tier.listingId)) {
+        tiersMap.set(tier.listingId, []);
+      }
+      tiersMap.get(tier.listingId)!.push(tier);
+    }
+    
+    // Step 4: Batch fetch all reviews for all listings
+    const allReviews = listingIds.length > 0
+      ? await db.select().from(reviewsTable).where(inArray(reviewsTable.listingId, listingIds))
+      : [];
+    const reviewsMap = new Map<string, any[]>();
+    for (const review of allReviews as any[]) {
+      if (!reviewsMap.has(review.listingId)) {
+        reviewsMap.set(review.listingId, []);
+      }
+      reviewsMap.get(review.listingId)!.push(review);
+    }
+    
+    // Step 5: Combine all data
     const result: ListingWithFarmer[] = [];
     for (const l of list as any[]) {
-      const farmer = await this.getUser(l.farmerId);
+      const farmer = farmersMap.get(l.farmerId);
       if (!farmer) continue;
-      const tiers = await db.select().from(pricingTiers).where(eq(pricingTiers.listingId, l.id));
-      // Calculate rating for THIS specific listing, not all farmer reviews
-      const reviewsList = await db.select().from(reviewsTable).where(eq(reviewsTable.listingId, l.id));
-      const averageRating = reviewsList.length > 0 ? ((reviewsList as any[]).reduce((s: any, r: any) => s + (r.rating || 0), 0) / reviewsList.length) : undefined;
-      result.push({ ...l as any, farmer: { ...farmer as any, averageRating, reviewCount: reviewsList.length }, pricingTiers: tiers as any });
+      
+      const tiers = tiersMap.get(l.id) || [];
+      const reviewsList = reviewsMap.get(l.id) || [];
+      const averageRating = reviewsList.length > 0 
+        ? reviewsList.reduce((s: any, r: any) => s + (r.rating || 0), 0) / reviewsList.length 
+        : undefined;
+      
+      result.push({ 
+        ...l, 
+        farmer: { ...farmer, averageRating, reviewCount: reviewsList.length }, 
+        pricingTiers: tiers 
+      });
     }
+    
     return result;
   }
 
@@ -204,26 +250,54 @@ export class PostgresStorage {
     return { ...o as any, listing: listing as any, farmer: farmer as any, buyer: buyer as any } as any;
   }
 
+  // OPTIMIZED: Batch fetch orders with details
+  private async getOrdersWithDetailsBatch(ordersList: any[]): Promise<OrderWithDetails[]> {
+    if (!db) throw new Error('Database client not initialized');
+    if (ordersList.length === 0) return [];
+    
+    // Get unique IDs
+    const listingIds = [...new Set(ordersList.map(o => o.listingId))];
+    const farmerIds = [...new Set(ordersList.map(o => o.farmerId))];
+    const buyerIds = [...new Set(ordersList.map(o => o.buyerId))];
+    
+    // Batch fetch all related data
+    const [listingsData, farmersData, buyersData] = await Promise.all([
+      listingIds.length > 0 ? db.select().from(listings).where(inArray(listings.id, listingIds)) : [],
+      farmerIds.length > 0 ? db.select().from(users).where(inArray(users.id, farmerIds)) : [],
+      buyerIds.length > 0 ? db.select().from(users).where(inArray(users.id, buyerIds)) : [],
+    ]);
+    
+    // Create lookup maps
+    const listingsMap = new Map((listingsData as any[]).map(l => [l.id, l]));
+    const usersMap = new Map([
+      ...(farmersData as any[]).map(u => [u.id, u] as [string, any]),
+      ...(buyersData as any[]).map(u => [u.id, u] as [string, any]),
+    ]);
+    
+    // Combine data
+    const result: OrderWithDetails[] = [];
+    for (const o of ordersList) {
+      const listing = listingsMap.get(o.listingId);
+      const farmer = usersMap.get(o.farmerId);
+      const buyer = usersMap.get(o.buyerId);
+      if (listing && farmer && buyer) {
+        result.push({ ...o, listing, farmer, buyer });
+      }
+    }
+    
+    return result;
+  }
+
   async getOrdersByBuyer(buyerId: string): Promise<OrderWithDetails[]> {
     if (!db) throw new Error('Database client not initialized');
     const res = await db.select().from(orders).where(eq(orders.buyerId, buyerId)).orderBy(desc(orders.createdAt));
-    const result: OrderWithDetails[] = [];
-    for (const o of res as any[]) {
-      const details = await this.getOrderWithDetails(o.id);
-      if (details) result.push(details);
-    }
-    return result;
+    return this.getOrdersWithDetailsBatch(res as any[]);
   }
 
   async getOrdersByFarmer(farmerId: string): Promise<OrderWithDetails[]> {
     if (!db) throw new Error('Database client not initialized');
     const res = await db.select().from(orders).where(eq(orders.farmerId, farmerId)).orderBy(desc(orders.createdAt));
-    const result: OrderWithDetails[] = [];
-    for (const o of res as any[]) {
-      const details = await this.getOrderWithDetails(o.id);
-      if (details) result.push(details);
-    }
-    return result;
+    return this.getOrdersWithDetailsBatch(res as any[]);
   }
 
   async getAllOrders(): Promise<Order[]> {

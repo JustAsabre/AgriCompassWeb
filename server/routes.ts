@@ -11,6 +11,7 @@ import { upload, getFileUrl, deleteUploadedFile, isValidFilename } from "./uploa
 import { sendNotificationToUser, broadcastNewListing } from "./socket";
 import { enqueuePayout } from './jobs/payoutQueue';
 import { pool } from "./db";
+import { cacheThrough, CacheKeys, CacheTTL, invalidateListingCaches, invalidateFarmerCaches, invalidateBuyerCaches, invalidateUserCaches, deleteCache } from "./cache";
 import crypto from "crypto";
 import path from "path";
 import fs from "fs";
@@ -455,7 +456,13 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
   // Listing routes
   app.get("/api/listings", async (req, res) => {
     try {
-      const listings = await storage.getAllListingsWithFarmer();
+      const listings = await cacheThrough(
+        CacheKeys.LISTINGS_WITH_FARMER,
+        () => storage.getAllListingsWithFarmer(),
+        CacheTTL.MEDIUM
+      );
+      // Add cache headers for browser caching
+      res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
       res.json(listings);
     } catch (error: any) {
       console.error("Get listings error:", error);
@@ -581,6 +588,10 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
       const listing = await storage.createListing(data);
 
+      // Invalidate listing caches
+      await invalidateListingCaches();
+      await invalidateFarmerCaches(farmerId);
+
       // Broadcast new listing to all connected users
       const listingWithFarmer = await storage.getListingWithFarmer(listing.id);
       if (listingWithFarmer) {
@@ -607,6 +618,10 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
       const updated = await storage.updateListing(req.params.id, req.body);
 
+      // Invalidate listing caches
+      await invalidateListingCaches();
+      await invalidateFarmerCaches(req.session.user!.id);
+
       res.json(updated);
     } catch (error: any) {
       console.error("Update listing error:", error);
@@ -626,6 +641,11 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       }
 
       const success = await storage.deleteListing(req.params.id);
+
+      // Invalidate listing caches
+      await invalidateListingCaches();
+      await invalidateFarmerCaches(req.session.user!.id);
+
       res.json({ success });
     } catch (error: any) {
       console.error("Delete listing error:", error);
@@ -660,38 +680,50 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
   app.get("/api/farmer/stats", requireRole("farmer"), async (req, res) => {
     try {
       const farmerId = req.session.user!.id;
+      const cacheKey = `${CacheKeys.FARMER_STATS}${farmerId}`;
       
-      // Get listings
-      const listings = await storage.getListingsByFarmer(farmerId);
-      const activeListings = listings.filter(l => l.status === 'active' && l.quantityAvailable > 0).length;
+      const stats = await cacheThrough(
+        cacheKey,
+        async () => {
+          // Get listings
+          const listings = await storage.getListingsByFarmer(farmerId);
+          const activeListings = listings.filter(l => l.status === 'active' && l.quantityAvailable > 0).length;
+          
+          // Get orders
+          const orders = await storage.getOrdersByFarmer(farmerId);
+          const pendingOrders = orders.filter(o => o.status === 'pending' || o.status === 'accepted').length;
+          const completedOrders = orders.filter(o => o.status === 'completed').length;
+          
+          // Calculate total revenue from completed orders
+          const totalRevenue = orders
+            .filter(o => o.status === 'completed')
+            .reduce((sum, o) => sum + parseFloat(o.totalPrice || '0'), 0);
+          
+          // Get wallet balance
+          const walletBalance = await storage.getWalletBalance(farmerId);
+          
+          // Get pending balance from escrow
+          const escrows = await storage.getEscrowsByFarmer(farmerId);
+          const pendingBalance = escrows
+            .filter(e => e.status !== 'COMPLETED' && e.status !== 'REFUNDED')
+            .reduce((sum, e) => sum + parseFloat(e.amount || '0'), 0);
+          
+          return {
+            totalListings: listings.length,
+            activeListings,
+            pendingOrders,
+            completedOrders,
+            totalRevenue,
+            walletBalance: parseFloat(walletBalance) || 0,
+            pendingBalance
+          };
+        },
+        CacheTTL.SHORT // 30s cache for stats
+      );
       
-      // Get orders
-      const orders = await storage.getOrdersByFarmer(farmerId);
-      const pendingOrders = orders.filter(o => o.status === 'pending' || o.status === 'accepted').length;
-      const completedOrders = orders.filter(o => o.status === 'completed').length;
-      
-      // Calculate total revenue from completed orders
-      const totalRevenue = orders
-        .filter(o => o.status === 'completed')
-        .reduce((sum, o) => sum + parseFloat(o.totalPrice || '0'), 0);
-      
-      // Get wallet balance
-      const walletBalance = await storage.getWalletBalance(farmerId);
-      
-      // Get pending balance from escrow
-      const escrows = await storage.getEscrowsByFarmer(farmerId);
-      const pendingBalance = escrows
-        .filter(e => e.status !== 'COMPLETED' && e.status !== 'REFUNDED')
-        .reduce((sum, e) => sum + parseFloat(e.amount || '0'), 0);
-      
+      res.set('Cache-Control', 'private, max-age=30');
       res.json({
-        totalListings: listings.length,
-        activeListings,
-        pendingOrders,
-        completedOrders,
-        totalRevenue,
-        walletBalance: parseFloat(walletBalance) || 0,
-        pendingBalance,
+        ...stats,
         isVerified: req.session.user!.verified
       });
     } catch (error: any) {
@@ -704,7 +736,14 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
   app.get("/api/buyer/orders", requireRole("buyer"), async (req, res) => {
     try {
       const buyerId = req.session.user!.id;
-      const orders = await storage.getOrdersByBuyer(buyerId);
+      const cacheKey = `${CacheKeys.BUYER_ORDERS}${buyerId}`;
+      
+      const orders = await cacheThrough(
+        cacheKey,
+        () => storage.getOrdersByBuyer(buyerId),
+        CacheTTL.SHORT
+      );
+      res.set('Cache-Control', 'private, max-age=30');
       res.json(orders);
     } catch (error: any) {
       console.error("Get buyer orders error:", error);
@@ -716,31 +755,41 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
   app.get("/api/buyer/stats", requireRole("buyer"), async (req, res) => {
     try {
       const buyerId = req.session.user!.id;
+      const cacheKey = `${CacheKeys.BUYER_STATS}${buyerId}`;
       
-      // Get orders
-      const orders = await storage.getOrdersByBuyer(buyerId);
-      const activeOrders = orders.filter(o => 
-        o.status === 'pending' || o.status === 'accepted' || o.status === 'shipped'
-      ).length;
-      const completedOrders = orders.filter(o => o.status === 'completed').length;
+      const stats = await cacheThrough(
+        cacheKey,
+        async () => {
+          // Get orders
+          const orders = await storage.getOrdersByBuyer(buyerId);
+          const activeOrders = orders.filter(o => 
+            o.status === 'pending' || o.status === 'accepted' || o.status === 'shipped'
+          ).length;
+          const completedOrders = orders.filter(o => o.status === 'completed').length;
+          
+          // Calculate total spent from completed orders
+          const totalSpent = orders
+            .filter(o => o.status === 'completed')
+            .reduce((sum, o) => sum + parseFloat(o.totalPrice || '0'), 0);
+          
+          // Get cart items count
+          const cartItems = await storage.getCartItemsByBuyer(buyerId);
+          const cartItemsCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+          
+          return {
+            activeOrders,
+            completedOrders,
+            totalSpent,
+            cartItems: cartItemsCount,
+            savedItems: 0, // Wishlist not implemented yet
+            totalOrders: orders.length
+          };
+        },
+        CacheTTL.SHORT
+      );
       
-      // Calculate total spent from completed orders
-      const totalSpent = orders
-        .filter(o => o.status === 'completed')
-        .reduce((sum, o) => sum + parseFloat(o.totalPrice || '0'), 0);
-      
-      // Get cart items count
-      const cartItems = await storage.getCartItemsByBuyer(buyerId);
-      const cartItemsCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
-      
-      res.json({
-        activeOrders,
-        completedOrders,
-        totalSpent,
-        cartItems: cartItemsCount,
-        savedItems: 0, // Wishlist not implemented yet
-        totalOrders: orders.length
-      });
+      res.set('Cache-Control', 'private, max-age=30');
+      res.json(stats);
     } catch (error: any) {
       console.error("Get buyer stats error:", error);
       res.status(500).json({ message: "Failed to fetch buyer stats" });
@@ -1165,12 +1214,28 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           // Clear cart after successful order creation (autoPay path)
           await storage.clearCart(buyerId);
           
+          // Invalidate caches after order creation
+          await invalidateBuyerCaches(buyerId);
+          const farmerIds = Array.from(new Set(orders.map(o => o.farmerId)));
+          for (const fid of farmerIds) {
+            await invalidateFarmerCaches(fid);
+          }
+          await invalidateListingCaches();
+          
           return res.json({ orders, transaction, autoPay: { payments, authorization_url, reference } });
         }
       }
 
       // Clear cart after successful order creation (non-autoPay path)
       await storage.clearCart(buyerId);
+      
+      // Invalidate caches after order creation
+      await invalidateBuyerCaches(buyerId);
+      const farmerIds = Array.from(new Set(orders.map(o => o.farmerId)));
+      for (const fid of farmerIds) {
+        await invalidateFarmerCaches(fid);
+      }
+      await invalidateListingCaches();
 
       res.json({ orders, transaction });
     } catch (error: any) {
@@ -1324,6 +1389,10 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       }
 
       const updated = await storage.updateOrderStatus(req.params.id, status);
+      
+      // Invalidate caches after order status update
+      await invalidateBuyerCaches(order.buyerId);
+      await invalidateFarmerCaches(order.farmerId);
 
       // Notify buyer about order status update
       const statusMessages: Record<string, string> = {
