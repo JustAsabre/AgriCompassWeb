@@ -47,9 +47,15 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       ? (import.meta.env.VITE_API_URL || 'http://localhost:5000')
       : undefined; // undefined = current origin in production
 
+    // When using Vercel proxy, WebSocket upgrades don't work properly through rewrites
+    // Use polling first, then upgrade to websocket after connection is established
+    const transports = import.meta.env.DEV 
+      ? ["websocket", "polling"] // Direct connection in dev - websocket works
+      : ["polling", "websocket"]; // Through proxy - start with polling
+
     const newSocket = io(socketUrl, {
       path: "/socket.io",
-      transports: ["websocket", "polling"],
+      transports,
       withCredentials: true,
     });
 
