@@ -4,7 +4,11 @@ import { User } from "@shared/schema";
 import { useQueryClient } from "@tanstack/react-query";
 import { setSentryUser } from "@/sentry";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://agricompassweb.fly.dev';
+// In production (Vercel), use relative URLs to go through Vercel's proxy
+// In development, use VITE_API_URL to talk directly to backend
+const API_BASE_URL = import.meta.env.DEV 
+  ? (import.meta.env.VITE_API_URL || 'http://localhost:5000')
+  : ''; // Empty string for relative URLs in production
 
 type AuthContextType = {
   user: User | null;
@@ -38,7 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Set Sentry user context
         if (data.user) {
           setSentryUser({
-            id: data.user.id,
+            id: data.user.id as any, // User ID is string (UUID) in our schema
             email: data.user.email,
             role: data.user.role,
           });
@@ -63,7 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Set Sentry user context
         if (data.user) {
           setSentryUser({
-            id: data.user.id,
+            id: data.user.id as any, // User ID is string (UUID) in our schema
             email: data.user.email,
             role: data.user.role,
           });
@@ -78,7 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(user);
     // Set Sentry user context on login
     setSentryUser({
-      id: user.id,
+      id: user.id as any, // User ID is string (UUID) in our schema
       email: user.email,
       role: user.role,
     });

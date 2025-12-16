@@ -158,7 +158,11 @@ export default function CreateListing() {
       const headers: Record<string, string> = {};
       if (token) headers['X-CSRF-Token'] = token;
 
-      const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://agricompassweb.fly.dev';
+      // In production (Vercel), use relative URLs to go through Vercel's proxy
+      // In development, use VITE_API_URL to talk directly to backend
+      const API_BASE_URL = import.meta.env.DEV 
+        ? (import.meta.env.VITE_API_URL || 'http://localhost:5000')
+        : ''; // Empty string for relative URLs in production
       const response = await fetch(`${API_BASE_URL}/api/upload`, {
         method: 'POST',
         body: formData,

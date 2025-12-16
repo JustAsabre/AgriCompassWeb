@@ -41,8 +41,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     if (!user) return;
 
-    const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://agricompassweb.fly.dev';
-    const socketUrl = API_BASE_URL || undefined; // undefined => current origin
+    // In production (Vercel), use current origin (empty string = relative)
+    // In development, use VITE_API_URL to talk directly to backend
+    const socketUrl = import.meta.env.DEV 
+      ? (import.meta.env.VITE_API_URL || 'http://localhost:5000')
+      : undefined; // undefined = current origin in production
 
     const newSocket = io(socketUrl, {
       path: "/socket.io",
