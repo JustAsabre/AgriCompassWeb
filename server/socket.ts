@@ -239,8 +239,28 @@ export async function initializeSocket(httpServer: HTTPServer) {
   // If REDIS_URL is configured, wire up a Redis adapter for socket.io to support horizontal scaling
   if (process.env.REDIS_URL) {
     try {
-      const pubClient = createClient({ url: process.env.REDIS_URL });
+      const redisOptions = {
+        url: process.env.REDIS_URL,
+        socket: {
+          reconnectStrategy: (retries: number) => {
+            if (retries > 10) {
+              console.error('Socket.IO Redis: Max reconnection attempts reached');
+              return new Error('Max reconnection attempts reached');
+            }
+            return Math.min(retries * 100, 3000);
+          }
+        }
+      };
+      
+      const pubClient = createClient(redisOptions);
       const subClient = pubClient.duplicate();
+      
+      // Add error handlers to prevent "missing 'error' handler" warnings
+      pubClient.on('error', (err: Error) => console.error('Socket.IO Redis pub client error:', err.message));
+      subClient.on('error', (err: Error) => console.error('Socket.IO Redis sub client error:', err.message));
+      pubClient.on('reconnecting', () => console.log('Socket.IO Redis pub client: Reconnecting...'));
+      subClient.on('reconnecting', () => console.log('Socket.IO Redis sub client: Reconnecting...'));
+      
       // connect both - await ensures the adapter is ready before returning
       await pubClient.connect();
       await subClient.connect();

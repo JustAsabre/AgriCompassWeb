@@ -8,9 +8,12 @@ export function initSentry() {
   const sentryDsn = import.meta.env.VITE_SENTRY_DSN;
   const environment = import.meta.env.VITE_SENTRY_ENVIRONMENT || import.meta.env.MODE;
   
-  // Only initialize if DSN is provided
-  if (!sentryDsn) {
-    console.warn("Sentry DSN not provided - error tracking disabled");
+  // Only initialize if DSN is provided and not empty
+  if (!sentryDsn || sentryDsn.trim() === '') {
+    // Silent in production to avoid console clutter
+    if (environment === 'development') {
+      console.log("Sentry DSN not provided - error tracking disabled");
+    }
     return;
   }
 

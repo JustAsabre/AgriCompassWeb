@@ -89,6 +89,7 @@
 | Variable | Description | Required | Example |
 |----------|-------------|----------|---------|
 | SESSION_SECRET | Session encryption key | Yes | longrandomstring |
+| CSRF_SECRET | CSRF token encryption key | Optional | longrandomstring (falls back to SESSION_SECRET) |
 | DATABASE_URL | Postgres connection | Yes | postgresql://user:pass@host:5432/db |
 | PAYSTACK_SECRET_KEY | Paystack API key | Yes (prod) | sk_live_xxx |
 | PAYSTACK_WEBHOOK_SECRET | Paystack webhook secret | Yes (prod) | webhook_secret |

@@ -47,6 +47,7 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   getUserByResetToken(token: string): Promise<User | undefined>;
+  getUserByEmailVerificationToken(token: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, updates: Partial<User>): Promise<User | undefined>;
   getUsersByRole(role: string): Promise<User[]>;
@@ -187,6 +188,7 @@ export class MemStorage implements IStorage {
   async getUser(id: string): Promise<User | undefined> { return this.users.get(id); }
   async getUserByEmail(email: string): Promise<User | undefined> { return Array.from(this.users.values()).find(u => u.email === email); }
   async getUserByResetToken(token: string): Promise<User | undefined> { return Array.from(this.users.values()).find(u => u.resetToken === token); }
+  async getUserByEmailVerificationToken(token: string): Promise<User | undefined> { return Array.from(this.users.values()).find(u => u.emailVerificationToken === token); }
   async createUser(user: InsertUser): Promise<User> { const id = randomUUID(); const newUser = { ...user, id, createdAt: new Date(), walletBalance: "0.00" } as User; this.users.set(id, newUser); return newUser; }
   async updateUser(id: string, updates: Partial<User>): Promise<User | undefined> { const user = this.users.get(id); if (!user) return undefined; const updated = { ...user, ...updates }; this.users.set(id, updated); return updated; }
   async getUsersByRole(role: string): Promise<User[]> { return Array.from(this.users.values()).filter(u => u.role === role); }

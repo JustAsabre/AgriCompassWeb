@@ -21,6 +21,10 @@ export const users = pgTable("users", {
   lockedUntil: timestamp("locked_until"),
   verified: boolean("verified").default(false),
   isActive: boolean("is_active").default(true), // Account active status for admin management
+  // Email verification
+  emailVerified: boolean("email_verified").default(false),
+  emailVerificationToken: text("email_verification_token"),
+  emailVerificationExpiry: timestamp("email_verification_expiry"),
   businessName: text("business_name"), // for buyers
   farmSize: text("farm_size"), // for farmers
   resetToken: text("reset_token"),
@@ -245,7 +249,10 @@ export const insertUserSchema = createInsertSchema(users).omit({
   verified: true,
   resetToken: true,
   resetTokenExpiry: true,
-  walletBalance: true
+  walletBalance: true,
+  emailVerified: true,
+  emailVerificationToken: true,
+  emailVerificationExpiry: true,
 });
 
 export const insertListingSchema = createInsertSchema(listings).omit({

@@ -6,7 +6,7 @@ import { getRevenueAggregated, getActiveSellers, getAdminTotals } from './adminA
 import { sessionStore } from "./session";
 import { hashPassword, comparePassword, sanitizeUser, SessionUser } from "./auth";
 import { insertUserSchema, insertListingSchema, insertOrderSchema, insertCartItemSchema, insertPricingTierSchema, insertReviewSchema, User } from "@shared/schema";
-import { sendPasswordResetEmail, sendWelcomeEmail, sendPasswordChangedEmail, sendOrderConfirmationEmail, sendNewOrderNotificationToFarmer, sendVerificationStatusEmail, getSmtpStatus, sendOrderAcceptedEmail, sendOrderRejectedEmail, sendOrderDeliveredEmail, sendOrderCompletedEmail, sendWithdrawalRequestedEmail, sendWithdrawalProcessingEmail, sendWithdrawalCompletedEmail, sendWithdrawalFailedEmail, sendPaymentFailedEmail, sendPaymentRefundedEmail, sendEscrowReleasedEmail, sendEscrowDisputeResolvedEmail, sendAdminEscrowReleaseEmail, sendAdminEscrowRefundEmail, sendContentModerationEmail, sendNewDisputeNotificationToAdmin, sendRoleChangeEmail, sendAccountStatusEmail } from "./email";
+import { sendPasswordResetEmail, sendWelcomeEmail, sendPasswordChangedEmail, sendOrderConfirmationEmail, sendNewOrderNotificationToFarmer, sendVerificationStatusEmail, getSmtpStatus, sendOrderAcceptedEmail, sendOrderRejectedEmail, sendOrderDeliveredEmail, sendOrderCompletedEmail, sendWithdrawalRequestedEmail, sendWithdrawalProcessingEmail, sendWithdrawalCompletedEmail, sendWithdrawalFailedEmail, sendPaymentFailedEmail, sendPaymentRefundedEmail, sendEscrowReleasedEmail, sendEscrowDisputeResolvedEmail, sendAdminEscrowReleaseEmail, sendAdminEscrowRefundEmail, sendContentModerationEmail, sendNewDisputeNotificationToAdmin, sendRoleChangeEmail, sendAccountStatusEmail, sendEmailVerificationEmail } from "./email";
 import { upload, getFileUrl, deleteUploadedFile, isValidFilename } from "./upload";
 import { sendNotificationToUser, broadcastNewListing } from "./socket";
 import { enqueuePayout } from './jobs/payoutQueue';
@@ -159,24 +159,117 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       // Hash password
       const hashedPassword = await hashPassword(data.password);
 
+      // Generate email verification token
+      const emailVerificationToken = crypto.randomBytes(32).toString('hex');
+      const emailVerificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
       const user = await storage.createUser({
         ...data,
         email: data.email.toLowerCase(), // Normalize email
         password: hashedPassword,
       });
 
-      // Create session
-      req.session.user = sanitizeUser(user);
+      // Update user with email verification token
+      await storage.updateUser(user.id, {
+        emailVerified: false,
+        emailVerificationToken,
+        emailVerificationExpiry,
+      });
 
-      // Send welcome email (async, don't wait for it)
+      // Send email verification email (async, don't wait for it)
+      sendEmailVerificationEmail(user.email, emailVerificationToken, user.fullName).catch(err => {
+        console.error('Failed to send email verification email:', err);
+      });
+
+      // NOTE: User is NOT logged in until email is verified
+      res.status(201).json({ 
+        message: "Registration successful! Please check your email to verify your account.",
+        requiresVerification: true 
+      });
+    } catch (error: any) {
+      console.error("Registration error:", error);
+      res.status(400).json({ message: error.message || "Registration failed" });
+    }
+  });
+
+  // Email verification endpoint
+  app.get("/api/auth/verify-email", async (req, res) => {
+    try {
+      const { token } = req.query;
+
+      if (!token || typeof token !== 'string') {
+        return res.status(400).json({ message: "Verification token is required" });
+      }
+
+      // Find user by verification token
+      const user = await storage.getUserByEmailVerificationToken(token);
+      
+      if (!user) {
+        return res.status(400).json({ message: "Invalid or expired verification token" });
+      }
+
+      // Check if token is expired
+      if (user.emailVerificationExpiry && new Date(user.emailVerificationExpiry) < new Date()) {
+        return res.status(400).json({ message: "Verification token has expired. Please request a new one." });
+      }
+
+      // Update user as verified
+      await storage.updateUser(user.id, {
+        emailVerified: true,
+        emailVerificationToken: null,
+        emailVerificationExpiry: null,
+      });
+
+      // Send welcome email now that email is verified
       sendWelcomeEmail(user.email, user.fullName, user.role).catch(err => {
         console.error('Failed to send welcome email:', err);
       });
 
-      res.status(201).json({ user: sanitizeUser(user) });
+      res.json({ message: "Email verified successfully! You can now log in." });
     } catch (error: any) {
-      console.error("Registration error:", error);
-      res.status(400).json({ message: error.message || "Registration failed" });
+      console.error("Email verification error:", error);
+      res.status(500).json({ message: "Verification failed. Please try again." });
+    }
+  });
+
+  // Resend email verification
+  app.post("/api/auth/resend-verification", async (req, res) => {
+    try {
+      const { email } = req.body;
+
+      if (!email) {
+        return res.status(400).json({ message: "Email is required" });
+      }
+
+      const user = await storage.getUserByEmail(email.toLowerCase());
+      
+      if (!user) {
+        // Don't reveal if user exists
+        return res.json({ message: "If an account exists with this email, a verification link has been sent." });
+      }
+
+      if (user.emailVerified) {
+        return res.status(400).json({ message: "Email is already verified. Please log in." });
+      }
+
+      // Generate new verification token
+      const emailVerificationToken = crypto.randomBytes(32).toString('hex');
+      const emailVerificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+      await storage.updateUser(user.id, {
+        emailVerificationToken,
+        emailVerificationExpiry,
+      });
+
+      // Send verification email
+      sendEmailVerificationEmail(user.email, emailVerificationToken, user.fullName).catch(err => {
+        console.error('Failed to send email verification email:', err);
+      });
+
+      res.json({ message: "If an account exists with this email, a verification link has been sent." });
+    } catch (error: any) {
+      console.error("Resend verification error:", error);
+      res.status(500).json({ message: "Failed to resend verification email. Please try again." });
     }
   });
 
@@ -193,6 +286,15 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       const user = await storage.getUserByEmail(normalizedEmail);
       if (!user) {
         return res.status(401).json({ message: "Invalid credentials" });
+      }
+
+      // Check if email is verified
+      if (!user.emailVerified) {
+        return res.status(403).json({ 
+          message: "Please verify your email before logging in.",
+          requiresVerification: true,
+          email: user.email
+        });
       }
 
       console.log(`Login: user found:`, user ? { ...user, verified: user.verified } : 'null');

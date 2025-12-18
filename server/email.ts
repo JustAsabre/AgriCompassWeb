@@ -115,6 +115,71 @@ async function sendEmail(options: {
   }
 }
 
+// Email verification email
+export async function sendEmailVerificationEmail(
+  email: string,
+  verificationToken: string,
+  userName: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Use localhost for development, production URL for production
+    const baseUrl = process.env.NODE_ENV === 'production' 
+      ? (process.env.FRONTEND_URL || 'https://agricompass.vercel.app')
+      : 'http://localhost:5000';
+    const verifyUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
+    
+    return await sendEmail({
+      to: email,
+      subject: 'Verify Your Email - AgriCompass',
+      html: `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background: #10b981; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+              .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
+              .button { display: inline-block; background: #10b981; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+              .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
+              .warning { background: #fef3cd; border: 1px solid #ffc107; padding: 12px; border-radius: 5px; margin: 15px 0; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>🌾 AgriCompass</h1>
+              </div>
+              <div class="content">
+                <h2>Verify Your Email Address</h2>
+                <p>Hello ${userName},</p>
+                <p>Thank you for registering with AgriCompass! Please verify your email address by clicking the button below:</p>
+                <div style="text-align: center;">
+                  <a href="${verifyUrl}" class="button">Verify Email Address</a>
+                </div>
+                <p>Or copy and paste this link into your browser:</p>
+                <p style="word-break: break-all; color: #10b981;">${verifyUrl}</p>
+                <div class="warning">
+                  <strong>⏰ This link will expire in 24 hours.</strong>
+                </div>
+                <p>If you didn't create an account with AgriCompass, you can safely ignore this email.</p>
+                <div class="footer">
+                  <p>&copy; 2025 AgriCompass. All rights reserved.</p>
+                  <p>Connecting farmers and buyers across Africa.</p>
+                </div>
+              </div>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+  } catch (error: any) {
+    console.error('Email verification email error:', error);
+    return { success: false, error: error.message || 'Failed to send email' };
+  }
+}
+
 export async function sendPasswordResetEmail(
   email: string,
   resetToken: string,

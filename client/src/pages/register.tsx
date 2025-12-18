@@ -67,23 +67,34 @@ export default function Register() {
     try {
       const { confirmPassword, ...registerData } = data;
       
-      const { user } = await apiRequest("POST", "/api/auth/register", registerData);
-      login(user);
-
-      toast({
-        title: "Welcome to Agricompass!",
-        description: "Your account has been created successfully.",
-      });
-
-      // Redirect based on role
-      if (user.role === "farmer") {
-        setLocation("/farmer/dashboard");
-      } else if (user.role === "buyer") {
-        setLocation("/buyer/dashboard");
-      } else if (user.role === "field_officer") {
-        setLocation("/officer/dashboard");
-      } else {
-        setLocation("/");
+      const response = await apiRequest("POST", "/api/auth/register", registerData);
+      
+      // Check if email verification is required
+      if (response.requiresVerification) {
+        toast({
+          title: "Registration Successful!",
+          description: "Please check your email to verify your account before logging in.",
+        });
+        // Redirect to a verification pending page with email as query param
+        setLocation(`/verify-email-pending?email=${encodeURIComponent(data.email)}`);
+      } else if (response.user) {
+        // Fallback for when email verification is disabled
+        login(response.user);
+        toast({
+          title: "Welcome to Agricompass!",
+          description: "Your account has been created successfully.",
+        });
+        // Redirect based on role
+        const role = response.user.role;
+        if (role === "farmer") {
+          setLocation("/farmer/dashboard");
+        } else if (role === "buyer") {
+          setLocation("/buyer/dashboard");
+        } else if (role === "field_officer") {
+          setLocation("/officer/dashboard");
+        } else {
+          setLocation("/");
+        }
       }
     } catch (error: any) {
       toast({

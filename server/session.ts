@@ -65,10 +65,22 @@ if (!sessionStore && process.env.REDIS_URL) {
       console.warn('Failed to initialize connect-redis module; module shape unexpected', e);
       RedisStoreCtor = null;
     }
-    const client = redis.createClient({ url: process.env.REDIS_URL });
-    client.on('error', (err: any) => console.error('Redis client error', err));
+    const client = redis.createClient({ 
+      url: process.env.REDIS_URL,
+      socket: {
+        reconnectStrategy: (retries: number) => {
+          if (retries > 10) {
+            console.error('Redis session store: Max reconnection attempts reached');
+            return new Error('Max reconnection attempts reached');
+          }
+          return Math.min(retries * 100, 3000);
+        }
+      }
+    });
+    client.on('error', (err: any) => console.error('Redis session store error:', err.message));
+    client.on('reconnecting', () => console.log('Redis session store: Reconnecting...'));
     // Connect in the background; don't block startup
-    client.connect().catch((e: any) => console.error('Failed connecting redis client for session store', e));
+    client.connect().catch((e: any) => console.error('Failed connecting redis client for session store:', e.message));
     if (!RedisStoreCtor) throw new Error('No RedisStore constructor available after inspecting connect-redis export');
     sessionStore = new RedisStoreCtor({ client, prefix: process.env.REDIS_SESSION_PREFIX || 'sess:' });
     console.log('Session store: using Redis');

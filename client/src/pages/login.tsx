@@ -10,7 +10,8 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
-import { Sprout } from "lucide-react";
+import { Sprout, AlertCircle, Mail } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { fadeIn } from "@/lib/animations";
@@ -27,6 +28,7 @@ export default function Login() {
   const { login, user, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [verificationError, setVerificationError] = useState<{ email: string } | null>(null);
 
   // Redirect if already logged in
   useEffect(() => {
@@ -54,8 +56,15 @@ export default function Login() {
   const onSubmit = async (data: LoginForm) => {
     setIsLoading(true);
     try {
-      const { user } = await apiRequest("POST", "/api/auth/login", data);
-      login(user);
+      const response = await apiRequest("POST", "/api/auth/login", data);
+      
+      // Check if email verification is required
+      if (response.requiresVerification) {
+        setVerificationError({ email: response.email || data.email });
+        return;
+      }
+      
+      login(response.user);
 
       toast({
         title: "Welcome back!",
@@ -63,16 +72,22 @@ export default function Login() {
       });
 
       // Redirect based on role
-      if (user.role === "farmer") {
+      if (response.user.role === "farmer") {
         setLocation("/farmer/dashboard");
-      } else if (user.role === "buyer") {
+      } else if (response.user.role === "buyer") {
         setLocation("/buyer/dashboard");
-      } else if (user.role === "field_officer") {
+      } else if (response.user.role === "field_officer") {
         setLocation("/officer/dashboard");
       } else {
         setLocation("/");
       }
     } catch (error: any) {
+      // Check if error response contains requiresVerification
+      if (error.requiresVerification) {
+        setVerificationError({ email: error.email || data.email });
+        return;
+      }
+      
       toast({
         title: "Error",
         description: error.message || "Failed to login. Please try again.",
@@ -99,6 +114,26 @@ export default function Login() {
             </a>
           </Link>
         </div>
+
+        {verificationError && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Email Verification Required</AlertTitle>
+            <AlertDescription className="mt-2 space-y-2">
+              <p>Please verify your email address before logging in.</p>
+              <p className="text-sm">We sent a verification link to <strong>{verificationError.email}</strong></p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                onClick={() => setLocation(`/verify-email-pending?email=${encodeURIComponent(verificationError.email)}`)}
+              >
+                <Mail className="h-4 w-4 mr-2" />
+                Resend Verification Email
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
 
         <Card>
           <CardHeader className="space-y-1">

@@ -7,6 +7,7 @@ import sessionMiddleware, { sessionStore } from "./session";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import mongoSanitize from "express-mongo-sanitize";
+import cookieParser from "cookie-parser";
 import path from "path";
 import { Server } from "socket.io";
 import { createServer } from "http";
@@ -15,7 +16,7 @@ import { startProcessing as startPayoutProcessing } from './jobs/payoutQueue';
 import { startPaymentExpirationJob } from './jobs/paymentExpiration';
 import { initializeSocket } from "./socket";
 import cors from "cors";
-// csurf is optional in case the dependency is not installed in some dev/test setups
+import { doubleCsrf } from "csrf-csrf";
 
 const app = express();
 const httpServer = createServer(app);
@@ -102,54 +103,89 @@ app.use('/api/auth/register', authLimiter);
 // Session configuration (centralized)
 app.use(sessionMiddleware);
 
+// Cookie parser for CSRF token handling
+app.use(cookieParser());
 
+// CSRF protection using csrf-csrf (double submit cookie pattern)
+const isProduction = process.env.NODE_ENV === 'production';
+const csrfSecret = process.env.CSRF_SECRET || process.env.SESSION_SECRET || 'agricompass-csrf-secret-change-in-production';
 
-// CSRF protection - ensure it sits after session middleware
-// We use a dynamic import here to avoid static import resolution failing when `csurf` is not installed.
-// Note: install `csurf` for production deployments where CSRF protection is required.
-async function maybeEnableCsrf() {
-  let csrfEnabled = false;
-  // TEMPORARILY DISABLED CSRF for production until frontend implements token handling
-  // TODO: Re-enable CSRF protection once frontend is updated to send CSRF tokens
-  console.warn('CSRF protection is DISABLED globally (dev, test, and production) - frontend needs CSRF token implementation');
-  
-  // Disable CSRF protection in all environments for now
-  if (true) {
-    // Ensure csurf is NOT loaded
-    return;
-  } else {
-    try {
-      const csurfModule = await import('csurf');
-      const csurfFn = (csurfModule as any).default || csurfModule;
-      const useCookie = process.env.CSRF_USE_COOKIE === 'true';
-      const csrfOptions = useCookie
-        ? { cookie: { httpOnly: false, secure: process.env.NODE_ENV === 'production', sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' } }
-        : { cookie: false };
-      const csrfProtection = csurfFn(csrfOptions as any);
-      app.use(csrfProtection);
-      csrfEnabled = true;
-      console.info(`CSRF middleware enabled (cookie:${useCookie})`);
-    } catch (err) {
-      console.warn('csurf not installed or failed to initialize - skipping CSRF middleware in this environment.');
-    }
+const {
+  invalidCsrfTokenError,
+  generateCsrfToken,
+  doubleCsrfProtection
+} = doubleCsrf({
+  getSecret: () => csrfSecret,
+  getSessionIdentifier: (req: Request) => {
+    // Use session ID if available, otherwise use a consistent identifier
+    return (req.session as any)?.id || req.ip || 'anonymous';
+  },
+  cookieName: '__csrf',
+  cookieOptions: {
+    httpOnly: true,
+    sameSite: isProduction ? 'none' : 'lax',
+    secure: isProduction,
+    path: '/',
+  },
+  size: 64,
+  ignoredMethods: ['GET', 'HEAD', 'OPTIONS'],
+  getCsrfTokenFromRequest: (req: Request) => {
+    // Try header first, then body
+    return req.headers['x-csrf-token'] as string || (req.body && req.body._csrf);
+  },
+});
+
+// Skip CSRF for specific routes (webhooks, health checks, auth routes, etc.)
+// Auth routes are exempt because they don't have an authenticated session to protect
+// and have other protections (rate limiting, email verification)
+const csrfExemptRoutes = [
+  '/api/webhooks',
+  '/api/paystack/webhook',
+  '/api/health',
+  '/__test',
+  '/api/auth/register',
+  '/api/auth/login',
+  '/api/auth/logout',
+  '/api/auth/forgot-password',
+  '/api/auth/reset-password',
+  '/api/auth/verify-email',
+  '/api/auth/resend-verification',
+];
+
+const csrfMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  // Skip CSRF for exempt routes
+  const shouldSkip = csrfExemptRoutes.some(route => req.path.startsWith(route));
+  if (shouldSkip) {
+    return next();
   }
+  
+  return doubleCsrfProtection(req, res, next);
+};
 
-  // Always register the endpoint to return JSON so the client and E2E tooling don't receive HTML
-  // when a Vite dev middleware falls back to index.html for missing API routes.
-  app.get('/api/csrf-token', (req, res) => {
-    try {
-      // If csurf is enabled, provide the token; otherwise, return null to indicate not available
-      if (csrfEnabled) {
-        const token = (req as any).csrfToken?.();
-        return res.json({ csrfToken: token || null });
-      }
-      return res.json({ csrfToken: null });
-    } catch (err) {
-      // In case something went wrong retrieving the token, return a null token rather than HTML
-      return res.json({ csrfToken: null });
-    }
-  });
-}
+// Apply CSRF protection
+app.use(csrfMiddleware);
+
+// CSRF error handler
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  if (err === invalidCsrfTokenError) {
+    console.warn(`CSRF token validation failed for ${req.method} ${req.path}`);
+    return res.status(403).json({ message: 'Invalid CSRF token. Please refresh the page and try again.' });
+  }
+  next(err);
+});
+
+// Endpoint to get CSRF token
+app.get('/api/csrf-token', (req, res) => {
+  try {
+    const token = generateCsrfToken(req, res);
+    return res.json({ csrfToken: token });
+  } catch (err) {
+    console.error('Error generating CSRF token:', err);
+    return res.status(500).json({ csrfToken: null, message: 'Failed to generate CSRF token' });
+  }
+});
+
+console.info('CSRF protection ENABLED using double submit cookie pattern');
 
 declare module 'http' {
   interface IncomingMessage {
@@ -225,7 +261,6 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  await maybeEnableCsrf();
   // Initialize socket - await to ensure Redis adapter is connected before the app starts
   await initializeSocket(httpServer);
   await registerRoutes(app, httpServer, (await import('./socket')).io);
@@ -238,18 +273,6 @@ app.use((req, res, next) => {
 
   // Sentry error handler - MUST be after all routes but before other error handlers
   setupSentryErrorHandler(app);
-
-  // Specific handler for CSRF errors
-  app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
-    if (err && err.code === 'EBADCSRFTOKEN') {
-      const rid = (req as any).requestId || '-';
-      log(`CSRF error [${rid}] name=${err.name} code=${err.code} message=${err.message}`);
-      // Log stack and additional debug info for diagnosing misconfiguration
-      try { console.error(err.stack); } catch (e) { }
-      return res.status(403).json({ message: 'Invalid CSRF token', requestId: rid });
-    }
-    _next(err);
-  });
 
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

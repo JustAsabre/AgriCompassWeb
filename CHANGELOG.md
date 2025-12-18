@@ -5,6 +5,122 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.9.2] - 2025-12-18
+### Fixed - Error Message Display 🎨
+
+#### Login Error Messages
+- **Fixed raw JSON display in login error messages:**
+  - Login errors now show clean, user-friendly messages
+  - Previously showed entire JSON response in error toast
+  - Now extracts only the message string from server response
+  - Additional properties (requiresVerification, email) still passed to UI components but not displayed in error text
+  
+- **Example Fix:**
+  - Before: `Error 403: {"message":"Please verify your email...","requiresVerification":true,"email":"user@example.com"}`
+  - After: `Please verify your email before logging in.` (in professional alert card)
+
+- **File Updated:**
+  - `client/src/lib/queryClient.ts` - Enhanced error parsing in `throwIfResNotOk()`
+
+
+## [1.9.1] - 2025-12-18
+### Fixed - Production Stability 🔧
+
+#### Sentry Error Tracking
+- **Fixed Sentry CORS Errors:**
+  - Enhanced DSN validation to properly disable Sentry when not configured
+  - Removed console warnings in production to avoid clutter
+  - Fixed 408 timeout errors from attempting to send reports without configuration
+  - Sentry now completely silent when VITE_SENTRY_DSN is not provided
+  - Added development-only logging for better debugging
+
+#### Redis Connection Resilience
+- **Enhanced Redis Error Handling across all modules:**
+  - Added comprehensive reconnection strategy with exponential backoff (max 10 retries)
+  - Enhanced error logging with context for easier debugging
+  - Added reconnecting event handlers for visibility
+
+- **Files Updated:**
+  - `server/session.ts` - Session store Redis client with reconnection
+  - `server/redis.ts` - General Redis client with reconnection
+  - `server/socket.ts` - Socket.IO Redis adapter pub/sub clients with reconnection
+
+- **Results:**
+  - No more "missing error handler" warnings in Fly.io logs
+  - Automatic reconnection on transient network issues
+  - Better error messages for production debugging
+  - Improved resilience for Redis connection drops
+
+
+## [1.9.0] - 2025-01-17
+### Added - Security Enhancements 🔒
+
+#### CSRF Protection Re-implementation
+- **Modern CSRF Protection using `csrf-csrf` package:**
+  - Replaced deprecated `csurf` package with modern `csrf-csrf` library
+  - Implemented double-submit cookie pattern for CSRF protection
+  - Cookie-based token storage (`__csrf`) with httpOnly and secure flags
+  - Environment-aware settings (sameSite: 'lax' in dev, 'none' in production)
+  - Exempt routes: webhooks, health, test endpoints, and auth routes (register, login, logout, etc.)
+  - Added `/api/csrf-token` endpoint for frontend token retrieval
+  - Auth routes exempt from CSRF (have alternative protections: rate limiting, email verification)
+
+- **Frontend CSRF Integration:**
+  - Automatic CSRF token caching to minimize API calls
+  - Token automatically attached to unsafe HTTP methods (POST, PUT, DELETE, PATCH)
+  - 403 error handling with automatic CSRF token refresh and retry
+  - `clearCsrfToken()` utility for manual cache clearing
+
+### Fixed
+- Added error handlers to Socket.IO Redis adapter pub/sub clients to suppress warnings
+- CSRF validation now properly exempts authentication routes that don't need session protection
+- Email verification URLs now use correct base URL (localhost in dev, production URL in production)
+- Login page now displays prominent alert card instead of toast for email verification errors
+- Email verification error includes direct link to resend verification email
+
+#### Email Verification System
+- **Database Schema Updates:**
+  - Added `emailVerified` boolean field (default: false)
+  - Added `emailVerificationToken` text field
+  - Added `emailVerificationExpiry` timestamp field
+  - Migration script sets existing users as verified
+
+- **Backend API Endpoints:**
+  - `POST /api/auth/register` - Now generates verification token, sends email, requires verification
+  - `GET /api/auth/verify-email?token=xxx` - Verifies email token, marks user as verified
+  - `POST /api/auth/resend-verification` - Generates new token, sends new email with 60s cooldown
+  - `POST /api/auth/login` - Blocks login for unverified emails (403 with requiresVerification flag)
+
+- **Email Template:**
+  - Professional HTML email with verification link
+  - 24-hour expiry warning
+  - Uses FRONTEND_URL environment variable for link generation
+
+- **Frontend UI Pages:**
+  - `/verify-email-pending` - Post-registration page with:
+    - Clear instructions for users
+    - Resend verification button with 60s cooldown
+    - Link to login page
+  - `/verify-email` - Token verification page with:
+    - Loading, success, expired, and error states
+    - Animated status icons
+    - Clear next-step guidance
+
+- **Registration Flow Changes:**
+  - Users no longer auto-logged-in after registration
+  - Must verify email before first login
+  - Welcome email sent only after successful verification
+
+### Changed
+- Login page now handles unverified email errors gracefully
+- apiRequest function passes structured error info (requiresVerification, email)
+
+### Security
+- All new user accounts require email verification before access
+- CSRF protection on all state-changing API endpoints
+- Prevents account enumeration on resend endpoint
+
+
 ## [1.8.1] - 2025-01-17
 ### Added
 - **Site Images Integration:**

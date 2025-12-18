@@ -84,6 +84,12 @@ export class PostgresStorage {
     return res[0] as any;
   }
 
+  async getUserByEmailVerificationToken(token: string): Promise<User | undefined> {
+    if (!db) throw new Error('Database client not initialized');
+    const res = await db.select().from(users).where(eq(users.emailVerificationToken, token));
+    return res[0] as any;
+  }
+
   async createUser(user: InsertUser): Promise<User> {
     if (!db) throw new Error('Database client not initialized');
     const [res] = await db.insert(users).values(user).returning();
