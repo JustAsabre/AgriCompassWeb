@@ -12,13 +12,17 @@ async function seedInitialAdmin() {
     if (existingAdmin) {
       console.log("Admin user already exists!");
       console.log("Email:", existingAdmin.email);
-      console.log("Username:", existingAdmin.username);
+      console.log("Full Name:", existingAdmin.fullName);
       console.log("Role:", existingAdmin.role);
       
       // Update to admin role if not already
       if (existingAdmin.role !== "admin") {
         console.log("Updating user role to admin...");
-        await storage.updateUser(existingAdmin.id, { role: "admin", verified: true });
+        await storage.updateUser(existingAdmin.id, { 
+          role: "admin", 
+          verified: true,
+          emailVerified: true 
+        });
         console.log("✅ User updated to admin role!");
       }
       return;
@@ -30,15 +34,14 @@ async function seedInitialAdmin() {
     const hashedPassword = await bcrypt.hash("TELLnobody00211", 10);
 
     const adminUser = {
-      username: "Richard Admin",
+      fullName: "Richard Admin",
       email: adminEmail,
       password: hashedPassword,
       role: "admin" as const,
       verified: true,
-      phoneNumber: null,
-      location: null,
-      profileImageUrl: null,
-      bio: "System Administrator",
+      emailVerified: true,
+      phone: null,
+      region: null,
       resetToken: null,
       resetTokenExpiry: null,
     };

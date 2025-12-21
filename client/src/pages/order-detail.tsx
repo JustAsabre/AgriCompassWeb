@@ -573,8 +573,8 @@ export default function OrderDetail() {
           </Card>
         )}
 
-        {/* Review Section - Only for completed orders */}
-        {order.status === "completed" && (
+        {/* Review Section - Only for completed orders and BUYERS ONLY */}
+        {order.status === "completed" && user?.role === "buyer" && (
           <Card className="mb-6 print:shadow-none print:border print:mb-4">
             <CardHeader className="print:pb-2">
               <CardTitle className="print:text-lg">
@@ -601,8 +601,8 @@ export default function OrderDetail() {
               ) : (
                 <ReviewForm 
                   orderId={order.id}
-                  revieweeName={user?.role === "buyer" ? order.farmer.fullName : order.buyer.fullName}
-                  revieweeRole={user?.role === "buyer" ? "farmer" : "buyer"}
+                  revieweeName={order.farmer.fullName}
+                  revieweeRole="farmer"
                   onSuccess={() => {
                     queryClient.invalidateQueries({ 
                       queryKey: [`/api/reviews/order/${params?.id}`] 

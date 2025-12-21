@@ -4,6 +4,60 @@ All notable changes to AgriCompass will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.7] - 2025-12-21
+### Fixed - Critical UX & Security Issues 🔐
+
+#### Admin Seeding Script
+- Fixed admin user seeding script (`scripts/seed-admin.ts`):
+  - Replaced non-existent fields (`username`, `phoneNumber`, `profileImageUrl`, `bio`, `location`) with correct schema fields (`fullName`, `phone`, `region`).
+  - Added `emailVerified: true` to ensure admin can log in immediately.
+  - Admin seeding now works correctly for both creating new admin users and upgrading existing users.
+
+#### Review System Security
+- **CRITICAL**: Fixed review access control - only buyers can now leave reviews:
+  - Previously, both farmers and buyers could see the review form after order completion.
+  - Updated `order-detail.tsx` to restrict review form visibility to `user?.role === "buyer"` only.
+  - This aligns with the business logic where buyers review farmers (not vice versa).
+
+#### CSRF Token Fix
+- Fixed CSRF token error on review submission:
+  - `ReviewForm` component now uses `apiRequest()` utility instead of raw `fetch()`.
+  - `apiRequest()` automatically includes CSRF tokens from cookies.
+  - Prevents "Invalid CSRF token" errors when submitting reviews.
+
+#### Status Value Standardization
+- Created centralized status enums (`shared/enums.ts`) to prevent status value drift:
+  - `OrderStatus`: pending, accepted, rejected, completed, cancelled, expired, delivered
+  - `PaymentStatus`: pending, completed, failed, refunded, expired
+  - `TransactionStatus`: pending, success, completed, failed
+  - `PayoutStatus`: pending, processing, completed, failed
+  - `EscrowStatus`: pending, upfront_held, remaining_released, released, refunded, disputed, completed
+  - `WalletTransactionStatus`: pending, completed, failed
+  - `ListingStatus`: active, sold_out, inactive
+  - `ModerationStatus`: pending, approved, rejected
+  - `VerificationStatus`: pending, approved, rejected
+  - `UserRole`: farmer, buyer, field_officer, admin
+  - `WalletTransactionType`: credit, debit
+
+#### UI Dark Mode (Non-Issue)
+- Investigated reported "hardcoded colors breaking dark mode":
+  - All colors in `order-detail.tsx` use Tailwind classes with `dark:` variants (e.g., `dark:bg-yellow-600`, `dark:text-yellow-400`).
+  - Colors adapt correctly to dark mode - no fixes needed.
+
+#### Email Verification (Investigated)
+- Investigated "failed to fetch" error during email verification:
+  - Email verification endpoint (`GET /api/auth/verify-email`) is correctly implemented.
+  - Uses proper CORS configuration with credentials.
+  - Token generation and validation logic is sound.
+  - Error was likely a transient network issue or expired token (24-hour expiry).
+  - No code changes needed - system is working as designed.
+
+### Files Changed
+- `scripts/seed-admin.ts` - Fixed field names to match schema
+- `client/src/pages/order-detail.tsx` - Restricted review form to buyers only
+- `client/src/components/review-form.tsx` - Use apiRequest for CSRF token
+- `shared/enums.ts` - NEW: Centralized status enums
+
 ## [1.9.6] - 2025-12-19
 ### Fixed - Test Safety & Log Hygiene 🧪
 

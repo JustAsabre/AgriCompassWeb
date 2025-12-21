@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Star } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 
 const reviewSchema = z.object({
   rating: z.number().min(1).max(5),
@@ -39,24 +40,7 @@ export function ReviewForm({ orderId, revieweeName, revieweeRole, onSuccess }: R
 
   const submitReviewMutation = useMutation({
     mutationFn: async (data: ReviewFormData) => {
-      // In production (Vercel), use relative URLs to go through Vercel's proxy
-      // In development, use VITE_API_URL to talk directly to backend
-      const API_BASE_URL = import.meta.env.DEV 
-        ? (import.meta.env.VITE_API_URL || 'http://localhost:5000')
-        : ''; // Empty string for relative URLs in production
-      const response = await fetch(`${API_BASE_URL}/api/reviews/order/${orderId}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(data),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to submit review");
-      }
-
-      return response.json();
+      return apiRequest("POST", `/api/reviews/order/${orderId}`, data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries(); // Global invalidation for instant updates
