@@ -1,18 +1,24 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import express, { type Express } from 'express';
-import session from 'express-session';
 import { createServer } from 'http';
 import { registerRoutes } from '../routes';
-import { initializeSocket } from '../socket';
+import { initializeSocket, io } from '../socket';
 import { storage } from '../storage';
+import sessionMiddleware from '../session';
+import { registerAndLoginAgent } from './helpers/auth';
 
 // Mock email functions to avoid external dependencies
 vi.mock('../email', () => ({
+  sendEmailVerificationEmail: vi.fn().mockResolvedValue({ success: true }),
   sendPasswordResetEmail: vi.fn().mockResolvedValue({ success: true }),
   sendPasswordChangedEmail: vi.fn().mockResolvedValue({ success: true }),
   sendWelcomeEmail: vi.fn().mockResolvedValue({ success: true }),
   sendOrderConfirmationEmail: vi.fn().mockResolvedValue({ success: true }),
+  sendOrderAcceptedEmail: vi.fn().mockResolvedValue({ success: true }),
+  sendOrderDeliveredEmail: vi.fn().mockResolvedValue({ success: true }),
+  sendOrderCompletedEmail: vi.fn().mockResolvedValue({ success: true }),
+  sendEscrowReleasedEmail: vi.fn().mockResolvedValue({ success: true }),
   sendNewOrderNotificationToFarmer: vi.fn().mockResolvedValue({ success: true }),
   sendVerificationStatusEmail: vi.fn().mockResolvedValue({ success: true }),
   getSmtpStatus: vi.fn().mockReturnValue({ status: 'ok' }),
@@ -34,49 +40,17 @@ describe('Listings API', () => {
     
     app = express();
     app.use(express.json());
-    app.use(
-      session({
-        secret: 'test-secret',
-        resave: false,
-        saveUninitialized: false,
-        cookie: { secure: false },
-      })
-    );
+    app.use(sessionMiddleware);
     httpServer = createServer(app);
-    const io = initializeSocket(httpServer);
+    await initializeSocket(httpServer);
     await registerRoutes(app, httpServer, io);
 
-    // Create test users and get authenticated agents
-    await request(app)
-      .post('/api/auth/register')
-      .send({
-        email: 'farmer@test.com',
-        password: 'password123',
-        fullName: 'Test Farmer',
-        role: 'farmer',
-      });
+    // Create test users and get authenticated agents (respect production email verification rules)
+    const farmer = await registerAndLoginAgent(app, 'farmer', 'farmer@test.com', { markVerified: true });
+    farmerAgent = farmer.agent;
 
-    await request(app)
-      .post('/api/auth/register')
-      .send({
-        email: 'buyer@test.com',
-        password: 'password123',
-        fullName: 'Test Buyer',
-        role: 'buyer',
-      });
-
-    // Create agents and login
-    farmerAgent = request.agent(app);
-    await farmerAgent
-      .post('/api/auth/login')
-      .send({ email: 'farmer@test.com', password: 'password123' })
-      .expect(200);
-
-    buyerAgent = request.agent(app);
-    await buyerAgent
-      .post('/api/auth/login')
-      .send({ email: 'buyer@test.com', password: 'password123' })
-      .expect(200);
+    const buyer = await registerAndLoginAgent(app, 'buyer', 'buyer@test.com');
+    buyerAgent = buyer.agent;
   });
 
   afterEach(async () => {
@@ -228,21 +202,8 @@ describe('Listings API', () => {
     });
 
     it('rejects update from non-owner farmer', async () => {
-      // Create another farmer
-      await request(app)
-        .post('/api/auth/register')
-        .send({
-          email: 'other-farmer@test.com',
-          password: 'password123',
-          fullName: 'Other Farmer',
-          role: 'farmer',
-        });
-
-      const otherAgent = request.agent(app);
-      await otherAgent
-        .post('/api/auth/login')
-        .send({ email: 'other-farmer@test.com', password: 'password123' })
-        .expect(200);
+      const other = await registerAndLoginAgent(app, 'farmer', 'other-farmer@test.com');
+      const otherAgent = other.agent;
 
       const response = await otherAgent
         .patch(`/api/listings/${listingId}`)
@@ -293,21 +254,8 @@ describe('Listings API', () => {
     });
 
     it('rejects deletion from non-owner farmer', async () => {
-      // Create another farmer
-      await request(app)
-        .post('/api/auth/register')
-        .send({
-          email: 'delete-farmer@test.com',
-          password: 'password123',
-          fullName: 'Delete Farmer',
-          role: 'farmer',
-        });
-
-      const otherAgent = request.agent(app);
-      await otherAgent
-        .post('/api/auth/login')
-        .send({ email: 'delete-farmer@test.com', password: 'password123' })
-        .expect(200);
+      const other = await registerAndLoginAgent(app, 'farmer', 'delete-farmer@test.com');
+      const otherAgent = other.agent;
 
       const response = await otherAgent
         .delete(`/api/listings/${listingId}`);

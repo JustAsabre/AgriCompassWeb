@@ -7,9 +7,9 @@ import { sessionStore } from "./session";
 import { hashPassword, comparePassword, sanitizeUser, SessionUser } from "./auth";
 import { insertUserSchema, insertListingSchema, insertOrderSchema, insertCartItemSchema, insertPricingTierSchema, insertReviewSchema, User } from "@shared/schema";
 import { sendPasswordResetEmail, sendWelcomeEmail, sendPasswordChangedEmail, sendOrderConfirmationEmail, sendNewOrderNotificationToFarmer, sendVerificationStatusEmail, getSmtpStatus, sendOrderAcceptedEmail, sendOrderRejectedEmail, sendOrderDeliveredEmail, sendOrderCompletedEmail, sendWithdrawalRequestedEmail, sendWithdrawalProcessingEmail, sendWithdrawalCompletedEmail, sendWithdrawalFailedEmail, sendPaymentFailedEmail, sendPaymentRefundedEmail, sendEscrowReleasedEmail, sendEscrowDisputeResolvedEmail, sendAdminEscrowReleaseEmail, sendAdminEscrowRefundEmail, sendContentModerationEmail, sendNewDisputeNotificationToAdmin, sendRoleChangeEmail, sendAccountStatusEmail, sendEmailVerificationEmail } from "./email";
-import { upload, getFileUrl, deleteUploadedFile, isValidFilename } from "./upload";
+import { upload, deleteUploadedFile, getFileUrl, isValidFilename, saveUploadedFile } from "./upload";
+import { uploadToCloudinary, deleteFromCloudinary } from "./cloudinary";
 import { sendNotificationToUser, broadcastNewListing } from "./socket";
-import { enqueuePayout } from './jobs/payoutQueue';
 import { pool } from "./db";
 import { cacheThrough, CacheKeys, CacheTTL, invalidateListingCaches, invalidateFarmerCaches, invalidateBuyerCaches, invalidateUserCaches, deleteCache } from "./cache";
 import crypto from "crypto";
@@ -170,7 +170,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       });
 
       // Update user with email verification token
-      await storage.updateUser(user.id, {
+      const updatedUser = await storage.updateUser(user.id, {
         emailVerified: false,
         emailVerificationToken,
         emailVerificationExpiry,
@@ -184,7 +184,8 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       // NOTE: User is NOT logged in until email is verified
       res.status(201).json({ 
         message: "Registration successful! Please check your email to verify your account.",
-        requiresVerification: true 
+        requiresVerification: true,
+        user: sanitizeUser(updatedUser ?? { ...user, emailVerified: false } as any)
       });
     } catch (error: any) {
       console.error("Registration error:", error);
@@ -288,6 +289,11 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         return res.status(401).json({ message: "Invalid credentials" });
       }
 
+      // Check if lockout is active - BEFORE password check to prevent brute force
+      if (user.lockedUntil && new Date(user.lockedUntil) > new Date()) {
+        return res.status(403).json({ message: "Account locked due to multiple failed login attempts. Please try again later." });
+      }
+
       // Check if email is verified
       if (!user.emailVerified) {
         return res.status(403).json({ 
@@ -297,11 +303,10 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         });
       }
 
-      console.log(`Login: user found:`, user ? { ...user, verified: user.verified } : 'null');
-
-      // Check if lockout is active
-      if (user.lockedUntil && new Date(user.lockedUntil) > new Date()) {
-        return res.status(403).json({ message: "Account locked due to multiple failed login attempts. Please try again later." });
+      // Avoid logging full user records (password hashes / PII) in production logs.
+      // If you need login diagnostics locally, enable them explicitly.
+      if (process.env.NODE_ENV !== 'production' && process.env.DEBUG_LOGS === 'true') {
+        console.debug('[auth] Login user found', { userId: user.id, role: user.role, emailVerified: user.emailVerified });
       }
 
       // Compare password
@@ -505,9 +510,8 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       try {
         const freshUser = await storage.getUser(req.session.user.id);
         if (!freshUser) return res.status(404).json({ message: 'User not found' });
-        req.session.user = { ...(freshUser as any) };
-        const { password, ...safeUser } = freshUser as any;
-        res.json({ user: safeUser });
+        req.session.user = sanitizeUser(freshUser as any);
+        res.json({ user: sanitizeUser(freshUser as any) });
       } catch (err) {
         console.error('Error fetching user for /api/auth/me', err);
         res.status(500).json({ message: 'Failed to fetch user' });
@@ -517,43 +521,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
 
-  // NOTE: `forgot-password` route defined above; duplicate removed to prevent route shadowing.
-
-  app.post("/api/auth/reset-password", async (req, res) => {
-    try {
-      const { token, newPassword } = req.body;
-
-      if (!token || !newPassword) {
-        return res.status(400).json({ message: "Token and new password are required" });
-      }
-
-      // Find user by reset token
-      const user = await storage.getUserByResetToken(token);
-      if (!user) {
-        return res.status(400).json({ message: "Invalid or expired reset token" });
-      }
-
-      // Check if token is expired
-      if (!user.resetTokenExpiry || user.resetTokenExpiry < new Date()) {
-        return res.status(400).json({ message: "Reset token has expired" });
-      }
-
-      // Hash new password
-      const hashedPassword = await hashPassword(newPassword);
-
-      // Update password and clear reset token
-      await storage.updateUser(user.id, {
-        password: hashedPassword,
-        resetToken: null,
-        resetTokenExpiry: null,
-      });
-
-      res.json({ message: "Password has been reset successfully. You can now log in with your new password." });
-    } catch (error: any) {
-      console.error("Reset password error:", error);
-      res.status(500).json({ message: "Failed to reset password" });
-    }
-  });
+  // NOTE: duplicate `POST /api/auth/reset-password` handler removed (keep the earlier, stronger one).
 
   // Listing routes
   app.get("/api/listings", async (req, res) => {
@@ -598,77 +566,108 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
 
-  app.patch("/api/listings/:id", requireRole("farmer"), async (req, res) => {
-    try {
-      const listing = await storage.getListing(req.params.id);
-      if (!listing) {
-        return res.status(404).json({ message: "Listing not found" });
-      }
-
-      if (listing.farmerId !== req.session.user!.id) {
-        return res.status(403).json({ message: "You can only edit your own listings" });
-      }
-
-      const updatedListing = await storage.updateListing(req.params.id, req.body);
-      res.json(updatedListing);
-    } catch (error: any) {
-      console.error("Update listing error:", error);
-      res.status(400).json({ message: "Failed to update listing" });
-    }
-  });
-
   // File upload endpoint
-  app.post("/api/upload", requireAuth, upload.array('images', 5), async (req, res) => {
-    try {
-      if (!req.files || !Array.isArray(req.files) || req.files.length === 0) {
-        return res.status(400).json({ message: "No files uploaded" });
-      }
-
-      const uploadedFiles = (req.files as Express.Multer.File[]).map(file => {
-        const b64 = Buffer.from(file.buffer).toString('base64');
-        const mimeType = file.mimetype;
-        const url = `data:${mimeType};base64,${b64}`;
-        return {
-          filename: file.originalname,
-          originalName: file.originalname,
-          size: file.size,
-          url
-        };
-      });
-
-      res.json({
-        message: "Files uploaded successfully",
-        files: uploadedFiles
-      });
-    } catch (error: any) {
-      console.error("File upload error:", error);
-      res.status(400).json({ message: error.message || "Failed to upload files" });
-    }
-  });
-
-  // Delete uploaded file endpoint
-  app.delete("/api/upload/:filename", requireAuth, async (req, res) => {
-    try {
-      const filename = req.params.filename;
-
-      // Validate filename to prevent path traversal or malformed requests
-      if (!filename || !isValidFilename(filename)) {
-        return res.status(400).json({ message: "Invalid filename" });
+  // NOTE: Multer fileFilter errors happen *before* the handler runs when used as standalone middleware.
+  // Wrap Multer invocation so we can consistently return JSON 400s instead of bubbling to a 500.
+  app.post("/api/upload", requireAuth, (req, res) => {
+    upload.array('images', 5)(req as any, res as any, async (err: any) => {
+      if (err) {
+        return res.status(400).json({ message: err.message || 'Failed to upload files' });
       }
 
       try {
+        if (!req.files || !Array.isArray(req.files) || req.files.length === 0) {
+          return res.status(400).json({ message: "No files uploaded" });
+        }
+
+        const cloudinaryEnabled = Boolean(process.env.CLOUDINARY_URL);
+
+        // In production we expect a proper uploads backend; in dev/test we can fall back to disk.
+        if (!cloudinaryEnabled && process.env.NODE_ENV === 'production') {
+          return res.status(500).json({ message: 'File uploads are not configured. Please set CLOUDINARY_URL.' });
+        }
+
+        const uploadPromises = (req.files as Express.Multer.File[]).map(async (file) => {
+          if (cloudinaryEnabled) {
+            const result = await uploadToCloudinary(file.buffer);
+            return {
+              filename: file.originalname,
+              originalName: file.originalname,
+              size: file.size,
+              url: result.url,
+              publicId: result.public_id,
+            };
+          }
+
+          const savedFilename = await saveUploadedFile(file);
+          return {
+            filename: savedFilename,
+            originalName: file.originalname,
+            size: file.size,
+            url: getFileUrl(savedFilename, req),
+            publicId: null,
+          };
+        });
+
+        const uploadedFiles = await Promise.all(uploadPromises);
+
+        res.json({
+          message: "Files uploaded successfully",
+          files: uploadedFiles
+        });
+      } catch (error: any) {
+        console.error("File upload error:", error);
+        res.status(400).json({ message: error.message || "Failed to upload files" });
+      }
+    });
+  });
+
+  // Delete uploaded file endpoint
+  // Supports:
+  // - Local uploads: /api/upload/:filename
+  // - Cloudinary public ids containing slashes (preferred): /api/upload?publicId=<urlencoded>
+  app.delete("/api/upload/:filename", requireAuth, async (req, res) => {
+    try {
+      const filename = req.params.filename;
+      if (!filename) return res.status(400).json({ message: "Invalid filename" });
+
+      // Local deletion when the value looks like a safe filename.
+      if (isValidFilename(filename) && !process.env.CLOUDINARY_URL) {
         await deleteUploadedFile(filename);
         return res.json({ message: "File deleted successfully" });
-      } catch (err: any) {
-        if (err && err.code === 'ENOENT') {
-          return res.status(404).json({ message: 'File not found' });
-        }
-        console.error('File deletion error:', err);
-        return res.status(500).json({ message: 'Failed to delete file' });
       }
-    } catch (error: any) {
-      console.error("File deletion error:", error);
-      res.status(400).json({ message: "Failed to delete file" });
+
+      // Best-effort Cloudinary deletion (may fail if misconfigured).
+      await deleteFromCloudinary(filename);
+      return res.json({ message: "File deleted successfully" });
+    } catch (err: any) {
+      console.error('File deletion error:', err);
+      return res.status(500).json({ message: err?.message || 'Failed to delete file' });
+    }
+  });
+
+  app.delete("/api/upload", requireAuth, async (req, res) => {
+    try {
+      const publicIdRaw = (req.query.publicId ?? (req as any).body?.publicId) as unknown;
+      const publicId = typeof publicIdRaw === 'string' ? publicIdRaw : '';
+      if (!publicId) {
+        return res.status(400).json({ message: 'publicId is required' });
+      }
+
+      if (process.env.CLOUDINARY_URL) {
+        await deleteFromCloudinary(publicId);
+        return res.json({ message: 'File deleted successfully' });
+      }
+
+      // If Cloudinary is not configured, allow local deletion by passing a safe filename.
+      if (!isValidFilename(publicId)) {
+        return res.status(400).json({ message: 'Invalid filename' });
+      }
+      await deleteUploadedFile(publicId);
+      return res.json({ message: 'File deleted successfully' });
+    } catch (err: any) {
+      console.error('File deletion error:', err);
+      return res.status(500).json({ message: err?.message || 'Failed to delete file' });
     }
   });
 
@@ -1130,85 +1129,100 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
       // Create orders (one per cart item) linked to the transaction
       const orders = [];
-      for (const item of cartItems) {
-        // Calculate tier-based pricing
-        const tiers = await storage.getPricingTiersByListing(item.listingId);
-        let pricePerUnit = Number(item.listing.price);
+      const reservedItems = []; // Track successful reservations for rollback
 
-        // Validate base price
-        if (isNaN(pricePerUnit) || !item.listing.price) {
-          console.error(`Invalid base price for listing ${item.listingId}:`, item.listing.price);
-          return res.status(500).json({
-            message: `Invalid price for ${item.listing.productName}`
-          });
-        }
+      try {
+        for (const item of cartItems) {
+          // Attempt to reserve stock
+          const reserved = await storage.decrementListingQuantity(item.listingId, item.quantity);
+          if (!reserved) {
+            throw new Error(`Insufficient stock for ${item.listing.productName}`);
+          }
+          reservedItems.push(item);
 
-        if (tiers && tiers.length > 0) {
-          // Sort tiers by minQuantity descending to find the highest applicable tier
-          const sortedTiers = [...tiers].sort((a, b) => b.minQuantity - a.minQuantity);
-          const applicableTier = sortedTiers.find(tier => item.quantity >= tier.minQuantity);
-          if (applicableTier && applicableTier.price) {
-            const tierPrice = Number(applicableTier.price);
-            if (!isNaN(tierPrice)) {
-              pricePerUnit = tierPrice;
+          // Calculate tier-based pricing
+          const tiers = await storage.getPricingTiersByListing(item.listingId);
+          let pricePerUnit = Number(item.listing.price);
+
+          // Validate base price
+          if (isNaN(pricePerUnit) || !item.listing.price) {
+            throw new Error(`Invalid price for ${item.listing.productName}`);
+          }
+
+          if (tiers && tiers.length > 0) {
+            // Sort tiers by minQuantity descending to find the highest applicable tier
+            const sortedTiers = [...tiers].sort((a, b) => b.minQuantity - a.minQuantity);
+            const applicableTier = sortedTiers.find(tier => item.quantity >= tier.minQuantity);
+            if (applicableTier && applicableTier.price) {
+              const tierPrice = Number(applicableTier.price);
+              if (!isNaN(tierPrice)) {
+                pricePerUnit = tierPrice;
+              }
             }
           }
+
+          const totalPrice = (pricePerUnit * item.quantity).toFixed(2);
+
+          const order = await storage.createOrder({
+            buyerId,
+            farmerId: item.listing.farmerId,
+            listingId: item.listingId,
+            quantity: item.quantity,
+            totalPrice,
+            deliveryAddress,
+            notes,
+          });
+          orders.push(order);
+
+          // Send email notifications (async, non-blocking)
+          const buyer = await storage.getUser(buyerId);
+          const farmer = await storage.getUser(item.listing.farmerId);
+
+          if (buyer) {
+            sendOrderConfirmationEmail(
+              buyer.email,
+              buyer.fullName,
+              {
+                orderId: order.id,
+                productName: item.listing.productName,
+                quantity: item.quantity,
+                totalPrice: Number(totalPrice),
+                farmerName: farmer?.fullName || 'Farmer',
+              }
+            ).catch(err => console.error('Failed to send order confirmation email:', err));
+          }
+
+          if (farmer) {
+            sendNewOrderNotificationToFarmer(
+              farmer.email,
+              farmer.fullName,
+              {
+                orderId: order.id,
+                productName: item.listing.productName,
+                quantity: item.quantity,
+                totalPrice: Number(totalPrice),
+                buyerName: buyer?.fullName || 'Buyer',
+              }
+            ).catch(err => console.error('Failed to send new order email:', err));
+
+            // Send in-app notification
+            sendNotificationToUser(item.listing.farmerId, {
+              userId: item.listing.farmerId,
+              type: 'order_update',
+              title: 'New Order Received',
+              message: `You have received a new order for ${item.quantity} ${item.listing.unit} of ${item.listing.productName}.`,
+              relatedId: order.id,
+              relatedType: 'order'
+            }, io).catch(err => console.error('Failed to send notification:', err));
+          }
         }
-
-        const totalPrice = (pricePerUnit * item.quantity).toFixed(2);
-
-        const order = await storage.createOrder({
-          buyerId,
-          farmerId: item.listing.farmerId,
-          listingId: item.listingId,
-          quantity: item.quantity,
-          totalPrice,
-          deliveryAddress,
-          notes,
-        });
-        orders.push(order);
-
-        // Send email notifications (async, non-blocking)
-        const buyer = await storage.getUser(buyerId);
-        const farmer = await storage.getUser(item.listing.farmerId);
-
-        if (buyer) {
-          sendOrderConfirmationEmail(
-            buyer.email,
-            buyer.fullName,
-            {
-              orderId: order.id,
-              productName: item.listing.productName,
-              quantity: item.quantity,
-              totalPrice: Number(totalPrice),
-              farmerName: farmer?.fullName || 'Farmer',
-            }
-          ).catch(err => console.error('Failed to send order confirmation email:', err));
+      } catch (error: any) {
+        // Rollback reservations
+        console.error("Order creation failed, rolling back stock:", error);
+        for (const item of reservedItems) {
+          await storage.incrementListingQuantity(item.listingId, item.quantity);
         }
-
-        if (farmer) {
-          sendNewOrderNotificationToFarmer(
-            farmer.email,
-            farmer.fullName,
-            {
-              orderId: order.id,
-              productName: item.listing.productName,
-              quantity: item.quantity,
-              totalPrice: Number(totalPrice),
-              buyerName: buyer?.fullName || 'Buyer',
-            }
-          ).catch(err => console.error('Failed to send new order email:', err));
-
-          // Send in-app notification
-          sendNotificationToUser(item.listing.farmerId, {
-            userId: item.listing.farmerId,
-            type: 'order_update',
-            title: 'New Order Received',
-            message: `You have received a new order for ${item.quantity} ${item.listing.unit} of ${item.listing.productName}.`,
-            relatedId: order.id,
-            relatedType: 'order'
-          }, io).catch(err => console.error('Failed to send notification:', err));
-        }
+        return res.status(400).json({ message: error.message || "Failed to process order" });
       }
 
 
@@ -1713,79 +1727,6 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   }
 
-  async function enqueuePayout(payoutId: string) {
-    try {
-      const payout = await storage.getPayout(payoutId);
-      if (!payout) return;
-      if (payout.status !== 'pending') return;
-
-      const farmer = await storage.getUser(payout.farmerId);
-      const recipientCode = (farmer as any)?.paystackRecipientCode;
-
-      if (!recipientCode) {
-        console.error(`Cannot process payout ${payoutId}: Farmer ${payout.farmerId} has no recipient code`);
-        await storage.updatePayout(payoutId, { status: 'failed' } as any);
-        return;
-      }
-
-      const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
-      if (!paystackSecret) {
-        console.error('PAYSTACK_SECRET_KEY not configured');
-        return;
-      }
-
-      console.log(`Processing payout ${payoutId} for farmer ${payout.farmerId} amount ${payout.amount}`);
-
-      // Initiate Transfer
-      const res = await fetch('https://api.paystack.co/transfer', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${paystackSecret}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          source: 'balance',
-          amount: Math.round(Number(payout.amount) * 100), // kobo
-          recipient: recipientCode,
-          reason: `Payout for AgriCompass Sales`,
-        }),
-      });
-
-      if (!res.ok) {
-        const errorBody = await res.text();
-        console.error('Paystack transfer failed', res.status, errorBody);
-        await storage.updatePayout(payoutId, { status: 'failed' } as any);
-        return;
-      }
-
-      const body = await res.json();
-      if (body.status === false) {
-        console.error('Paystack transfer API returned false status', body);
-        await storage.updatePayout(payoutId, { status: 'failed' } as any);
-        return;
-      }
-
-      const transferCode = body.data.transfer_code;
-      await storage.updatePayout(payoutId, { status: 'processing', transactionId: transferCode } as any);
-      console.log(`Payout ${payoutId} initiated. Transfer code: ${transferCode}`);
-
-      // Notify farmer
-      try {
-        await sendNotificationToUser(payout.farmerId, {
-          userId: payout.farmerId,
-          type: 'payout_update',
-          title: 'Payout Processing',
-          message: `Your payout of GHS ${payout.amount} is being processed.`,
-          relatedId: payout.id,
-          relatedType: 'payout'
-        }, io);
-      } catch (err) { console.error('Failed to notify farmer about payout', err); }
-
-    } catch (err) {
-      console.error('enqueuePayout error:', err);
-    }
-  }
-
   // ====================
   // VERIFICATION ROUTES
   // ====================
@@ -1829,35 +1770,12 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
 
-  // Get all verifications for field officers
-  app.get("/api/verifications", requireRole("field_officer"), async (req: Request, res: Response) => {
-    try {
-      // Get ALL verifications, not just ones assigned to this officer
-      const allVerifications = await storage.getAllVerifications();
-
-      // Fetch farmer details for each verification
-      const verificationsWithFarmers = await Promise.all(
-        allVerifications.map(async (v: any) => {
-          const farmer = await storage.getUser(v.farmerId);
-          if (!farmer) return null;
-
-          const { password, ...safeFarmer } = farmer;
-          return { ...v, farmer: safeFarmer };
-        })
-      );
-
-      res.json(verificationsWithFarmers.filter(v => v !== null));
-    } catch (error: any) {
-      console.error("Get verifications error:", error);
-      res.status(500).json({ message: "Failed to fetch verifications" });
-    }
-  });
-
   // Get farmer's own verification status
   app.get("/api/verifications/me", requireRole("farmer"), async (req: Request, res: Response) => {
     try {
       const farmerId = req.session.user!.id;
       const verification = await storage.getVerificationByFarmer(farmerId);
+      res.json(verification || null);
     } catch (error: any) {
       console.error("Get verification error:", error);
       res.status(500).json({ message: "Failed to fetch verification status" });
@@ -1926,14 +1844,16 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       const allVerifications = await storage.getAllVerifications();
 
       // Enrich with farmer details
-      const verificationsWithFarmer = await Promise.all(
-        allVerifications.map(async (v) => {
+      const verificationsWithFarmers = await Promise.all(
+        allVerifications.map(async (v: any) => {
           const farmer = await storage.getUser(v.farmerId);
-          return { ...v, farmer };
+          if (!farmer) return null;
+          const { password, ...safeFarmer } = farmer as any;
+          return { ...v, farmer: safeFarmer };
         })
       );
 
-      res.json(verificationsWithFarmer);
+      res.json(verificationsWithFarmers.filter(Boolean));
     } catch (error: any) {
       console.error("Get verifications error:", error);
       res.status(500).json({ message: "Failed to fetch verifications" });
@@ -1942,11 +1862,15 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
   // Review verification (field officer)
   app.patch("/api/verifications/:id/review", requireRole("field_officer"), async (req: Request, res: Response) => {
-    console.log('Review endpoint called for id:', req.params.id, 'status:', req.body.status);
+    if (process.env.NODE_ENV !== 'production' && process.env.DEBUG_LOGS === 'true') {
+      console.debug('[verifications] review called', { id: req.params.id, status: req.body?.status });
+    }
     try {
       const { id } = req.params;
       const { status, notes } = req.body;
-      console.log(`Reviewing verification ${id} with status ${status}`);
+      if (process.env.NODE_ENV !== 'production' && process.env.DEBUG_LOGS === 'true') {
+        console.debug('[verifications] reviewing', { id, status });
+      }
 
       const verification = await storage.updateVerificationStatus(id, status, notes);
       if (!verification) {
@@ -1956,11 +1880,9 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       // If approved, update sessions and notify sockets to refresh user state
       if (status === 'approved') {
         const farmerId = verification.farmerId;
-        console.log(`Approving verification for farmer ${farmerId}, verification status updated`);
-
-        // Check user after update
-        const updatedUser = await storage.getUser(farmerId);
-        console.log(`User after verification update:`, updatedUser ? { ...updatedUser, verified: updatedUser.verified } : 'null');
+        if (process.env.NODE_ENV !== 'production' && process.env.DEBUG_LOGS === 'true') {
+          console.debug('[verifications] approved', { verificationId: id, farmerId });
+        }
 
         // Emit socket event for this farmer's connected clients
         try {
@@ -2171,79 +2093,9 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
 
-  // Review verification (approve/reject) - used by officer dashboard
-  app.patch("/api/verifications/:id/review", requireRole("field_officer"), async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { status, notes } = req.body;
+  // NOTE: duplicate `PATCH /api/verifications/:id/review` handler removed (keep the earlier, fuller one).
 
-      if (!["approved", "rejected"].includes(status)) {
-        return res.status(400).json({ message: "Invalid status" });
-      }
 
-      const updated = await storage.updateVerificationStatus(id, status, notes);
-
-      if (!updated) {
-        return res.status(404).json({ message: "Verification not found" });
-      }
-
-      // If approved, notify farmer
-      if (status === "approved") {
-        const verification = await storage.getVerificationByFarmer(updated.farmerId); // Re-fetch to get details if needed, or just use updated
-        // Actually updated contains farmerId
-        await sendNotificationToUser(updated.farmerId, {
-          userId: updated.farmerId,
-          type: "verification_update",
-          title: "Verification Approved",
-          message: "Your account has been verified by a field officer.",
-          relatedId: updated.id,
-          relatedType: "verification",
-        }, io as any);
-      } else if (status === "rejected") {
-        await sendNotificationToUser(updated.farmerId, {
-          userId: updated.farmerId,
-          type: "verification_update",
-          title: "Verification Rejected",
-          message: `Your verification was rejected. ${notes ? `Reason: ${notes}` : ""}`,
-          relatedId: updated.id,
-          relatedType: "verification",
-        }, io as any);
-      }
-
-      res.json(updated);
-    } catch (error: any) {
-      console.error("Review verification error:", error);
-      res.status(500).json({ message: "Failed to review verification" });
-    }
-  });
-
-  // File upload endpoint - for listing images and verification documents
-  app.post("/api/upload", requireAuth, upload.single('file'), async (req: Request, res: Response) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ message: "No file uploaded" });
-      }
-
-      // Generate unique filename
-      const ext = path.extname(req.file.originalname);
-      const filename = `${crypto.randomUUID()}${ext}`;
-      const filePath = path.join(process.cwd(), 'public', 'uploads', filename);
-
-      // Ensure upload directory exists
-      const uploadDir = path.dirname(filePath);
-      await fs.promises.mkdir(uploadDir, { recursive: true });
-
-      // Write file from memory buffer
-      await fs.promises.writeFile(filePath, req.file.buffer);
-
-      // Return public URL
-      const url = `/uploads/${filename}`;
-      res.json({ url, filename });
-    } catch (error: any) {
-      console.error("File upload error:", error);
-      res.status(500).json({ message: "Failed to upload file" });
-    }
-  });
 
   // User profile routes
   app.get("/api/user/:id", requireAuth, async (req, res) => {
@@ -3087,8 +2939,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       const userRole = req.session.user!.role;
 
       // Get review to check ownership
-      const reviews = await storage.getAllReviews();
-      const review = reviews.find((r: any) => r.id === id);
+      const review = await storage.getReview(id);
 
       if (!review) {
         return res.status(404).json({ message: "Review not found" });
@@ -4046,15 +3897,33 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         try {
           const raw = (req as any).rawBody as Buffer | string | undefined;
           if (!raw) {
-            console.warn('Webhook received without raw body');
-            return res.status(400).json({ message: 'Invalid webhook format' });
-          }
+            console.warn('Webhook received without raw body - cannot verify signature');
+            // Fallback: If raw body is missing but we have parsed body, try to use it (less secure but functional for some setups)
+            // Ideally, we should always have rawBody from the middleware.
+            if (req.body && Object.keys(req.body).length > 0) {
+               console.warn('Attempting fallback signature verification with JSON.stringify (Not recommended for production)');
+               const payloadString = JSON.stringify(req.body);
+               const computed = crypto.createHmac('sha512', secret).update(payloadString).digest('hex');
+               if (!signature || computed !== signature) {
+                  console.warn('Invalid Paystack webhook signature (fallback) - possible security breach');
+                  return res.status(401).json({ message: 'Invalid signature' });
+               }
+            } else {
+               return res.status(400).json({ message: 'Invalid webhook format' });
+            }
+          } else {
+            const payloadBuf = Buffer.isBuffer(raw) ? raw : Buffer.from(typeof raw === 'string' ? raw : '');
+            
+            if (payloadBuf.length === 0) {
+               console.warn('Webhook received with empty raw body');
+               return res.status(400).json({ message: 'Invalid webhook format' });
+            }
 
-          const payloadBuf = Buffer.isBuffer(raw) ? raw : Buffer.from(typeof raw === 'string' ? raw : JSON.stringify(req.body || {}));
-          const computed = crypto.createHmac('sha512', secret).update(payloadBuf).digest('hex');
-          if (!signature || computed !== signature) {
-            console.warn('Invalid Paystack webhook signature - possible security breach');
-            return res.status(401).json({ message: 'Invalid signature' });
+            const computed = crypto.createHmac('sha512', secret).update(payloadBuf).digest('hex');
+            if (!signature || computed !== signature) {
+              console.warn('Invalid Paystack webhook signature - possible security breach');
+              return res.status(401).json({ message: 'Invalid signature' });
+            }
           }
         } catch (vErr) {
           console.warn('Failed while verifying webhook signature', vErr);
@@ -4144,8 +4013,8 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
             const escrow = await storage.getEscrowByOrder(existing.orderId);
             if (escrow) {
               if (existing.id === escrow.upfrontPaymentId) {
-                // This is the payment (100% held)
-                await storage.updateEscrowStatus(escrow.id, 'held');
+                // Upfront payment confirmed (100% held)
+                await storage.updateEscrowStatus(escrow.id, 'upfront_held');
               }
             }
 
@@ -4520,14 +4389,9 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         return res.status(403).json({ message: 'Not authorized to dispute this escrow' });
       }
 
-      // Can only dispute if remaining payment is released but not completed
-      // With full payment, maybe dispute is allowed when 'held' or 'released'?
-      // Assuming dispute is allowed when 'held' (before delivery confirmation) or 'released' (after delivery but before withdrawal?)
-      // Actually, 'released' means funds are in farmer wallet.
-      // Dispute should probably happen before 'released' (i.e. when 'held').
-      // Or if buyer disputes delivery.
-      // I'll allow dispute if status is 'held'.
-      if (escrow.status !== 'held') {
+      // Disputes should be raised while funds are still in escrow.
+      // Allow while upfront payment is held (and, if present, while remaining payment is still held/released within escrow logic).
+      if (!escrow.status || !['upfront_held', 'remaining_released'].includes(escrow.status)) {
         return res.status(400).json({ message: 'Can only dispute active escrow' });
       }
 

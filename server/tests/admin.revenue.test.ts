@@ -1,38 +1,72 @@
 import request from 'supertest';
 import express, { type Express } from 'express';
-import session from 'express-session';
 import { createServer } from 'http';
 import { registerRoutes } from '../routes';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { storage } from '../storage';
+import sessionMiddleware from '../session';
+import './setup';
 
 describe('Admin revenue & active-sellers API', () => {
   let app: Express;
   let httpServer: any;
 
   beforeEach(async () => {
+    await storage.cleanup();
     app = express();
     app.use(express.json());
-    app.use(session({ secret: 'test-secret', resave: false, saveUninitialized: false, cookie: { secure: false } }));
+    app.use(sessionMiddleware);
     httpServer = createServer(app);
     await registerRoutes(app, httpServer);
   });
 
+  const verifyEmail = async (email: string) => {
+    const user = await storage.getUserByEmail(email.toLowerCase());
+    if (!user) throw new Error(`Test setup: user not found for email ${email}`);
+    if ((user as any).emailVerified) return;
+    const token = (user as any).emailVerificationToken;
+    if (!token) throw new Error(`Test setup: missing emailVerificationToken for ${email}`);
+    await request(app)
+      .get(`/api/auth/verify-email?token=${encodeURIComponent(token)}`)
+      .expect(200);
+  };
+
+  const registerVerifyLogin = async (email: string, role: string, fullName: string) => {
+    const registerRes = await request(app)
+      .post('/api/auth/register')
+      .send({ email, password: 'password123', fullName, role });
+    expect(registerRes.status).toBe(201);
+    await verifyEmail(email);
+
+    const loginRes = await request(app)
+      .post('/api/auth/login')
+      .send({ email, password: 'password123' });
+    expect(loginRes.status).toBe(200);
+    const setCookie = loginRes.headers['set-cookie']?.[0];
+    expect(setCookie).toBeDefined();
+    // Only return the actual cookie value (avoid Path/HttpOnly attributes)
+    return String(setCookie).split(';')[0];
+  };
+
+  const markFarmerVerified = async (email: string) => {
+    const user = await storage.getUserByEmail(email.toLowerCase());
+    if (!user) throw new Error(`Test setup: user not found for email ${email}`);
+    await storage.updateUser(user.id, { verified: true } as any);
+  };
+
   it('returns accurate revenue totals and monthly breakdown', async () => {
     // Setup admin
-    await request(app).post('/api/auth/register').send({ email: 'revadmin@test.com', password: 'password123', fullName: 'Rev Admin', role: 'admin' });
-    const adminLogin = await request(app).post('/api/auth/login').send({ email: 'revadmin@test.com', password: 'password123' });
-    const adminCookie = adminLogin.headers['set-cookie'];
+    const adminCookie = await registerVerifyLogin('revadmin@test.com', 'admin', 'Rev Admin');
 
     // Create a farmer/listings and buyer/orders
-    await request(app).post('/api/auth/register').send({ email: 'rev_farmer@test.com', password: 'password123', fullName: 'Rev Farmer', role: 'farmer' });
-    const farmerLogin = await request(app).post('/api/auth/login').send({ email: 'rev_farmer@test.com', password: 'password123' });
-    const farmerCookie = farmerLogin.headers['set-cookie'];
+    const farmerCookie = await registerVerifyLogin('rev_farmer@test.com', 'farmer', 'Rev Farmer');
+    await markFarmerVerified('rev_farmer@test.com');
     const listingRes = await request(app).post('/api/listings').set('Cookie', farmerCookie).send({ productName: 'Rev Product', category: 'F', description: 'T', price: '5.00', unit: 'kg', quantityAvailable: 10, minOrderQuantity: 1, location: 'Test' });
+    expect(listingRes.status).toBe(200);
     const listing = listingRes.body;
-    await request(app).post('/api/auth/register').send({ email: 'rev_buyer@test.com', password: 'password123', fullName: 'Rev Buyer', role: 'buyer' });
-    const buyerLogin = await request(app).post('/api/auth/login').send({ email: 'rev_buyer@test.com', password: 'password123' });
-    const buyerCookie = buyerLogin.headers['set-cookie'];
+    expect(listing).toBeTruthy();
+    expect(listing.id).toBeTruthy();
+    const buyerCookie = await registerVerifyLogin('rev_buyer@test.com', 'buyer', 'Rev Buyer');
     await request(app).post('/api/cart').set('Cookie', buyerCookie).send({ listingId: listing.id, quantity: 2 });
     const checkout = await request(app).post('/api/orders/checkout').set('Cookie', buyerCookie).send({ deliveryAddress: 'Addr', notes: '' });
     const orders = checkout.body.orders;
@@ -55,15 +89,17 @@ describe('Admin revenue & active-sellers API', () => {
 
   it('returns top active sellers', async () => {
     // Setup admin and seed additional completed orders
-    await request(app).post('/api/auth/register').send({ email: 'topseller@test.com', password: 'password123', fullName: 'Top Seller', role: 'farmer' });
-    const farmerLogin = await request(app).post('/api/auth/login').send({ email: 'topseller@test.com', password: 'password123' });
-    const farmerCookie = farmerLogin.headers['set-cookie'];
+    const adminCookie = await registerVerifyLogin('revadmin@test.com', 'admin', 'Rev Admin');
+
+    const farmerCookie = await registerVerifyLogin('topseller@test.com', 'farmer', 'Top Seller');
+    await markFarmerVerified('topseller@test.com');
     const listingRes = await request(app).post('/api/listings').set('Cookie', farmerCookie).send({ productName: 'Top Product', category: 'G', description: 'T', price: '6.00', unit: 'kg', quantityAvailable: 20, minOrderQuantity: 1, location: 'Test' });
+    expect(listingRes.status).toBe(200);
     const listing = listingRes.body;
+    expect(listing).toBeTruthy();
+    expect(listing.id).toBeTruthy();
     // Create two buy orders and mark completed
-    await request(app).post('/api/auth/register').send({ email: 'tbuyer1@test.com', password: 'password123', fullName: 'TB1', role: 'buyer' });
-    const b1 = await request(app).post('/api/auth/login').send({ email: 'tbuyer1@test.com', password: 'password123' });
-    const b1c = b1.headers['set-cookie'];
+    const b1c = await registerVerifyLogin('tbuyer1@test.com', 'buyer', 'TB1');
     await request(app).post('/api/cart').set('Cookie', b1c).send({ listingId: listing.id, quantity: 1 });
     const ck1 = await request(app).post('/api/orders/checkout').set('Cookie', b1c).send({ deliveryAddress: '1', notes: '' });
     const ord1 = ck1.body.orders && ck1.body.orders[0];
@@ -72,9 +108,7 @@ describe('Admin revenue & active-sellers API', () => {
       await storage.updateOrderStatus(ord1.id, 'completed');
     }
 
-    await request(app).post('/api/auth/register').send({ email: 'tbuyer2@test.com', password: 'password123', fullName: 'TB2', role: 'buyer' });
-    const b2 = await request(app).post('/api/auth/login').send({ email: 'tbuyer2@test.com', password: 'password123' });
-    const b2c = b2.headers['set-cookie'];
+    const b2c = await registerVerifyLogin('tbuyer2@test.com', 'buyer', 'TB2');
     await request(app).post('/api/cart').set('Cookie', b2c).send({ listingId: listing.id, quantity: 3 });
     const ck2 = await request(app).post('/api/orders/checkout').set('Cookie', b2c).send({ deliveryAddress: '1', notes: '' });
     const ord2 = ck2.body.orders && ck2.body.orders[0];
@@ -82,9 +116,6 @@ describe('Admin revenue & active-sellers API', () => {
       await storage.createPayment({ orderId: ord2.id, payerId: ord2.buyerId, amount: String(ord2.totalPrice), paymentMethod: 'manual', transactionId: null, status: 'completed' } as any);
       await storage.updateOrderStatus(ord2.id, 'completed');
     }
-
-    const adminLogin = await request(app).post('/api/auth/login').send({ email: 'revadmin@test.com', password: 'password123' });
-    const adminCookie = adminLogin.headers['set-cookie'];
 
     const res = await request(app).get('/api/admin/active-sellers').set('Cookie', adminCookie);
     expect(res.status).toBe(200);
@@ -96,8 +127,7 @@ describe('Admin revenue & active-sellers API', () => {
 
   it('handles concurrent revenue requests (load)', async () => {
     // Setup admin credentials
-    const adminLogin = await request(app).post('/api/auth/login').send({ email: 'revadmin@test.com', password: 'password123' });
-    const adminCookie = adminLogin.headers['set-cookie'];
+    const adminCookie = await registerVerifyLogin('revadmin@test.com', 'admin', 'Rev Admin');
     const concurrency = 50;
     const promises = [] as Promise<any>[];
     for (let i = 0; i < concurrency; i++) {

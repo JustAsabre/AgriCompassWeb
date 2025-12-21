@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
 import express, { type Express } from 'express';
-import session from 'express-session';
 import { createServer } from 'http';
 import { registerRoutes } from '../routes';
+import { storage } from '../storage';
+import sessionMiddleware from '../session';
+import './setup';
 
 // CSRF protection - ensure it sits after session middleware
 // We use a dynamic import here to avoid static import resolution failing when `csurf` is not installed.
@@ -42,18 +44,41 @@ describe('CSRF and verification session behavior', () => {
   let httpServer: any;
 
   beforeEach(async () => {
+    await storage.cleanup();
     app = express();
     app.use(express.json());
-    app.use(session({
-      secret: 'test-secret',
-      resave: false,
-      saveUninitialized: false,
-      cookie: { secure: false }
-    }));
+    app.use(sessionMiddleware);
     httpServer = createServer(app);
     await maybeEnableCsrf(app);
     await registerRoutes(app, httpServer);
   });
+
+  const verifyEmail = async (email: string) => {
+    const user = await storage.getUserByEmail(email.toLowerCase());
+    if (!user) throw new Error(`Test setup: user not found for email ${email}`);
+    if ((user as any).emailVerified) return;
+    const token = (user as any).emailVerificationToken;
+    if (!token) throw new Error(`Test setup: missing emailVerificationToken for ${email}`);
+    await request(app)
+      .get(`/api/auth/verify-email?token=${encodeURIComponent(token)}`)
+      .expect(200);
+  };
+
+  const registerVerifyLogin = async (email: string, role: string, fullName: string) => {
+    const registerRes = await request(app)
+      .post('/api/auth/register')
+      .send({ email, password: 'password123', fullName, role });
+    expect(registerRes.status).toBe(201);
+    await verifyEmail(email);
+
+    const loginRes = await request(app)
+      .post('/api/auth/login')
+      .send({ email, password: 'password123' });
+    expect(loginRes.status).toBe(200);
+    const setCookie = loginRes.headers['set-cookie']?.[0];
+    expect(setCookie).toBeDefined();
+    return String(setCookie).split(';')[0];
+  };
 
   it('should return JSON for /api/csrf-token', async () => {
     const response = await request(app).get('/api/csrf-token');
@@ -64,12 +89,11 @@ describe('CSRF and verification session behavior', () => {
   });
 
   it('should update farmer session after verification is approved', async () => {
-    // Register farmer
-    const registerFarmer = await request(app)
-      .post('/api/auth/register')
-      .send({ email: 'testfarmer@example.com', password: 'password123', fullName: 'Farmer', role: 'farmer' });
-    expect(registerFarmer.status).toBe(201);
-    const farmerCookie = registerFarmer.headers['set-cookie'];
+    // Officer must exist before farmer can submit a verification request (request assigns to first officer)
+    const officerCookie = await registerVerifyLogin('testofficer@example.com', 'field_officer', 'Officer');
+
+    // Farmer: register → verify email → login
+    const farmerCookie = await registerVerifyLogin('testfarmer@example.com', 'farmer', 'Farmer');
 
     // Farmer is logged-in (by cookie), get their auth/me
     const farmerMe = await request(app).get('/api/auth/me').set('Cookie', farmerCookie);
@@ -83,13 +107,6 @@ describe('CSRF and verification session behavior', () => {
       .send({ farmerId: farmerMe.body.user.id, farmSize: '1', documentUrl: '' });
     expect(verificationRequest.status).toBe(200);
     const verif = verificationRequest.body;
-
-    // Register and login as officer
-    const registerOfficer = await request(app)
-      .post('/api/auth/register')
-      .send({ email: 'testofficer@example.com', password: 'password123', fullName: 'Officer', role: 'field_officer' });
-    expect(registerOfficer.status).toBe(201);
-    const officerCookie = registerOfficer.headers['set-cookie'];
 
     // Officer reviews verification and approves
     const review = await request(app)

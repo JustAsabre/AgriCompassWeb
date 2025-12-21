@@ -1,29 +1,30 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import express, { type Express } from 'express';
-import session from 'express-session';
 import { createServer } from 'http';
 import { registerRoutes } from '../routes';
-import { initializeSocket } from '../socket';
+import { initializeSocket, io } from '../socket';
 import { storage } from '../storage';
-import './setup';
+import sessionMiddleware from '../session';
+import { registerAndLoginAgent } from './helpers/auth';
 
 // Mock email functions to avoid external dependencies
 vi.mock('../email', () => ({
+  sendEmailVerificationEmail: vi.fn().mockResolvedValue({ success: true }),
   sendPasswordResetEmail: vi.fn().mockResolvedValue({ success: true }),
   sendPasswordChangedEmail: vi.fn().mockResolvedValue({ success: true }),
   sendWelcomeEmail: vi.fn().mockResolvedValue({ success: true }),
   sendOrderConfirmationEmail: vi.fn().mockResolvedValue({ success: true }),
+  sendOrderAcceptedEmail: vi.fn().mockResolvedValue({ success: true }),
+  sendOrderDeliveredEmail: vi.fn().mockResolvedValue({ success: true }),
+  sendOrderCompletedEmail: vi.fn().mockResolvedValue({ success: true }),
+  sendEscrowReleasedEmail: vi.fn().mockResolvedValue({ success: true }),
   sendNewOrderNotificationToFarmer: vi.fn().mockResolvedValue({ success: true }),
   sendVerificationStatusEmail: vi.fn().mockResolvedValue({ success: true }),
   getSmtpStatus: vi.fn().mockReturnValue({ status: 'ok' }),
 }));
 
 describe('Verifications API', () => {
-  beforeAll(() => {
-    process.env.ENABLE_TEST_ENDPOINTS = 'true';
-  });
-
   let app: Express;
   let httpServer: any;
   let farmerAgent: any;
@@ -32,58 +33,27 @@ describe('Verifications API', () => {
   let officerId: string;
 
   beforeEach(async () => {
-    storage.cleanup();
+    await storage.cleanup();
 
     app = express();
     app.use(express.json());
-    app.use(
-      session({
-        secret: 'test-secret',
-        resave: false,
-        saveUninitialized: false,
-        cookie: { secure: false },
-      })
-    );
+    app.use(sessionMiddleware);
     httpServer = createServer(app);
-    const io = initializeSocket(httpServer);
+    await initializeSocket(httpServer);
     await registerRoutes(app, httpServer, io);
 
-    // Create farmer user
-    const farmerResponse = await request(app)
-      .post('/api/auth/register')
-      .send({
-        email: 'farmer@test.com',
-        password: 'password123',
-        fullName: 'Test Farmer',
-        role: 'farmer',
-      });
-    farmerId = farmerResponse.body.user.id;
+    // Create users and login with agents to maintain sessions (email verification required)
+    const farmer = await registerAndLoginAgent(app, 'farmer', 'farmer@test.com');
+    farmerId = farmer.userId;
+    farmerAgent = farmer.agent;
 
-    // Create field officer user
-    const officerResponse = await request(app)
-      .post('/api/auth/register')
-      .send({
-        email: 'officer@test.com',
-        password: 'password123',
-        fullName: 'Test Officer',
-        role: 'field_officer',
-      });
-    officerId = officerResponse.body.user.id;
-
-    // Login with agents to maintain sessions
-    farmerAgent = request.agent(app);
-    await farmerAgent
-      .post('/api/auth/login')
-      .send({ email: 'farmer@test.com', password: 'password123' });
-
-    officerAgent = request.agent(app);
-    await officerAgent
-      .post('/api/auth/login')
-      .send({ email: 'officer@test.com', password: 'password123' });
+    const officer = await registerAndLoginAgent(app, 'field_officer', 'officer@test.com');
+    officerId = officer.userId;
+    officerAgent = officer.agent;
   });
 
-  afterEach(() => {
-    storage.cleanup();
+  afterEach(async () => {
+    await storage.cleanup();
 
     if (httpServer && httpServer.listening) {
       httpServer.close();
@@ -112,7 +82,7 @@ describe('Verifications API', () => {
     it('returns null when farmer has no verification', async () => {
       const response = await farmerAgent.get('/api/verifications/me');
       expect(response.status).toBe(200);
-      expect(response.body).toBe("");
+      expect(response.body).toBe(null);
     });
 
     it('returns verification status for farmer', async () => {

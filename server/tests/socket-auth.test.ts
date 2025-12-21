@@ -6,6 +6,8 @@ import { registerRoutes } from '../routes';
 import { initializeSocket } from '../socket';
 import sessionMiddleware from '../session';
 import { io as ClientIO, Socket as ClientSocket } from 'socket.io-client';
+import { storage } from '../storage';
+import './setup';
 
 describe('Socket.IO authentication', () => {
   let app: Express;
@@ -14,6 +16,7 @@ describe('Socket.IO authentication', () => {
   let clientSocket: ClientSocket | null = null;
 
   beforeEach(async () => {
+    await storage.cleanup();
     app = express();
     app.use(express.json());
     app.use(sessionMiddleware as any);
@@ -39,6 +42,17 @@ describe('Socket.IO authentication', () => {
     }
   });
 
+  const verifyEmail = async (email: string) => {
+    const user = await storage.getUserByEmail(email.toLowerCase());
+    if (!user) throw new Error(`Test setup: user not found for email ${email}`);
+    if ((user as any).emailVerified) return;
+    const token = (user as any).emailVerificationToken;
+    if (!token) throw new Error(`Test setup: missing emailVerificationToken for ${email}`);
+    await request(app)
+      .get(`/api/auth/verify-email?token=${encodeURIComponent(token)}`)
+      .expect(200);
+  };
+
   it('authenticates socket with session cookie after login', async () => {
     const agent = request.agent(app as any);
 
@@ -50,6 +64,8 @@ describe('Socket.IO authentication', () => {
       role: 'buyer',
     });
     expect(registerRes.status).toBe(201);
+
+    await verifyEmail('socket-test@example.com');
 
     // Login to create session cookie
     const loginRes = await agent.post('/api/auth/login').send({
@@ -95,6 +111,9 @@ describe('Socket.IO authentication', () => {
     const agent = request.agent(app as any);
     const registerRes = await agent.post('/api/auth/register').send({ email: 'dupuser@example.com', password: 'password123', fullName: 'Dup User', role: 'buyer' });
     expect(registerRes.status).toBe(201);
+
+    await verifyEmail('dupuser@example.com');
+
     const loginRes = await agent.post('/api/auth/login').send({ email: 'dupuser@example.com', password: 'password123' });
     expect(loginRes.status).toBe(200);
     // Login may not always return a set-cookie header in the response (e.g., agent handling), so fallback to register response's cookie if needed

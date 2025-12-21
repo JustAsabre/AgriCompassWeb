@@ -3,14 +3,25 @@ import express, { type Express } from 'express';
 import session from 'express-session';
 import { createServer } from 'http';
 import { registerRoutes } from '../routes';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { storage } from '../storage';
+import './setup';
 
-describe('Payouts API', () => {
+describe('Wallet withdrawals API', () => {
   let app: Express;
   let httpServer: any;
+  // @ts-ignore
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    // Ensure we don't leak mocked fetch or env state across suites.
+    // @ts-ignore
+    global.fetch = originalFetch;
+    delete process.env.PAYSTACK_SECRET_KEY;
+  });
 
   beforeEach(async () => {
+    await storage.cleanup();
     app = express();
     app.use(express.json());
     app.use(session({ secret: 'test-secret', resave: false, saveUninitialized: false, cookie: { secure: false } }));
@@ -18,107 +29,204 @@ describe('Payouts API', () => {
     await registerRoutes(app, httpServer);
   });
 
-  it('allows a farmer to request a payout and admin to process it', async () => {
-    // Register farmer
-    const farmerRes = await request(app).post('/api/auth/register').send({ email: 'payout_farmer@test.com', password: 'password123', fullName: 'Pay Farmer', role: 'farmer' });
+  const verifyEmail = async (email: string) => {
+    const user = await storage.getUserByEmail(email.toLowerCase());
+    if (!user) throw new Error(`Test setup: user not found for email ${email}`);
+    if ((user as any).emailVerified) return;
+    const token = (user as any).emailVerificationToken;
+    if (!token) throw new Error(`Test setup: missing emailVerificationToken for ${email}`);
+    await request(app)
+      .get(`/api/auth/verify-email?token=${encodeURIComponent(token)}`)
+      .expect(200);
+  };
+
+  it('allows a farmer to configure payout settings and withdraw funds', async () => {
+    process.env.PAYSTACK_SECRET_KEY = 'test-paystack-secret';
+
+    // @ts-ignore
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/transferrecipient')) {
+        return {
+          ok: true,
+          json: async () => ({ status: true, data: { recipient_code: 'RCP_test_123' } }),
+        } as any;
+      }
+      if (url.includes('/transfer')) {
+        return {
+          ok: true,
+          json: async () => ({ status: true, data: { reference: 'transfer_ref_123' } }),
+        } as any;
+      }
+      return { ok: true, json: async () => ({}) } as any;
+    });
+
+    const farmerEmail = 'withdraw_farmer@test.com';
+    const farmerRes = await request(app)
+      .post('/api/auth/register')
+      .send({ email: farmerEmail, password: 'password123', fullName: 'Withdraw Farmer', role: 'farmer' });
     expect(farmerRes.status).toBe(201);
+    await verifyEmail(farmerEmail);
 
-    const farmerLogin = await request(app).post('/api/auth/login').send({ email: 'payout_farmer@test.com', password: 'password123' });
-    const farmerCookie = farmerLogin.headers['set-cookie'];
+    const loginRes = await request(app).post('/api/auth/login').send({ email: farmerEmail, password: 'password123' });
+    const cookie = loginRes.headers['set-cookie'];
+    expect(loginRes.status).toBe(200);
+    expect(cookie).toBeDefined();
 
-    const requestRes = await request(app).post('/api/payouts/request').set('Cookie', farmerCookie).send({ amount: '10.00', mobileNumber: '+233555123456', mobileNetwork: 'mtn' });
-    expect(requestRes.status).toBe(200);
-    expect(requestRes.body.payout).toBeDefined();
-    const payoutId = requestRes.body.payout.id;
+    // Configure payout settings (creates Paystack recipient)
+    const settingsRes = await request(app)
+      .post('/api/users/payout-settings')
+      .set('Cookie', cookie)
+      .send({ mobileNumber: '0241234567', mobileNetwork: 'mtn', bankCode: 'MTN' });
+    expect(settingsRes.status).toBe(200);
+    expect(settingsRes.body).toHaveProperty('recipientCode');
 
-    // Register admin
-    // Give the farmer a recipient so processing will be enqueued
-    const farmer = await storage.getUserByEmail('payout_farmer@test.com');
-    if (farmer) await storage.updateUser(farmer.id, { paystackRecipientCode: 'RCP_test_abc' } as any);
-    await request(app).post('/api/auth/register').send({ email: 'admin_payout@test.com', password: 'password123', fullName: 'Admin', role: 'admin' });
-    const adminLogin = await request(app).post('/api/auth/login').send({ email: 'admin_payout@test.com', password: 'password123' });
-    const adminCookie = adminLogin.headers['set-cookie'];
-
-    const processRes = await request(app).post('/api/payouts/process').set('Cookie', adminCookie).send({ payoutId });
-    expect(processRes.status).toBe(200);
-    expect(processRes.body.queued).toBe(true);
-
-    // wait for worker to process
-    let processed = false;
-    const start = Date.now();
-    while (Date.now() - start < 6000) {
-      const p = await storage.getPayout(payoutId);
-      if (p && p.status === 'completed') { processed = true; break; }
-      await new Promise(r => setTimeout(r, 500));
-    }
-    expect(processed).toBe(true);
-  });
-
-  it('returns an error when creating a recipient without Paystack configured', async () => {
-    const farmerLogin = await request(app).post('/api/auth/login').send({ email: 'payout_farmer@test.com', password: 'password123' });
-    const farmerCookie = farmerLogin.headers['set-cookie'];
-
-    const res = await request(app).post('/api/payouts/recipient').set('Cookie', farmerCookie).send({ mobileNumber: '0555123456', mobileNetwork: 'mtn' });
-    expect(res.status).toBe(400);
-  });
-
-  it('marks payout as needs_recipient if auto payouts enabled but farmer has no recipient', async () => {
-    process.env.PAYSTACK_AUTO_PAYOUTS = 'true';
-
-    // create a new farmer for this test
-    await request(app).post('/api/auth/register').send({ email: 'payout_need_recipient_farmer@test.com', password: 'password123', fullName: 'Need Recipient', role: 'farmer' });
-    const farmerLogin = await request(app).post('/api/auth/login').send({ email: 'payout_need_recipient_farmer@test.com', password: 'password123' });
-    const farmerCookie = farmerLogin.headers['set-cookie'];
-
-    const requestRes = await request(app).post('/api/payouts/request').set('Cookie', farmerCookie).send({ amount: '20.00', mobileNumber: '+233555123457', mobileNetwork: 'vodafone' });
-    expect(requestRes.status).toBe(200);
-    expect(requestRes.body.payout).toBeDefined();
-    const payoutId = requestRes.body.payout.id;
-
-    const p = await storage.getPayout(payoutId);
-    expect(p?.status).toBe('needs_recipient');
-    // cleanup
-    delete process.env.PAYSTACK_AUTO_PAYOUTS;
-  });
-
-  it('admin can retry/queue a payout once recipient exists', async () => {
-    process.env.PAYSTACK_AUTO_PAYOUTS = 'true';
-    // create a farmer and payout
-    await request(app).post('/api/auth/register').send({ email: 'payout_retry_farmer@test.com', password: 'password123', fullName: 'Retry Farmer', role: 'farmer' });
-    const farmerLogin = await request(app).post('/api/auth/login').send({ email: 'payout_retry_farmer@test.com', password: 'password123' });
-    const farmerCookie = farmerLogin.headers['set-cookie'];
-    const requestRes = await request(app).post('/api/payouts/request').set('Cookie', farmerCookie).send({ amount: '20.00' });
-    expect(requestRes.status).toBe(200);
-    const payoutId = requestRes.body.payout.id;
-    // Confirm it's needs_recipient
-    const payout = await storage.getPayout(payoutId);
-    expect(payout?.status).toBe('needs_recipient');
-
-    // Create admin and set recipient manually on user (simulate farm adding recipient)
-    await request(app).post('/api/auth/register').send({ email: 'admin_retry@test.com', password: 'password123', fullName: 'Admin Retry', role: 'admin' });
-    const adminLogin = await request(app).post('/api/auth/login').send({ email: 'admin_retry@test.com', password: 'password123' });
-    const adminCookie = adminLogin.headers['set-cookie'];
-
-    const farmer = await storage.getUserByEmail('payout_retry_farmer@test.com');
+    const farmer = await storage.getUserByEmail(farmerEmail);
     expect(farmer).toBeDefined();
-    if (farmer) {
-      await storage.updateUser(farmer.id, { paystackRecipientCode: 'RCP_test_123' } as any);
-    }
+    if (!farmer) throw new Error('Test setup: farmer missing after registration');
 
-    // Admin can now process
-    const res = await request(app).post('/api/payouts/process').set('Cookie', adminCookie).send({ payoutId, reason: 'Retry after adding recipient' });
-    expect(res.status).toBe(200);
-    expect(res.body.queued).toBe(true);
+    // Fund wallet
+    await storage.createWalletTransaction({
+      userId: farmer.id,
+      amount: '50.00',
+      type: 'credit',
+      description: 'Test funding',
+      referenceId: 'test-funding',
+      referenceType: 'test',
+      status: 'completed',
+    } as any);
 
-    // Wait for worker to process (fallback behavior marks as completed if Paystack not configured in test env)
-    let processed = false;
-    const start = Date.now();
-    while (Date.now() - start < 6000) {
-      const p = await storage.getPayout(payoutId);
-      if (p && (p.status === 'completed' || p.status === 'processing')) { processed = true; break; }
-      await new Promise(r => setTimeout(r, 500));
-    }
-    expect(processed).toBe(true);
-    delete process.env.PAYSTACK_AUTO_PAYOUTS;
+    const withdrawRes = await request(app)
+      .post('/api/wallet/withdraw')
+      .set('Cookie', cookie)
+      .send({ amount: '10.00' });
+    expect(withdrawRes.status).toBe(200);
+    expect(withdrawRes.body).toHaveProperty('reference');
+
+    const balance = await storage.getWalletBalance(farmer.id);
+    expect(Number(balance)).toBeCloseTo(40.0, 2);
+  });
+
+  it('rejects withdrawal when payout settings are not configured', async () => {
+    const email = 'withdraw_no_settings@test.com';
+    const registerRes = await request(app).post('/api/auth/register').send({ email, password: 'password123', fullName: 'No Settings', role: 'farmer' });
+    expect(registerRes.status).toBe(201);
+    await verifyEmail(email);
+    const loginRes = await request(app).post('/api/auth/login').send({ email, password: 'password123' });
+    const cookie = loginRes.headers['set-cookie'];
+    expect(loginRes.status).toBe(200);
+    expect(cookie).toBeDefined();
+
+    const farmer = await storage.getUserByEmail(email);
+    expect(farmer).toBeDefined();
+    if (!farmer) throw new Error('Test setup: farmer missing after registration');
+
+    // Fund wallet so we hit the "settings not configured" guard first.
+    await storage.createWalletTransaction({
+      userId: farmer.id,
+      amount: '50.00',
+      type: 'credit',
+      description: 'Test funding',
+      referenceId: 'test-funding',
+      referenceType: 'test',
+      status: 'completed',
+    } as any);
+
+    const withdrawRes = await request(app)
+      .post('/api/wallet/withdraw')
+      .set('Cookie', cookie)
+      .send({ amount: '10.00' });
+
+    expect(withdrawRes.status).toBe(400);
+    expect(withdrawRes.body?.message || '').toMatch(/payout settings/i);
+  });
+
+  it('rejects withdrawal when funds are insufficient', async () => {
+    const email = 'withdraw_insufficient@test.com';
+    const registerRes = await request(app).post('/api/auth/register').send({ email, password: 'password123', fullName: 'Insufficient', role: 'farmer' });
+    expect(registerRes.status).toBe(201);
+    await verifyEmail(email);
+    const loginRes = await request(app).post('/api/auth/login').send({ email, password: 'password123' });
+    const cookie = loginRes.headers['set-cookie'];
+    expect(loginRes.status).toBe(200);
+    expect(cookie).toBeDefined();
+
+    const farmer = await storage.getUserByEmail(email);
+    expect(farmer).toBeDefined();
+    if (!farmer) throw new Error('Test setup: farmer missing after registration');
+
+    // Simulate payout settings already configured
+    await storage.updateUser(farmer.id, { paystackRecipientCode: 'RCP_fake' } as any);
+
+    // Fund wallet with less than withdrawal amount
+    await storage.createWalletTransaction({
+      userId: farmer.id,
+      amount: '5.00',
+      type: 'credit',
+      description: 'Test funding',
+      referenceId: 'test-funding',
+      referenceType: 'test',
+      status: 'completed',
+    } as any);
+
+    const withdrawRes = await request(app)
+      .post('/api/wallet/withdraw')
+      .set('Cookie', cookie)
+      .send({ amount: '10.00' });
+
+    expect(withdrawRes.status).toBe(400);
+    expect(withdrawRes.body?.message || '').toMatch(/insufficient/i);
+  });
+
+  it('reverses withdrawal if Paystack transfer fails', async () => {
+    process.env.PAYSTACK_SECRET_KEY = 'test-paystack-secret';
+
+    // @ts-ignore
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/transfer')) {
+        return {
+          ok: false,
+          json: async () => ({ message: 'Transfer failed' }),
+        } as any;
+      }
+      return { ok: true, json: async () => ({}) } as any;
+    });
+
+    const email = 'withdraw_transfer_fail@test.com';
+    const registerRes = await request(app).post('/api/auth/register').send({ email, password: 'password123', fullName: 'Transfer Fail', role: 'farmer' });
+    expect(registerRes.status).toBe(201);
+    await verifyEmail(email);
+    const loginRes = await request(app).post('/api/auth/login').send({ email, password: 'password123' });
+    const cookie = loginRes.headers['set-cookie'];
+    expect(loginRes.status).toBe(200);
+    expect(cookie).toBeDefined();
+
+    const farmer = await storage.getUserByEmail(email);
+    expect(farmer).toBeDefined();
+    if (!farmer) throw new Error('Test setup: farmer missing after registration');
+
+    await storage.updateUser(farmer.id, { paystackRecipientCode: 'RCP_fake' } as any);
+
+    await storage.createWalletTransaction({
+      userId: farmer.id,
+      amount: '50.00',
+      type: 'credit',
+      description: 'Test funding',
+      referenceId: 'test-funding',
+      referenceType: 'test',
+      status: 'completed',
+    } as any);
+
+    const beforeBalance = await storage.getWalletBalance(farmer.id);
+
+    const withdrawRes = await request(app)
+      .post('/api/wallet/withdraw')
+      .set('Cookie', cookie)
+      .send({ amount: '10.00' });
+
+    expect(withdrawRes.status).toBe(400);
+    expect(withdrawRes.body?.message || '').toMatch(/withdrawal failed/i);
+
+    const afterBalance = await storage.getWalletBalance(farmer.id);
+    expect(Number(afterBalance)).toBeCloseTo(Number(beforeBalance), 2);
   });
 });

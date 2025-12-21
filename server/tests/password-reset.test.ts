@@ -9,10 +9,15 @@ import { initializeSocket } from '../socket';
 
 // Mock email sending functions to avoid external side effects
 vi.mock('../email', () => ({
+  sendEmailVerificationEmail: vi.fn().mockResolvedValue({ success: true }),
   sendPasswordResetEmail: vi.fn().mockResolvedValue({ success: true }),
   sendPasswordChangedEmail: vi.fn().mockResolvedValue({ success: true }),
   // Registration flow also calls sendWelcomeEmail; include it in the mock
   sendWelcomeEmail: vi.fn().mockResolvedValue({ success: true }),
+  sendOrderAcceptedEmail: vi.fn().mockResolvedValue({ success: true }),
+  sendOrderDeliveredEmail: vi.fn().mockResolvedValue({ success: true }),
+  sendOrderCompletedEmail: vi.fn().mockResolvedValue({ success: true }),
+  sendEscrowReleasedEmail: vi.fn().mockResolvedValue({ success: true }),
 }));
 
 describe('Password Reset API', () => {
@@ -20,6 +25,7 @@ describe('Password Reset API', () => {
   let httpServer: any;
 
   beforeEach(async () => {
+    await storage.cleanup();
     app = express();
     app.use(express.json());
     app.use(
@@ -130,6 +136,17 @@ describe('Password Reset API', () => {
           fullName: 'Valid Reset User',
           role: 'buyer',
         });
+
+      // Verify email (required before login).
+      const registered = await storage.getUserByEmail('valid-reset@example.com');
+      if (!registered) throw new Error('User not found after registration');
+      if (!registered.emailVerified) {
+        if (!registered.emailVerificationToken) throw new Error('Missing emailVerificationToken in test setup');
+        const verifyRes = await request(app)
+          .get('/api/auth/verify-email')
+          .query({ token: registered.emailVerificationToken });
+        expect(verifyRes.status).toBe(200);
+      }
 
       // Generate a valid token
       const user = await storage.getUserByEmail('valid-reset@example.com');

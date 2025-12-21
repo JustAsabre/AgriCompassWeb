@@ -12,3 +12,8 @@ server/.trash/
 server/tests/login.json
 .vercel
 .env*.local
+
+# Security: never commit exported cookies / session captures
+cookies.txt
+*.cookies.txt
+cookies-*.txt

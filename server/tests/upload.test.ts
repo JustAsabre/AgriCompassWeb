@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import express, { type Express } from 'express';
-import session from 'express-session';
 import path from 'path';
 import { createServer } from 'http';
 import { registerRoutes } from '../routes';
 import { promises as fs } from 'fs';
+import { storage } from '../storage';
+import sessionMiddleware from '../session';
+import './setup';
 
 describe('File Upload API', () => {
   let app: Express;
@@ -14,29 +16,42 @@ describe('File Upload API', () => {
   let httpServer: any;
 
   beforeEach(async () => {
+    await storage.cleanup();
     app = express();
     app.use(express.json());
-    app.use(session({
-      secret: 'test-secret',
-      resave: false,
-      saveUninitialized: false,
-      cookie: { secure: false }
-    }));
+    app.use(sessionMiddleware);
     httpServer = createServer(app);
     await registerRoutes(app, httpServer);
 
     // Create an agent to maintain cookies
     agent = request.agent(app);
 
-    // Register and login a test farmer
-    await agent
+    const email = 'farmer-upload@test.com';
+
+    // Register → verify email → login a test farmer
+    const registerRes = await agent
       .post('/api/auth/register')
       .send({
-        email: 'farmer-upload@test.com',
+        email,
         password: 'password123',
         fullName: 'Upload Test Farmer',
         role: 'farmer',
       });
+    expect(registerRes.status).toBe(201);
+
+    const user = await storage.getUserByEmail(email);
+    if (!user) throw new Error('Test setup: missing upload user');
+    const token = (user as any).emailVerificationToken;
+    if (token) {
+      await request(app)
+        .get(`/api/auth/verify-email?token=${encodeURIComponent(token)}`)
+        .expect(200);
+    }
+
+    const loginRes = await agent
+      .post('/api/auth/login')
+      .send({ email, password: 'password123' });
+    expect(loginRes.status).toBe(200);
   });
 
   afterEach(() => {

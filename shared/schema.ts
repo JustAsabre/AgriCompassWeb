@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, decimal, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, decimal, boolean, timestamp, json } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -32,6 +32,15 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at").defaultNow(),
   // Wallet
   walletBalance: decimal("wallet_balance", { precision: 10, scale: 2 }).default("0.00"),
+});
+
+// Postgres session storage table (connect-pg-simple)
+// Note: this table is created via a Drizzle SQL migration in `drizzle/migrations/0001_create_sessions.sql`.
+// Keeping it in the schema prevents `drizzle-kit push` from treating it as an extra table to drop.
+export const sessions = pgTable("session", {
+  sid: varchar("sid").primaryKey(),
+  sess: json("sess").notNull(),
+  expire: timestamp("expire").notNull(),
 });
 
 // Product listings
@@ -123,7 +132,7 @@ export const transactions = pgTable("transactions", {
   reference: text("reference").notNull().unique(),
   buyerId: varchar("buyer_id").references(() => users.id), // Added to match DB constraint
   amount: decimal("total_amount", { precision: 10, scale: 2 }).notNull(),
-  status: text("status").default("pending"), // pending, success, failed
+  status: text("status").default("pending"), // pending, success, completed, failed
   metadata: text("metadata"), // JSON string
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -203,7 +212,7 @@ export const escrow = pgTable("escrow", {
   remainingAmount: decimal("remaining_amount", { precision: 10, scale: 2 }).notNull(),
   upfrontPaymentId: varchar("upfront_payment_id").references(() => payments.id),
   remainingPaymentId: varchar("remaining_payment_id").references(() => payments.id),
-  status: text("status").default("pending"), // pending, upfront_held, remaining_held, released, refunded, disputed
+  status: text("status").default("pending"), // pending, upfront_held, remaining_released, released, refunded, disputed, completed
   upfrontHeldAt: timestamp("upfront_held_at"),
   remainingReleasedAt: timestamp("remaining_released_at"),
   disputedAt: timestamp("disputed_at"),

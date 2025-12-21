@@ -26,7 +26,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
         <p className="font-semibold mb-1">{label}</p>
             {payload.map((entry: any, index: number) => (
           <p key={index} className="text-sm" style={{ color: entry.color }}>
-            {entry.name}: {entry.name.includes('Revenue') ? formatCurrency(entry.value) : entry.value}
+            {entry.name}: {entry.dataKey === 'revenue' || entry.name.toLowerCase().includes('revenue') ? formatCurrency(entry.value) : entry.value}
           </p>
         ))}
       </div>

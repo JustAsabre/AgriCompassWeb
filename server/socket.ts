@@ -42,10 +42,55 @@ const connectedUsers = new Map<string, string>(); // userId -> socketId
 // Socket.IO instance - initialized by initializeSocket
 export let io: Server;
 
+function getAllowedSocketOrigins() {
+  const envList = (process.env.CORS_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  const frontendUrl = (process.env.FRONTEND_URL || '').trim();
+
+  const defaults = process.env.NODE_ENV === 'production'
+    ? []
+    : [
+        'http://localhost:5000',
+        'http://127.0.0.1:5000',
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+      ];
+
+  return Array.from(new Set([
+    ...defaults,
+    ...(frontendUrl ? [frontendUrl] : []),
+    ...envList,
+  ]));
+}
+
+function isAllowedSocketOrigin(origin: string) {
+  const allowed = getAllowedSocketOrigins();
+  if (allowed.includes(origin)) return true;
+
+  if (process.env.ALLOW_VERCEL_PREVIEWS === 'true') {
+    try {
+      const u = new URL(origin);
+      if (u.hostname.endsWith('.vercel.app')) return true;
+    } catch {
+      // ignore
+    }
+  }
+
+  return false;
+}
+
 export async function initializeSocket(httpServer: HTTPServer) {
   io = new Server(httpServer, {
     cors: {
-      origin: process.env.NODE_ENV === "production" ? false : "*",
+      origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        if (process.env.NODE_ENV !== 'production') return callback(null, true);
+        if (isAllowedSocketOrigin(origin)) return callback(null, origin);
+        return callback(new Error('Not allowed by CORS'));
+      },
       credentials: true,
     },
   });

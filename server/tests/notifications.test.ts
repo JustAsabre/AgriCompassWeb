@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import express, { type Express } from 'express';
-import session from 'express-session';
 import { createServer } from 'http';
 import { registerRoutes } from '../routes';
+import { storage } from '../storage';
+import sessionMiddleware from '../session';
+import './setup';
 
 describe("Notifications API", () => {
   let app: Express;
@@ -11,14 +13,10 @@ describe("Notifications API", () => {
   let httpServer: any;
 
   beforeEach(async () => {
+    await storage.cleanup();
     app = express();
     app.use(express.json());
-    app.use(session({
-      secret: 'test-secret',
-      resave: false,
-      saveUninitialized: false,
-      cookie: { secure: false }
-    }));
+    app.use(sessionMiddleware);
     httpServer = createServer(app);
     await registerRoutes(app, httpServer);
     // Don't actually listen - supertest handles it
@@ -31,32 +29,37 @@ describe("Notifications API", () => {
     }
   });
 
+  const verifyEmail = async (email: string) => {
+    const user = await storage.getUserByEmail(email.toLowerCase());
+    if (!user) throw new Error(`Test setup: user not found for email ${email}`);
+    if ((user as any).emailVerified) return;
+    const token = (user as any).emailVerificationToken;
+    if (!token) throw new Error(`Test setup: missing emailVerificationToken for ${email}`);
+    await request(app)
+      .get(`/api/auth/verify-email?token=${encodeURIComponent(token)}`)
+      .expect(200);
+  };
+
+  const registerAndLogin = async (email: string, role: string) => {
+    const registerRes = await request(app)
+      .post('/api/auth/register')
+      .send({ email, password: 'password123', fullName: 'Test User', role });
+    expect(registerRes.status).toBe(201);
+
+    await verifyEmail(email);
+
+    const loginRes = await request(app)
+      .post('/api/auth/login')
+      .send({ email, password: 'password123' });
+    expect(loginRes.status).toBe(200);
+    const cookie = loginRes.headers['set-cookie'];
+    expect(cookie).toBeDefined();
+    return cookie;
+  };
+
   describe("GET /api/notifications", () => {
     it("should return user's notifications", async () => {
-      // Create and login user
-      await request(app)
-        .post('/api/auth/register')
-        .send({
-          email: 'notif-user@example.com',
-          password: 'password123',
-          fullName: 'Notification User',
-          role: 'buyer',
-        });
-
-      const loginResponse = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'notif-user@example.com',
-          password: 'password123',
-        });
-
-      const cookie = loginResponse.headers['set-cookie'];
-
-      // Get user ID
-      const meResponse = await request(app)
-        .get('/api/auth/me')
-        .set('Cookie', cookie);
-      const userId = meResponse.body.user.id;
+      const cookie = await registerAndLogin('notif-user@example.com', 'buyer');
 
       // Create a notification for the user (this would normally be done by the system)
       // For testing, we'll simulate this by directly calling the storage method
@@ -78,24 +81,7 @@ describe("Notifications API", () => {
 
   describe("GET /api/notifications/unread-count", () => {
     it("should return unread count for user", async () => {
-      // Create and login user
-      await request(app)
-        .post('/api/auth/register')
-        .send({
-          email: 'unread-user@example.com',
-          password: 'password123',
-          fullName: 'Unread User',
-          role: 'farmer',
-        });
-
-      const loginResponse = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'unread-user@example.com',
-          password: 'password123',
-        });
-
-      const cookie = loginResponse.headers['set-cookie'];
+      const cookie = await registerAndLogin('unread-user@example.com', 'farmer');
 
       const response = await request(app)
         .get('/api/notifications/unread-count')
@@ -107,24 +93,7 @@ describe("Notifications API", () => {
     });
 
     it("should return 0 when no unread notifications", async () => {
-      // Create and login user
-      await request(app)
-        .post('/api/auth/register')
-        .send({
-          email: 'no-unread@example.com',
-          password: 'password123',
-          fullName: 'No Unread User',
-          role: 'buyer',
-        });
-
-      const loginResponse = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'no-unread@example.com',
-          password: 'password123',
-        });
-
-      const cookie = loginResponse.headers['set-cookie'];
+      const cookie = await registerAndLogin('no-unread@example.com', 'buyer');
 
       const response = await request(app)
         .get('/api/notifications/unread-count')
@@ -144,24 +113,7 @@ describe("Notifications API", () => {
 
   describe("PATCH /api/notifications/:id/read", () => {
     it("should return 404 for non-existent notification", async () => {
-      // Create and login user
-      await request(app)
-        .post('/api/auth/register')
-        .send({
-          email: 'mark-read-user@example.com',
-          password: 'password123',
-          fullName: 'Mark Read User',
-          role: 'farmer',
-        });
-
-      const loginResponse = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'mark-read-user@example.com',
-          password: 'password123',
-        });
-
-      const cookie = loginResponse.headers['set-cookie'];
+      const cookie = await registerAndLogin('mark-read-user@example.com', 'farmer');
 
       const response = await request(app)
         .patch("/api/notifications/non-existent-id/read")
@@ -181,24 +133,7 @@ describe("Notifications API", () => {
 
   describe("PATCH /api/notifications/mark-all-read", () => {
     it("should work when user has no notifications", async () => {
-      // Create and login user
-      await request(app)
-        .post('/api/auth/register')
-        .send({
-          email: 'mark-all-user@example.com',
-          password: 'password123',
-          fullName: 'Mark All User',
-          role: 'buyer',
-        });
-
-      const loginResponse = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'mark-all-user@example.com',
-          password: 'password123',
-        });
-
-      const cookie = loginResponse.headers['set-cookie'];
+      const cookie = await registerAndLogin('mark-all-user@example.com', 'buyer');
 
       const response = await request(app)
         .patch("/api/notifications/mark-all-read")
@@ -218,24 +153,7 @@ describe("Notifications API", () => {
 
   describe("DELETE /api/notifications/:id", () => {
     it("should return 404 for non-existent notification", async () => {
-      // Create and login user
-      await request(app)
-        .post('/api/auth/register')
-        .send({
-          email: 'delete-user@example.com',
-          password: 'password123',
-          fullName: 'Delete User',
-          role: 'farmer',
-        });
-
-      const loginResponse = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'delete-user@example.com',
-          password: 'password123',
-        });
-
-      const cookie = loginResponse.headers['set-cookie'];
+      const cookie = await registerAndLogin('delete-user@example.com', 'farmer');
 
       const response = await request(app)
         .delete("/api/notifications/non-existent-id")

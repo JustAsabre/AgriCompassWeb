@@ -148,7 +148,7 @@ function Router() {
             {() => <ProtectedRoute component={OfficerAnalytics} allowedRoles={["field_officer"]} />}
           </Route>
           <Route path="/officer/reviews">
-            {() => <ProtectedRoute component={AdminReviews} allowedRoles={["field_officer"]} />}
+            {() => <ProtectedRoute component={AdminReviews} allowedRoles={["admin"]} />}
           </Route>
 
           {/* Profile */}

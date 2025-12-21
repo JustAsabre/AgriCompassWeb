@@ -1,42 +1,71 @@
 import request from 'supertest';
 import express, { type Express } from 'express';
-import session from 'express-session';
 import { createServer } from 'http';
 import { registerRoutes } from '../routes';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { storage } from '../storage';
+import sessionMiddleware from '../session';
+import './setup';
 
 describe('Admin stats API', () => {
   let app: Express;
   let httpServer: any;
 
   beforeEach(async () => {
+    await storage.cleanup();
     app = express();
     app.use(express.json());
-    app.use(session({ secret: 'test-secret', resave: false, saveUninitialized: false, cookie: { secure: false } }));
+    app.use(sessionMiddleware);
     httpServer = createServer(app);
     await registerRoutes(app, httpServer);
   });
 
+  const verifyEmail = async (email: string) => {
+    const user = await storage.getUserByEmail(email.toLowerCase());
+    if (!user) throw new Error(`Test setup: user not found for email ${email}`);
+    if ((user as any).emailVerified) return;
+    const token = (user as any).emailVerificationToken;
+    if (!token) throw new Error(`Test setup: missing emailVerificationToken for ${email}`);
+    await request(app)
+      .get(`/api/auth/verify-email?token=${encodeURIComponent(token)}`)
+      .expect(200);
+  };
+
+  const registerVerifyLogin = async (email: string, role: string, fullName: string) => {
+    const registerRes = await request(app)
+      .post('/api/auth/register')
+      .send({ email, password: 'password123', fullName, role });
+    expect(registerRes.status).toBe(201);
+    await verifyEmail(email);
+    const loginRes = await request(app)
+      .post('/api/auth/login')
+      .send({ email, password: 'password123' });
+    expect(loginRes.status).toBe(200);
+    const setCookie = loginRes.headers['set-cookie']?.[0];
+    expect(setCookie).toBeDefined();
+    return String(setCookie).split(';')[0];
+  };
+
+  const markFarmerVerified = async (email: string) => {
+    const user = await storage.getUserByEmail(email.toLowerCase());
+    if (!user) throw new Error(`Test setup: user not found for email ${email}`);
+    await storage.updateUser(user.id, { verified: true } as any);
+  };
+
   it('returns aggregated stats for admin', async () => {
     // Register an admin user
     const adminEmail = 'admin_stats@test.com';
-    await request(app).post('/api/auth/register').send({ email: adminEmail, password: 'password123', fullName: 'Admin Stat', role: 'admin' });
-    const adminLogin = await request(app).post('/api/auth/login').send({ email: adminEmail, password: 'password123' });
-    const adminCookie = adminLogin.headers['set-cookie'];
+    const adminCookie = await registerVerifyLogin(adminEmail, 'admin', 'Admin Stat');
 
     // Register farmer and buyer
-    await request(app).post('/api/auth/register').send({ email: 'stat_farmer@test.com', password: 'password123', fullName: 'Stat Farmer', role: 'farmer' });
-    const farmerLogin = await request(app).post('/api/auth/login').send({ email: 'stat_farmer@test.com', password: 'password123' });
-    const farmerCookie = farmerLogin.headers['set-cookie'];
+    const farmerCookie = await registerVerifyLogin('stat_farmer@test.com', 'farmer', 'Stat Farmer');
+    await markFarmerVerified('stat_farmer@test.com');
     // Create a listing
     const listingRes = await request(app).post('/api/listings').set('Cookie', farmerCookie).send({ productName: 'Stat Product', category: 'Fruits', description: 'T', price: '4.00', unit: 'kg', quantityAvailable: 20, minOrderQuantity: 1, location: 'Test' });
     expect(listingRes.status).toBe(200);
 
     // Create a buyer and an order (via checkout) so we can create a payment and payout
-    await request(app).post('/api/auth/register').send({ email: 'stat_buyer@test.com', password: 'password123', fullName: 'Stat Buyer', role: 'buyer' });
-    const buyerLogin = await request(app).post('/api/auth/login').send({ email: 'stat_buyer@test.com', password: 'password123' });
-    const buyerCookie = buyerLogin.headers['set-cookie'];
+    const buyerCookie = await registerVerifyLogin('stat_buyer@test.com', 'buyer', 'Stat Buyer');
     // Add to cart and checkout
     const addCart = await request(app).post('/api/cart').set('Cookie', buyerCookie).send({ listingId: listingRes.body.id, quantity: 1 });
     expect(addCart.status).toBe(200);
@@ -95,9 +124,7 @@ describe('Admin stats API', () => {
 
   it('rejects request from non-admin user', async () => {
     // Create a buyer user
-    await request(app).post('/api/auth/register').send({ email: 'notadmin@test.com', password: 'password123', fullName: 'Not Admin', role: 'buyer' });
-    const login = await request(app).post('/api/auth/login').send({ email: 'notadmin@test.com', password: 'password123' });
-    const cookie = login.headers['set-cookie'];
+    const cookie = await registerVerifyLogin('notadmin@test.com', 'buyer', 'Not Admin');
 
     const res = await request(app).get('/api/admin/stats').set('Cookie', cookie);
     expect(res.status).toBe(403);

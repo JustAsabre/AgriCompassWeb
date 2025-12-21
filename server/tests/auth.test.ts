@@ -4,6 +4,7 @@ import express, { type Express } from 'express';
 import session from 'express-session';
 import { createServer } from 'http';
 import { registerRoutes } from '../routes';
+import { storage } from '../storage';
 
 describe('Authentication API', () => {
   let app: Express;
@@ -43,9 +44,13 @@ describe('Authentication API', () => {
         });
 
       expect(response.status).toBe(201);
-      expect(response.body).toHaveProperty('user');
-      expect(response.body.user).toHaveProperty('id');
-      expect(response.body.user.email).toBe('test@example.com');
+      expect(response.body).toHaveProperty('requiresVerification', true);
+      expect(response.body).toHaveProperty('message');
+
+      // Ensure user exists in storage
+      const user = await storage.getUserByEmail('test@example.com');
+      expect(user).toBeDefined();
+      expect(user!.email).toBe('test@example.com');
     });
 
     it('rejects duplicate email', async () => {
@@ -85,6 +90,12 @@ describe('Authentication API', () => {
           fullName: 'Login User',
           role: 'buyer',
         });
+
+      // Verify email so login flow is allowed
+      const user = await storage.getUserByEmail('login@example.com');
+      if (!user?.emailVerificationToken) throw new Error('Missing verification token in test setup');
+      const verify = await request(app).get('/api/auth/verify-email').query({ token: user.emailVerificationToken });
+      expect(verify.status).toBe(200);
     });
 
     it('authenticates user with correct credentials', async () => {

@@ -56,19 +56,67 @@ app.use(compression({
 // `io` will be exported from `server/socket.ts` after initialization completes
 
 // CORS configuration
-// CORS configuration
+// NOTE: With `credentials: true`, CORS must NOT allow arbitrary origins.
+// We allowlist trusted frontend origins via env vars.
+function getAllowedCorsOrigins() {
+  const envList = (process.env.CORS_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  const frontendUrl = (process.env.FRONTEND_URL || '').trim();
+
+  // Development defaults
+  const defaults = process.env.NODE_ENV === 'production'
+    ? []
+    : [
+        'http://localhost:5000',
+        'http://127.0.0.1:5000',
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+      ];
+
+  return Array.from(new Set([
+    ...defaults,
+    ...(frontendUrl ? [frontendUrl] : []),
+    ...envList,
+  ]));
+}
+
+function isAllowedOrigin(origin: string) {
+  const allowed = getAllowedCorsOrigins();
+  if (allowed.includes(origin)) return true;
+
+  // Optional: allow Vercel preview URLs (disabled by default).
+  // If enabled, this still scopes to the vercel.app suffix (not ideal, but useful for preview deploys).
+  // Prefer explicitly listing preview URLs in CORS_ALLOWED_ORIGINS.
+  if (process.env.ALLOW_VERCEL_PREVIEWS === 'true') {
+    try {
+      const u = new URL(origin);
+      if (u.hostname.endsWith('.vercel.app')) return true;
+    } catch {
+      // ignore
+    }
+  }
+
+  return false;
+}
+
 const corsOptions = {
   origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean | string) => void) {
-    // Allow requests with no origin (like mobile apps or curl requests)
+    // Allow requests with no origin (like mobile apps, curl, server-to-server)
     if (!origin) return callback(null, true);
 
-    // To allow "anyone from anywhere" with credentials, we must reflect the origin
-    // instead of using '*' which is incompatible with credentials: true.
-    return callback(null, true);
+    if (isAllowedOrigin(origin)) {
+      // Reflect the requesting origin (required for credentialed requests)
+      return callback(null, origin);
+    }
+
+    return callback(new Error('Not allowed by CORS'));
   },
   credentials: true, // Allow cookies and authentication headers
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Requested-With'],
 };
 
 app.use(cors(corsOptions));
@@ -108,23 +156,30 @@ app.use(cookieParser());
 
 // CSRF protection using csrf-csrf (double submit cookie pattern)
 const isProduction = process.env.NODE_ENV === 'production';
-const csrfSecret = process.env.CSRF_SECRET || process.env.SESSION_SECRET || 'agricompass-csrf-secret-change-in-production';
+const isCloud = isProduction || !!process.env.FLY_APP_NAME;
+// In production/cloud, do not silently fall back to hardcoded secrets.
+const csrfSecret = process.env.CSRF_SECRET || process.env.SESSION_SECRET || (isCloud ? undefined : 'agricompass-csrf-dev-secret');
+if (isCloud && !csrfSecret) {
+  throw new Error('Missing CSRF_SECRET (or SESSION_SECRET) in production/cloud environment');
+}
 
 const {
   invalidCsrfTokenError,
   generateCsrfToken,
   doubleCsrfProtection
 } = doubleCsrf({
-  getSecret: () => csrfSecret,
+  getSecret: () => csrfSecret as string,
   getSessionIdentifier: (req: Request) => {
-    // Use session ID if available, otherwise use a consistent identifier
-    return (req.session as any)?.id || req.ip || 'anonymous';
+    // Express-session exposes the canonical session id as `req.sessionID`.
+    // Falling back to IP makes tokens flaky behind mobile networks/proxies.
+    return req.sessionID || req.ip || 'anonymous';
   },
   cookieName: '__csrf',
   cookieOptions: {
     httpOnly: true,
-    sameSite: isProduction ? 'none' : 'lax',
-    secure: isProduction,
+    // Align CSRF cookie policy with the session cookie policy.
+    sameSite: isCloud ? 'none' : 'lax',
+    secure: isCloud,
     path: '/',
   },
   size: 64,
@@ -141,6 +196,7 @@ const {
 const csrfExemptRoutes = [
   '/api/webhooks',
   '/api/paystack/webhook',
+  '/api/payments/paystack/webhook',
   '/api/health',
   '/__test',
   '/api/auth/register',

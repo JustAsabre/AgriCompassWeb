@@ -1,5 +1,6 @@
 import { db } from './drizzleClient';
-import { eq, inArray, and, desc } from 'drizzle-orm';
+import { eq, inArray, and, desc, sql } from 'drizzle-orm';
+import { pool } from './db';
 import {
   users,
   listings,
@@ -63,6 +64,35 @@ import type {
 export class PostgresStorage {
   constructor() {
     if (!db) throw new Error('Database client not initialized');
+  }
+
+  /**
+   * Test/support helper: clears all tables.
+   * Uses TRUNCATE ... CASCADE for speed and to satisfy FK constraints.
+   */
+  async cleanup(): Promise<void> {
+    if (!pool) throw new Error('Database pool not initialized');
+    await pool.query(
+      'TRUNCATE TABLE '
+        + '"wallet_transactions",'
+        + '"withdrawals",'
+        + '"escrow",'
+        + '"payouts",'
+        + '"payments",'
+        + '"transactions",'
+        + '"reviews",'
+        + '"messages",'
+        + '"notifications",'
+        + '"verifications",'
+        + '"cart_items",'
+        + '"orders",'
+        + '"pricing_tiers",'
+        + '"listings",'
+        + '"moderation_stats",'
+        + '"session",'
+        + '"users" '
+        + 'RESTART IDENTITY CASCADE;'
+    );
   }
 
   // Users
@@ -238,6 +268,35 @@ export class PostgresStorage {
     return res as any;
   }
 
+  async decrementListingQuantity(id: string, quantity: number): Promise<boolean> {
+    if (!db) throw new Error('Database client not initialized');
+    // Atomic update: decrement quantity only if enough stock exists
+    const [res] = await db
+      .update(listings)
+      .set({ 
+        quantityAvailable: sql`${listings.quantityAvailable} - ${quantity}` 
+      })
+      .where(and(
+        eq(listings.id, id),
+        sql`${listings.quantityAvailable} >= ${quantity}`
+      ))
+      .returning();
+    
+    return !!res;
+  }
+
+  async incrementListingQuantity(id: string, quantity: number): Promise<boolean> {
+    if (!db) throw new Error('Database client not initialized');
+    const [res] = await db
+      .update(listings)
+      .set({ 
+        quantityAvailable: sql`${listings.quantityAvailable} + ${quantity}` 
+      })
+      .where(eq(listings.id, id))
+      .returning();
+    return !!res;
+  }
+
   // Orders
   async getOrder(id: string): Promise<Order | undefined> {
     if (!db) throw new Error('Database client not initialized');
@@ -395,10 +454,15 @@ export class PostgresStorage {
     if (notes) updates.notes = notes;
     updates.reviewedAt = new Date();
     const [res] = await db.update(verifications).set(updates).where(eq(verifications.id, id)).returning();
-    // Update farmer's verified status if approved
-    if (res && status === 'approved') {
+    
+    // Update farmer's verified status based on approval/rejection
+    if (res) {
       const fv = res.farmerId as string;
-      await db.update(users).set({ verified: true as any }).where(eq(users.id, fv));
+      if (status === 'approved') {
+        await db.update(users).set({ verified: true as any }).where(eq(users.id, fv));
+      } else if (status === 'rejected') {
+        await db.update(users).set({ verified: false as any }).where(eq(users.id, fv));
+      }
     }
     return res as any;
   }
@@ -593,6 +657,12 @@ export class PostgresStorage {
     return out;
   }
 
+  async getReview(id: string): Promise<Review | undefined> {
+    if (!db) throw new Error('Database client not initialized');
+    const [res] = await db.select().from(reviewsTable).where(eq(reviewsTable.id, id));
+    return res as any;
+  }
+
   async getAllReviews(): Promise<ReviewWithUsers[]> {
     if (!db) throw new Error('Database client not initialized');
     const res = await db.select().from(reviewsTable);
@@ -675,9 +745,11 @@ export class PostgresStorage {
     return res[0] as any;
   }
 
-  async updatePaymentStatus(id: string, status: string): Promise<Payment | undefined> {
+  async updatePaymentStatus(id: string, status: string, transactionId?: string): Promise<Payment | undefined> {
     if (!db) throw new Error('Database client not initialized');
-    const [res] = await db.update(payments).set({ status } as any).where(eq(payments.id, id)).returning();
+    const updates: any = { status };
+    if (transactionId) updates.transactionId = transactionId;
+    const [res] = await db.update(payments).set(updates).where(eq(payments.id, id)).returning();
     return res as any;
   }
 

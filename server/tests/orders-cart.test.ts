@@ -5,15 +5,20 @@ import session from 'express-session';
 import { createServer } from 'http';
 import { registerRoutes } from '../routes';
 import { initializeSocket } from '../socket';
-import { storage } from '../storage';
 import './setup';
+import { registerAndLoginAgent } from './helpers/auth';
 
 // Mock email functions to avoid external dependencies
 vi.mock('../email', () => ({
+  sendEmailVerificationEmail: vi.fn().mockResolvedValue({ success: true }),
   sendPasswordResetEmail: vi.fn().mockResolvedValue({ success: true }),
   sendPasswordChangedEmail: vi.fn().mockResolvedValue({ success: true }),
   sendWelcomeEmail: vi.fn().mockResolvedValue({ success: true }),
   sendOrderConfirmationEmail: vi.fn().mockResolvedValue({ success: true }),
+  sendOrderAcceptedEmail: vi.fn().mockResolvedValue({ success: true }),
+  sendOrderDeliveredEmail: vi.fn().mockResolvedValue({ success: true }),
+  sendOrderCompletedEmail: vi.fn().mockResolvedValue({ success: true }),
+  sendEscrowReleasedEmail: vi.fn().mockResolvedValue({ success: true }),
   sendNewOrderNotificationToFarmer: vi.fn().mockResolvedValue({ success: true }),
   sendVerificationStatusEmail: vi.fn().mockResolvedValue({ success: true }),
   getSmtpStatus: vi.fn().mockReturnValue({ status: 'ok' }),
@@ -33,8 +38,6 @@ describe('Orders and Cart API', () => {
   let listingId: string;
 
   beforeEach(async () => {
-    storage.cleanup();
-
     app = express();
     app.use(express.json());
     app.use(
@@ -46,41 +49,24 @@ describe('Orders and Cart API', () => {
       })
     );
     httpServer = createServer(app);
-    const io = initializeSocket(httpServer);
-    await registerRoutes(app, httpServer, io);
+    await initializeSocket(httpServer);
+    await registerRoutes(app, httpServer, (await import('../socket')).io);
 
-    // Create farmer user
-    const farmerResponse = await request(app)
-      .post('/api/auth/register')
-      .send({
-        email: 'farmer@test.com',
-        password: 'password123',
-        fullName: 'Test Farmer',
-        role: 'farmer',
-      });
-    farmerId = farmerResponse.body.user.id;
+    // Create + verify + login users (email verification is required before login).
+    const farmer = await registerAndLoginAgent(app, 'farmer', 'farmer@test.com');
+    farmerAgent = farmer.agent;
+    farmerId = farmer.userId;
 
-    // Create buyer user
-    const buyerResponse = await request(app)
-      .post('/api/auth/register')
-      .send({
-        email: 'buyer@test.com',
-        password: 'password123',
-        fullName: 'Test Buyer',
-        role: 'buyer',
-      });
-    buyerId = buyerResponse.body.user.id;
+    // Farmers must be "verified" (separate from emailVerified) to create listings.
+    // Use the test-only helper endpoint to keep production behavior intact.
+    const verifyFarmerResponse = await request(app)
+      .post('/__test/mark-verified')
+      .send({ userId: farmerId });
+    expect(verifyFarmerResponse.status).toBe(200);
 
-    // Login with agents to maintain sessions
-    farmerAgent = request.agent(app);
-    await farmerAgent
-      .post('/api/auth/login')
-      .send({ email: 'farmer@test.com', password: 'password123' });
-
-    buyerAgent = request.agent(app);
-    await buyerAgent
-      .post('/api/auth/login')
-      .send({ email: 'buyer@test.com', password: 'password123' });
+    const buyer = await registerAndLoginAgent(app, 'buyer', 'buyer@test.com');
+    buyerAgent = buyer.agent;
+    buyerId = buyer.userId;
 
     // Create a listing for testing
     const listingResponse = await farmerAgent
@@ -95,12 +81,16 @@ describe('Orders and Cart API', () => {
         minOrderQuantity: 1,
         location: 'Test Location',
       });
+    if (listingResponse.status !== 200) {
+      // Make setup failures obvious (avoids cascading "listingId undefined" errors).
+      // eslint-disable-next-line no-console
+      console.log('Listing creation failed:', listingResponse.status, listingResponse.body);
+    }
+    expect(listingResponse.status).toBe(200);
     listingId = listingResponse.body.id;
   });
 
   afterEach(() => {
-    storage.cleanup();
-
     if (httpServer && httpServer.listening) {
       httpServer.close();
     }
@@ -228,20 +218,8 @@ describe('Orders and Cart API', () => {
       });
 
       it('rejects update for non-owned cart item', async () => {
-        // Create another buyer
-        const otherBuyerResponse = await request(app)
-          .post('/api/auth/register')
-          .send({
-            email: 'otherbuyer@test.com',
-            password: 'password123',
-            fullName: 'Other Buyer',
-            role: 'buyer',
-          });
-
-        const otherBuyerAgent = request.agent(app);
-        await otherBuyerAgent
-          .post('/api/auth/login')
-          .send({ email: 'otherbuyer@test.com', password: 'password123' });
+        const otherBuyer = await registerAndLoginAgent(app, 'buyer', 'otherbuyer@test.com');
+        const otherBuyerAgent = otherBuyer.agent;
 
         const response = await otherBuyerAgent
           .patch(`/api/cart/${cartItemId}`)
@@ -294,20 +272,8 @@ describe('Orders and Cart API', () => {
       });
 
       it('rejects removal for non-owned cart item', async () => {
-        // Create another buyer
-        const otherBuyerResponse = await request(app)
-          .post('/api/auth/register')
-          .send({
-            email: 'otherbuyer@test.com',
-            password: 'password123',
-            fullName: 'Other Buyer',
-            role: 'buyer',
-          });
-
-        const otherBuyerAgent = request.agent(app);
-        await otherBuyerAgent
-          .post('/api/auth/login')
-          .send({ email: 'otherbuyer@test.com', password: 'password123' });
+        const otherBuyer = await registerAndLoginAgent(app, 'buyer', 'otherbuyer@test.com');
+        const otherBuyerAgent = otherBuyer.agent;
 
         const response = await otherBuyerAgent
           .delete(`/api/cart/${cartItemId}`);
@@ -319,17 +285,10 @@ describe('Orders and Cart API', () => {
 
   describe('Order Operations', () => {
     describe('POST /api/orders/checkout', () => {
-      beforeEach(async () => {
-        // Add item to cart
-        await buyerAgent
-          .post('/api/cart')
-          .send({
-            listingId,
-            quantity: 2,
-          });
-      });
-
       it('creates orders from cart for authenticated buyer', async () => {
+        // Add item to cart
+        await buyerAgent.post('/api/cart').send({ listingId, quantity: 2 });
+
         const response = await buyerAgent
           .post('/api/orders/checkout')
           .send({
@@ -358,9 +317,6 @@ describe('Orders and Cart API', () => {
       });
 
       it('rejects checkout from empty cart', async () => {
-        // Clear cart
-        storage.cleanup();
-
         const response = await buyerAgent
           .post('/api/orders/checkout')
           .send({
@@ -489,20 +445,8 @@ describe('Orders and Cart API', () => {
       });
 
       it('rejects access from other buyer', async () => {
-        // Create another buyer
-        const otherBuyerResponse = await request(app)
-          .post('/api/auth/register')
-          .send({
-            email: 'otherbuyer@test.com',
-            password: 'password123',
-            fullName: 'Other Buyer',
-            role: 'buyer',
-          });
-
-        const otherBuyerAgent = request.agent(app);
-        await otherBuyerAgent
-          .post('/api/auth/login')
-          .send({ email: 'otherbuyer@test.com', password: 'password123' });
+        const otherBuyer = await registerAndLoginAgent(app, 'buyer', 'otherbuyer@test.com');
+        const otherBuyerAgent = otherBuyer.agent;
 
         const response = await otherBuyerAgent.get(`/api/orders/${orderId}`);
 

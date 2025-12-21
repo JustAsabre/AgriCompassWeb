@@ -4,6 +4,8 @@ import express, { type Express } from 'express';
 import session from 'express-session';
 import { createServer } from 'http';
 import { registerRoutes } from '../routes';
+import { storage } from '../storage';
+import './setup';
 
 describe('Session Isolation Security Tests', () => {
   let app: Express;
@@ -11,6 +13,7 @@ describe('Session Isolation Security Tests', () => {
   let httpServer: any;
 
   beforeEach(async () => {
+    await storage.cleanup();
     app = express();
     app.use(express.json());
     app.use(session({
@@ -22,6 +25,17 @@ describe('Session Isolation Security Tests', () => {
     httpServer = createServer(app);
     await registerRoutes(app, httpServer);
   });
+
+  const verifyEmail = async (email: string) => {
+    const user = await storage.getUserByEmail(email.toLowerCase());
+    if (!user) throw new Error(`Test setup: user not found for email ${email}`);
+    if ((user as any).emailVerified) return;
+    const token = (user as any).emailVerificationToken;
+    if (!token) throw new Error(`Test setup: missing emailVerificationToken for ${email}`);
+    await request(app)
+      .get(`/api/auth/verify-email?token=${encodeURIComponent(token)}`)
+      .expect(200);
+  };
 
   afterEach(() => {
     if (httpServer && httpServer.listening) {
@@ -52,6 +66,9 @@ describe('Session Isolation Security Tests', () => {
 
       expect(user1Response.status).toBe(201);
       expect(user2Response.status).toBe(201);
+
+      await verifyEmail('user1@example.com');
+      await verifyEmail('user2@example.com');
 
       // Login both users with separate agent instances to simulate different browser sessions
       const agent1 = request.agent(app);
@@ -115,6 +132,10 @@ describe('Session Isolation Security Tests', () => {
         expect(response.status).toBe(201);
       }
 
+      for (const user of users) {
+        await verifyEmail(user.email);
+      }
+
       // Create agents for each user
       const agents = users.map(() => request.agent(app));
 
@@ -165,6 +186,8 @@ describe('Session Isolation Security Tests', () => {
       expect(registerResponse.status).toBe(201);
       const originalUserId = registerResponse.body.user.id;
 
+      await verifyEmail('sessionfix@example.com');
+
       // Login with the user
       const agent = request.agent(app);
       const loginResponse = await agent
@@ -206,6 +229,8 @@ describe('Session Isolation Security Tests', () => {
         });
 
       expect(registerResponse.status).toBe(201);
+
+      await verifyEmail('sessionexp@example.com');
 
       const loginResponse = await agent
         .post('/api/auth/login')

@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import express, { type Express } from 'express';
-import session from 'express-session';
 import { createServer } from 'http';
 import { registerRoutes } from '../routes';
-import { storage } from '../storage.js';
+import { storage } from '../storage';
+import sessionMiddleware from '../session';
+import { hashPassword } from '../auth';
+import './setup';
 
 describe('Analytics API', () => {
   let app: Express;
@@ -12,14 +14,10 @@ describe('Analytics API', () => {
   let httpServer: any;
 
   beforeEach(async () => {
+    await storage.cleanup();
     app = express();
     app.use(express.json());
-    app.use(session({
-      secret: 'test-secret',
-      resave: false,
-      saveUninitialized: false,
-      cookie: { secure: false }
-    }));
+    app.use(sessionMiddleware);
     httpServer = createServer(app);
     await registerRoutes(app, httpServer);
     // Don't actually listen - supertest handles it
@@ -32,44 +30,47 @@ describe('Analytics API', () => {
     }
   });
 
+  const verifyEmail = async (email: string) => {
+    const user = await storage.getUserByEmail(email.toLowerCase());
+    if (!user) throw new Error(`Test setup: user not found for email ${email}`);
+    if ((user as any).emailVerified) return;
+    const token = (user as any).emailVerificationToken;
+    if (!token) throw new Error(`Test setup: missing emailVerificationToken for ${email}`);
+    await request(app)
+      .get(`/api/auth/verify-email?token=${encodeURIComponent(token)}`)
+      .expect(200);
+  };
+
+  const registerVerifyLogin = async (email: string, role: string, fullName: string, extra?: Record<string, any>) => {
+    const registerRes = await request(app)
+      .post('/api/auth/register')
+      .send({ email, password: 'password123', fullName, role, ...(extra || {}) });
+    expect(registerRes.status).toBe(201);
+    await verifyEmail(email);
+    const loginRes = await request(app)
+      .post('/api/auth/login')
+      .send({ email, password: 'password123' });
+    expect(loginRes.status).toBe(200);
+    const cookie = loginRes.headers['set-cookie'];
+    expect(cookie).toBeDefined();
+    return cookie;
+  };
+
   describe('GET /api/analytics/farmer', () => {
     it('should return farmer analytics for authenticated farmer', async () => {
-      // Create and login farmer
-      await request(app)
-        .post('/api/auth/register')
-        .send({
-          email: 'farmer-analytics@test.com',
-          password: 'password123',
-          fullName: 'Test Farmer Analytics',
-          role: 'farmer',
+      const cookie = await registerVerifyLogin(
+        'farmer-analytics@test.com',
+        'farmer',
+        'Test Farmer Analytics',
+        {
           region: 'Ashanti',
           phone: '+233501234567',
           businessName: 'Test Farm',
           farmSize: '5',
           mobileNumber: '+233501234567',
           mobileNetwork: 'MTN',
-        });
-
-      const loginResponse = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'farmer-analytics@test.com',
-          password: 'password123',
-        });
-
-      const cookie = loginResponse.headers['set-cookie'];
-
-      // Create buyer for order
-      await request(app)
-        .post('/api/auth/register')
-        .send({
-          email: 'buyer-analytics@test.com',
-          password: 'password123',
-          fullName: 'Test Buyer Analytics',
-          role: 'buyer',
-          region: 'Greater Accra',
-          phone: '+233507654321',
-        });
+        }
+      );
 
       // Get farmer ID
       const meResponse = await request(app)
@@ -85,17 +86,18 @@ describe('Analytics API', () => {
         category: 'vegetables',
         description: 'Test description',
         price: 10,
-        quantity: 100,
         unit: 'kg',
+        quantityAvailable: 100,
+        minOrderQuantity: 1,
         location: 'Test Location',
-        images: ['test.jpg'],
+        imageUrl: 'test.jpg',
         status: 'active',
       });
 
       // Create buyer user for order
       const buyerUser = await storage.createUser({
         email: 'buyer-test@test.com',
-        password: 'password123',
+        password: await hashPassword('password123'),
         fullName: 'Test Buyer',
         role: 'buyer',
         region: 'Greater Accra',
@@ -139,26 +141,12 @@ describe('Analytics API', () => {
     });
 
     it('should reject access from buyer', async () => {
-      // Create and login buyer
-      await request(app)
-        .post('/api/auth/register')
-        .send({
-          email: 'buyer-analytics@test.com',
-          password: 'password123',
-          fullName: 'Test Buyer Analytics',
-          role: 'buyer',
-          region: 'Greater Accra',
-          phone: '+233507654321',
-        });
-
-      const loginResponse = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'buyer-analytics@test.com',
-          password: 'password123',
-        });
-
-      const cookie = loginResponse.headers['set-cookie'];
+      const cookie = await registerVerifyLogin(
+        'buyer-analytics@test.com',
+        'buyer',
+        'Test Buyer Analytics',
+        { region: 'Greater Accra', phone: '+233507654321' }
+      );
 
       const response = await request(app)
         .get('/api/analytics/farmer')
@@ -179,52 +167,26 @@ describe('Analytics API', () => {
 
   describe('GET /api/analytics/buyer', () => {
     it('should return buyer analytics for authenticated buyer', async () => {
-      // Create and login buyer
-      await request(app)
-        .post('/api/auth/register')
-        .send({
-          email: 'buyer-analytics@test.com',
-          password: 'password123',
-          fullName: 'Test Buyer Analytics',
-          role: 'buyer',
-          region: 'Greater Accra',
-          phone: '+233507654321',
-        });
+      const cookie = await registerVerifyLogin(
+        'buyer-analytics@test.com',
+        'buyer',
+        'Test Buyer Analytics',
+        { region: 'Greater Accra', phone: '+233507654321' }
+      );
 
-      const loginResponse = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'buyer-analytics@test.com',
-          password: 'password123',
-        });
-
-      const cookie = loginResponse.headers['set-cookie'];
-
-      // Create farmer for listing
-      await request(app)
-        .post('/api/auth/register')
-        .send({
-          email: 'farmer-analytics@test.com',
-          password: 'password123',
-          fullName: 'Test Farmer Analytics',
-          role: 'farmer',
+      const farmerCookie = await registerVerifyLogin(
+        'farmer-analytics@test.com',
+        'farmer',
+        'Test Farmer Analytics',
+        {
           region: 'Ashanti',
           phone: '+233501234567',
           businessName: 'Test Farm',
           farmSize: '5',
           mobileNumber: '+233501234567',
           mobileNetwork: 'MTN',
-        });
-
-      // Get farmer ID
-      const farmerLoginResponse = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'farmer-analytics@test.com',
-          password: 'password123',
-        });
-
-      const farmerCookie = farmerLoginResponse.headers['set-cookie'];
+        }
+      );
 
       const farmerMeResponse = await request(app)
         .get('/api/auth/me')
@@ -239,10 +201,11 @@ describe('Analytics API', () => {
         category: 'vegetables',
         description: 'Test description',
         price: 10,
-        quantity: 100,
         unit: 'kg',
+        quantityAvailable: 100,
+        minOrderQuantity: 1,
         location: 'Test Location',
-        images: ['test.jpg'],
+        imageUrl: 'test.jpg',
         status: 'active',
       });
 
@@ -288,30 +251,19 @@ describe('Analytics API', () => {
     });
 
     it('should reject access from farmer', async () => {
-      // Create and login farmer
-      await request(app)
-        .post('/api/auth/register')
-        .send({
-          email: 'farmer-analytics@test.com',
-          password: 'password123',
-          fullName: 'Test Farmer Analytics',
-          role: 'farmer',
+      const cookie = await registerVerifyLogin(
+        'farmer-analytics@test.com',
+        'farmer',
+        'Test Farmer Analytics',
+        {
           region: 'Ashanti',
           phone: '+233501234567',
           businessName: 'Test Farm',
           farmSize: '5',
           mobileNumber: '+233501234567',
           mobileNetwork: 'MTN',
-        });
-
-      const loginResponse = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'farmer-analytics@test.com',
-          password: 'password123',
-        });
-
-      const cookie = loginResponse.headers['set-cookie'];
+        }
+      );
 
       const response = await request(app)
         .get('/api/analytics/buyer')
@@ -332,31 +284,17 @@ describe('Analytics API', () => {
 
   describe('GET /api/analytics/officer', () => {
     it('should return officer analytics for authenticated field officer', async () => {
-      // Create and login officer
-      await request(app)
-        .post('/api/auth/register')
-        .send({
-          email: 'officer-analytics@test.com',
-          password: 'password123',
-          fullName: 'Test Officer Analytics',
-          role: 'field_officer',
-          region: 'Central',
-          phone: '+233509876543',
-        });
-
-      const loginResponse = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'officer-analytics@test.com',
-          password: 'password123',
-        });
-
-      const cookie = loginResponse.headers['set-cookie'];
+      const cookie = await registerVerifyLogin(
+        'officer-analytics@test.com',
+        'field_officer',
+        'Test Officer Analytics',
+        { region: 'Central', phone: '+233509876543' }
+      );
 
       // Create some farmers and verifications
       const farmer1 = await storage.createUser({
         email: 'farmer1@test.com',
-        password: 'password123',
+        password: await hashPassword('password123'),
         fullName: 'Farmer One',
         role: 'farmer',
         region: 'Ashanti',
@@ -365,7 +303,7 @@ describe('Analytics API', () => {
 
       const farmer2 = await storage.createUser({
         email: 'farmer2@test.com',
-        password: 'password123',
+        password: await hashPassword('password123'),
         fullName: 'Farmer Two',
         role: 'farmer',
         region: 'Ashanti',
@@ -397,30 +335,19 @@ describe('Analytics API', () => {
     });
 
     it('should reject access from farmer', async () => {
-      // Create and login farmer
-      await request(app)
-        .post('/api/auth/register')
-        .send({
-          email: 'farmer-analytics@test.com',
-          password: 'password123',
-          fullName: 'Test Farmer Analytics',
-          role: 'farmer',
+      const cookie = await registerVerifyLogin(
+        'farmer-analytics@test.com',
+        'farmer',
+        'Test Farmer Analytics',
+        {
           region: 'Ashanti',
           phone: '+233501234567',
           businessName: 'Test Farm',
           farmSize: '5',
           mobileNumber: '+233501234567',
           mobileNetwork: 'MTN',
-        });
-
-      const loginResponse = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'farmer-analytics@test.com',
-          password: 'password123',
-        });
-
-      const cookie = loginResponse.headers['set-cookie'];
+        }
+      );
 
       const response = await request(app)
         .get('/api/analytics/officer')
@@ -431,26 +358,12 @@ describe('Analytics API', () => {
     });
 
     it('should reject access from buyer', async () => {
-      // Create and login buyer
-      await request(app)
-        .post('/api/auth/register')
-        .send({
-          email: 'buyer-analytics@test.com',
-          password: 'password123',
-          fullName: 'Test Buyer Analytics',
-          role: 'buyer',
-          region: 'Greater Accra',
-          phone: '+233507654321',
-        });
-
-      const loginResponse = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'buyer-analytics@test.com',
-          password: 'password123',
-        });
-
-      const cookie = loginResponse.headers['set-cookie'];
+      const cookie = await registerVerifyLogin(
+        'buyer-analytics@test.com',
+        'buyer',
+        'Test Buyer Analytics',
+        { region: 'Greater Accra', phone: '+233507654321' }
+      );
 
       const response = await request(app)
         .get('/api/analytics/officer')

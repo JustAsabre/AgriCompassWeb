@@ -6,8 +6,11 @@ import { createRequire } from 'module';
 let sessionStore: any = null;
 const sessionCookieName = process.env.SESSION_COOKIE_NAME || 'connect.sid';
 
-// If a Postgres connection is provided, use connect-pg-simple with a pg Pool
-if (process.env.PG_CONNECTION_STRING) {
+// If a Postgres connection is provided, use connect-pg-simple with a pg Pool.
+// Prefer an explicit PG_CONNECTION_STRING override; otherwise fall back to DATABASE_URL
+// to avoid drifting env var requirements between app DB and session store.
+const pgSessionConnectionString = process.env.PG_CONNECTION_STRING || process.env.DATABASE_URL;
+if (pgSessionConnectionString) {
   try {
     // Use createRequire to synchronously require CommonJS modules in ESM context
     const require = createRequire(import.meta.url);
@@ -15,8 +18,18 @@ if (process.env.PG_CONNECTION_STRING) {
     const { Pool } = require('pg');
 
     const PgSession = connectPgSimple(session as any);
-    const pool = new Pool({ connectionString: process.env.PG_CONNECTION_STRING });
-    sessionStore = new PgSession({ pool, tableName: process.env.PG_SESSION_TABLE || 'session' });
+    const pool = new Pool({ connectionString: pgSessionConnectionString });
+    // Avoid hard failures when the session table hasn't been provisioned yet.
+    // In tests, auto-create the table to keep the environment self-contained.
+    const createTableIfMissing =
+      process.env.CREATE_SESSION_TABLE_IF_MISSING === 'true' ||
+      process.env.NODE_ENV === 'test';
+
+    sessionStore = new PgSession({
+      pool,
+      tableName: process.env.PG_SESSION_TABLE || 'session',
+      createTableIfMissing,
+    });
     console.log('Session store: using Postgres (connect-pg-simple)');
   } catch (err) {
     console.error('Error initializing Postgres session store, falling back to MemoryStore', err);

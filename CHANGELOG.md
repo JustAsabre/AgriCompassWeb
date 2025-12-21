@@ -4,6 +4,139 @@ All notable changes to AgriCompass will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.6] - 2025-12-19
+### Fixed - Test Safety & Log Hygiene 🧪
+
+- Made `npm run test` CI-friendly and non-interactive:
+  - `npm run test` now runs once and exits (`vitest run`).
+  - Added `npm run test:watch` to preserve the watch-mode developer workflow.
+
+- Removed sensitive/verbose server logs that leaked user records into test/prod output:
+  - Login/verification routes no longer log full user objects (which included password hashes).
+  - Optional debug logging can be enabled via `DEBUG_LOGS=true` in non-production environments.
+
+- Prevented destructive/interactive `drizzle-kit push` prompts during tests:
+  - Added the Postgres `session` table to `shared/schema.ts` (matching the existing sessions migration) so Drizzle doesn’t treat it as an extra table to drop/alter.
+  - Updated test DB cleanup to also truncate the `session` table to avoid session-row accumulation between test runs.
+
+- Files updated:
+  - `package.json`
+  - `server/routes.ts`
+  - `shared/schema.ts`
+  - `server/postgresStorage.ts`
+
+## [1.9.5] - 2025-12-19
+### Fixed - Security & Correctness Hardening 🛡️
+
+- Hardened CORS to prevent allowing arbitrary origins with credentials:
+  - Added an origin allowlist driven by `FRONTEND_URL` and `CORS_ALLOWED_ORIGINS`.
+  - Added optional `ALLOW_VERCEL_PREVIEWS=true` support (disabled by default).
+
+- CSRF hardening:
+  - CSRF tokens are now bound to `req.sessionID` (instead of `req.session.id` / IP fallback).
+  - CSRF cookie `secure`/`sameSite` policy is aligned with session cookie policy (production/cloud).
+  - Production/cloud now requires `CSRF_SECRET` or `SESSION_SECRET` (no silent hardcoded secret fallback).
+
+- Fixed env-var drift between DB pool and Postgres session store:
+  - Session store now falls back to `DATABASE_URL` when `PG_CONNECTION_STRING` is not provided.
+
+- Removed a duplicate route registration that risked shadowing behavior:
+  - Consolidated `PATCH /api/listings/:id` to a single handler (keeping cache invalidation behavior).
+
+- Removed an unused local helper that shadowed job naming:
+  - Deleted an unused `enqueuePayout()` helper in `server/routes.ts` (the canonical implementation lives in `server/jobs/payoutQueue.ts`).
+
+- Added `.gitignore` entries to prevent committing exported cookie captures (e.g., `cookies.txt`).
+
+- Fixed `Reviews` integration tests to match current schema and API behavior:
+  - Ensured test users satisfy login prerequisites (`emailVerified=true`, and `verified=true` where required).
+  - Updated listing/order fixtures to current field names/types.
+  - Aligned expectations with the API contract where `GET /api/reviews/order/:orderId` returns `null` (200) when no review exists.
+
+- Improved upload endpoint correctness (and reduced error leakage):
+  - `POST /api/upload` now returns a JSON 400 response for Multer/file-filter validation failures (e.g., non-image uploads) instead of bubbling up as a 500.
+
+- Fixed dev/test upload regression when Cloudinary isn’t configured:
+  - `POST /api/upload` now falls back to local disk storage in dev/test when `CLOUDINARY_URL` is missing.
+  - Production behavior remains strict (uploads require Cloudinary configuration).
+  - Cloudinary configuration validation is now lazy to avoid import-time warning noise during tests.
+
+- Reduced test-suite noise from incomplete email mocks:
+  - Updated server test mocks for `server/email.ts` to include the order lifecycle email exports used by routes.
+  - Prevents Vitest runtime “missing export on the mock” warnings while keeping tests side-effect free.
+
+- Stabilized integration tests against a real Postgres test database:
+  - Added a Vitest global setup that ensures a dedicated `*_test` database exists and applies schema (`db:push`) before suites run.
+  - Disabled Vitest file-level parallelism to prevent cross-file race conditions with shared DB cleanup.
+  - Standardized server test setup to ensure consistent env defaults and DB cleanup (without impacting client/jsdom tests).
+
+- Aligned additional integration tests with realistic auth/session behavior:
+  - Updated message/notification suites to use the real session middleware and the required register → verify-email → login flow.
+  - Updated admin stats/revenue suites to respect farmer verification gating (`user.verified === true`) when creating listings, and to normalize cookie header usage.
+  - Updated analytics suite fixtures to use current listing schema fields (`quantityAvailable`, `minOrderQuantity`, `imageUrl`).
+
+- Files updated:
+  - `server/index.ts`
+  - `server/session.ts`
+  - `server/socket.ts`
+  - `server/routes.ts`
+  - `.gitignore`
+  - `server/tests/reviews.test.ts`
+  - `server/tests/setup.ts`
+  - `server/tests/globalSetup.ts`
+  - `vitest.config.ts`
+  - `server/tests/upload.test.ts`
+  - `server/tests/admin.stats.test.ts`
+  - `server/tests/admin.revenue.test.ts`
+  - `server/tests/analytics.test.ts`
+  - `server/tests/messages.test.ts`
+  - `server/tests/notifications.test.ts`
+
+
+## [1.9.4] - 2025-12-19
+### Fixed - Integration Test Alignment 🧪
+
+- Updated `Verifications` integration tests to match the API contract where `GET /api/verifications/me` returns `null` when no verification exists.
+
+- Updated `Payments` integration tests to match current production behavior and schema:
+  - Checkout does not return `missingRecipients` (no split-payment recipient dependency).
+  - Transaction test fixtures now use `transactions.reference` + `transactions.amount` (instead of legacy/incorrect fields).
+  - Order completion assertions now verify wallet crediting (legacy `payouts` table is not created on completion).
+  - Payment-required delivery/completion checks are exercised with `ENABLE_TEST_ENDPOINTS=false` to reflect production enforcement.
+  - Paystack verify-client assertions now validate `transaction.reference`.
+
+- Files updated:
+  - `server/tests/verifications.test.ts`
+  - `server/tests/payments.test.ts`
+
+
+## [1.9.3] - 2025-12-18
+### Fixed - Auth, Verification & Payments Hardening 🔐
+
+- Removed duplicate Express route registrations that could cause shadowing/maintenance issues:
+  - `POST /api/auth/reset-password`
+  - `PATCH /api/verifications/:id/review`
+
+- Fixed `GET /api/verifications/me` not returning a response (now returns the `Verification` object or `null`).
+
+- Fixed `GET /api/auth/me` session refresh to store only a sanitized user object in the session.
+
+- Fixed CSRF exemption mismatch so Paystack webhooks aren’t incorrectly blocked by CSRF middleware.
+
+- Aligned escrow status handling for Paystack webhook + disputes:
+  - Webhook now sets escrow to `upfront_held` (instead of `held`)
+  - Disputes are allowed only while escrow is actively held in escrow (`upfront_held` / `remaining_released`)
+
+- Prevented leaking farmer passwords when listing verifications.
+
+- Fixed storage initialization for test/dev environments without `DATABASE_URL` (now cleanly falls back to in-memory storage instead of throwing on import).
+
+- Files updated:
+  - `server/routes.ts`
+  - `server/index.ts`
+  - `shared/schema.ts`
+  - `server/storage.ts`
+
 
 ## [1.9.2] - 2025-12-18
 ### Fixed - Error Message Display 🎨

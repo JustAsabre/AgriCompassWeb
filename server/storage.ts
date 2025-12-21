@@ -43,6 +43,12 @@ import PostgresStorage from './postgresStorage';
 
 // Storage interface with all CRUD operations
 export interface IStorage {
+  /**
+   * Test/support helper to reset storage state.
+   * In Postgres this should clear tables; in-memory should clear maps.
+   */
+  cleanup(): Promise<void>;
+
   // User operations
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
@@ -52,6 +58,7 @@ export interface IStorage {
   updateUser(id: string, updates: Partial<User>): Promise<User | undefined>;
   getUsersByRole(role: string): Promise<User[]>;
   getAllUsers(): Promise<User[]>;
+  updateUserRole(userId: string, role: string): Promise<void>;
 
   // Listing operations
   getAllListings(): Promise<Listing[]>;
@@ -63,6 +70,8 @@ export interface IStorage {
   updateListing(id: string, updates: Partial<Listing>): Promise<Listing | undefined>;
   deleteListing(id: string): Promise<boolean>;
   getListingsByModerationStatus(status: string): Promise<Listing[]>;
+  decrementListingQuantity(id: string, quantity: number): Promise<boolean>;
+  incrementListingQuantity(id: string, quantity: number): Promise<boolean>;
 
   // Order operations
   getOrder(id: string): Promise<Order | undefined>;
@@ -106,16 +115,25 @@ export interface IStorage {
   deleteNotification(id: string): Promise<boolean>;
 
   // Message operations
-  getMessages(userId1: string, userId2: string, listingId?: string): Promise<MessageWithUsers[]>;
+  getMessagesBetweenUsers(userId1: string, userId2: string): Promise<MessageWithUsers[]>;
+  getMessage(id: string): Promise<Message | undefined>;
   getConversations(userId: string): Promise<Conversation[]>;
   createMessage(message: InsertMessage): Promise<Message>;
-  markMessagesRead(senderId: string, receiverId: string): Promise<boolean>;
+  updateMessage(id: string, updates: Partial<Message>): Promise<Message | undefined>;
+  markConversationRead(userId: string, otherUserId: string): Promise<boolean>;
+  getUnreadMessageCount(userId: string): Promise<number>;
 
   // Review operations
   getReviewsByListing(listingId: string): Promise<ReviewWithUsers[]>;
   getReviewsByFarmer(farmerId: string): Promise<ReviewWithUsers[]>;
+  getReviewsByReviewee(revieweeId: string): Promise<ReviewWithUsers[]>;
+  getReviewsByOrder(orderId: string): Promise<ReviewWithUsers[]>;
+  getReview(id: string): Promise<Review | undefined>;
   createReview(review: InsertReview): Promise<Review>;
+  updateReview(id: string, updates: Partial<Review>): Promise<Review | undefined>;
+  deleteReview(id: string): Promise<boolean>;
   getFarmerRating(farmerId: string): Promise<{ average: number; count: number }>;
+  getAllReviews(): Promise<ReviewWithUsers[]>;
 
   // Payment operations
   createPayment(payment: InsertPayment): Promise<Payment>;
@@ -124,6 +142,16 @@ export interface IStorage {
   getPaymentsByTransactionId(transactionId: string): Promise<Payment[]>;
   updatePaymentStatus(id: string, status: string, transactionId?: string): Promise<Payment | undefined>;
 
+  // Return all payments in the system
+  getAllPayments(): Promise<Payment[]>;
+
+  // Payout operations
+  createPayout(payout: InsertPayout): Promise<Payout>;
+  getPayout(id: string): Promise<Payout | undefined>;
+  updatePayout(id: string, updates: Partial<Payout>): Promise<Payout | undefined>;
+  getPayoutsByFarmer(farmerId: string): Promise<Payout[]>;
+  getAllPayouts(): Promise<Payout[]>;
+
   // Transaction operations
   createTransaction(transaction: InsertTransaction): Promise<Transaction>;
   getTransaction(id: string): Promise<Transaction | undefined>;
@@ -131,13 +159,32 @@ export interface IStorage {
   updateTransactionStatus(id: string, status: string): Promise<Transaction | undefined>;
   updateTransaction(id: string, updates: Partial<Transaction>): Promise<Transaction | undefined>;
 
+  // Escrow operations
+  createEscrow(esc: InsertEscrow): Promise<Escrow>;
+  getEscrowByOrder(orderId: string): Promise<Escrow | undefined>;
+  getEscrow(id: string): Promise<Escrow | undefined>;
+  updateEscrowStatus(id: string, status: string, updates?: Partial<Escrow>): Promise<Escrow | undefined>;
+  getEscrowsByBuyer(buyerId: string): Promise<Escrow[]>;
+  getEscrowsByFarmer(farmerId: string): Promise<Escrow[]>;
+  getAllEscrows(): Promise<Escrow[]>;
+
+  // Wallet operations
+  getWalletBalance(userId: string): Promise<string>;
+  createWalletTransaction(transaction: InsertWalletTransaction): Promise<WalletTransaction>;
+  getWalletTransactions(userId: string): Promise<WalletTransaction[]>;
+  requestWithdrawal(withdrawal: InsertWithdrawal): Promise<Withdrawal>;
+  getWithdrawals(userId: string): Promise<Withdrawal[]>;
+  updateWithdrawalStatus(id: string, status: string, transactionId?: string): Promise<Withdrawal | undefined>;
+
+  // Order completion helpers
+  completeOrderAndCreditWallet(orderId: string): Promise<void>;
+
   // Admin operations
   getModerationStats(): Promise<ModerationStat[]>;
   getModerationStatsByDateRange(startDate: Date, endDate: Date): Promise<ModerationStat[]>;
   resetModerationStats(moderatorId: string): Promise<ModerationStat>;
   incrementModerationStats(moderatorId: string, type: 'approved' | 'rejected'): Promise<void>;
   getMessagesByModerationStatus(status: string): Promise<Message[]>;
-  getAllReviews(): Promise<Review[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -175,15 +222,54 @@ export class MemStorage implements IStorage {
     this.escrows = new Map();
     this.walletTransactions = new Map();
     this.withdrawals = new Map();
+
+    // Seed admin user
+    const adminId = "admin-user-id";
+    this.users.set(adminId, {
+      id: adminId,
+      email: "admin@agricompass.com",
+      password: "$2b$10$vUVIrSa8.3TH9R6SFpL7XOY6Z13wstj9bn6PTNWBU.eVftCfGiYAy", // admin123
+      fullName: "System Admin",
+      role: "admin",
+      verified: true,
+      isActive: true,
+      emailVerified: true,
+      createdAt: new Date(),
+      walletBalance: "0.00",
+      failedLoginAttempts: 0,
+      phone: null,
+      region: null,
+      mobileNumber: null,
+      mobileNetwork: null,
+      paystackRecipientCode: null,
+      lockedUntil: null,
+      emailVerificationToken: null,
+      emailVerificationExpiry: null,
+      businessName: null,
+      farmSize: null,
+      resetToken: null,
+      resetTokenExpiry: null,
+    } as User);
   }
 
-  // ... (Implementation of MemStorage methods would go here, but since we use Postgres, we can leave them stubbed or minimal if not used)
-  // For brevity and since we use PostgresStorage, I'll just export the interface and the PostgresStorage instance.
-  // However, to satisfy the class definition, I would need to implement all methods. 
-  // Given the file size limits and the fact that we use Postgres, I will assume the user wants the interface fixed primarily.
-  // I will implement the methods with 'throw new Error("Not implemented in MemStorage")' or basic implementation to satisfy the compiler if needed.
-  // But actually, the previous file had a full MemStorage implementation. 
-  // I will just implement the new wallet methods in MemStorage to avoid errors.
+  async cleanup(): Promise<void> {
+    this.users.clear();
+    this.listings.clear();
+    this.orders.clear();
+    this.cartItems.clear();
+    this.verifications.clear();
+    this.pricingTiers.clear();
+    this.notifications.clear();
+    this.messages.clear();
+    this.reviews.clear();
+    this.payments.clear();
+    this.payouts.clear();
+    this.transactions.clear();
+    this.moderationStats.clear();
+    this.escrows.clear();
+    this.walletTransactions.clear();
+    this.withdrawals.clear();
+  }
 
   async getUser(id: string): Promise<User | undefined> { return this.users.get(id); }
   async getUserByEmail(email: string): Promise<User | undefined> { return Array.from(this.users.values()).find(u => u.email === email); }
@@ -193,6 +279,7 @@ export class MemStorage implements IStorage {
   async updateUser(id: string, updates: Partial<User>): Promise<User | undefined> { const user = this.users.get(id); if (!user) return undefined; const updated = { ...user, ...updates }; this.users.set(id, updated); return updated; }
   async getUsersByRole(role: string): Promise<User[]> { return Array.from(this.users.values()).filter(u => u.role === role); }
   async getAllUsers(): Promise<User[]> { return Array.from(this.users.values()); }
+  async updateUserRole(userId: string, role: string): Promise<void> { const user = this.users.get(userId); if (user) this.users.set(userId, { ...user, role } as any); }
 
   async getAllListings(): Promise<Listing[]> { return Array.from(this.listings.values()); }
   async getListing(id: string): Promise<Listing | undefined> { return this.listings.get(id); }
@@ -203,6 +290,20 @@ export class MemStorage implements IStorage {
   async updateListing(id: string, updates: Partial<Listing>): Promise<Listing | undefined> { const listing = this.listings.get(id); if (!listing) return undefined; const updated = { ...listing, ...updates }; this.listings.set(id, updated); return updated; }
   async deleteListing(id: string): Promise<boolean> { return this.listings.delete(id); }
   async getListingsByModerationStatus(status: string): Promise<Listing[]> { return Array.from(this.listings.values()).filter(l => l.moderationStatus === status); }
+  async decrementListingQuantity(id: string, quantity: number): Promise<boolean> {
+    const listing = this.listings.get(id);
+    if (!listing || listing.quantityAvailable < quantity) return false;
+    listing.quantityAvailable -= quantity;
+    this.listings.set(id, listing);
+    return true;
+  }
+  async incrementListingQuantity(id: string, quantity: number): Promise<boolean> {
+    const listing = this.listings.get(id);
+    if (!listing) return false;
+    listing.quantityAvailable += quantity;
+    this.listings.set(id, listing);
+    return true;
+  }
 
   async getOrder(id: string): Promise<Order | undefined> { return this.orders.get(id); }
   async getOrderWithDetails(id: string): Promise<OrderWithDetails | undefined> { return undefined; }
@@ -222,7 +323,23 @@ export class MemStorage implements IStorage {
   async getVerificationsByOfficer(officerId: string): Promise<Verification[]> { return []; }
   async getVerificationByFarmer(farmerId: string): Promise<Verification | undefined> { return undefined; }
   async createVerification(verification: InsertVerification): Promise<Verification> { const id = randomUUID(); const newVerification = { ...verification, id, submittedAt: new Date(), reviewedAt: null, status: 'pending' } as unknown as Verification; this.verifications.set(id, newVerification); return newVerification; }
-  async updateVerificationStatus(id: string, status: string, notes?: string): Promise<Verification | undefined> { const v = this.verifications.get(id); if (!v) return undefined; const updated = { ...v, status, notes: notes || null, reviewedAt: new Date() } as Verification; this.verifications.set(id, updated); return updated; }
+  async updateVerificationStatus(id: string, status: string, notes?: string): Promise<Verification | undefined> {
+    const v = this.verifications.get(id);
+    if (!v) return undefined;
+    const updated = { ...v, status, notes: notes || null, reviewedAt: new Date() } as Verification;
+    this.verifications.set(id, updated);
+
+    // Update farmer's verified status
+    if (status === 'approved') {
+      const farmer = this.users.get(v.farmerId);
+      if (farmer) this.users.set(v.farmerId, { ...farmer, verified: true } as any);
+    } else if (status === 'rejected') {
+      const farmer = this.users.get(v.farmerId);
+      if (farmer) this.users.set(v.farmerId, { ...farmer, verified: false } as any);
+    }
+
+    return updated;
+  }
   async getAllVerifications(): Promise<Verification[]> { return Array.from(this.verifications.values()); }
 
   async getPricingTiersByListing(listingId: string): Promise<PricingTier[]> { return Array.from(this.pricingTiers.values()).filter(t => t.listingId === listingId); }
@@ -238,11 +355,46 @@ export class MemStorage implements IStorage {
   async markAllNotificationsRead(userId: string): Promise<boolean> { return true; }
   async deleteNotification(id: string): Promise<boolean> { return this.notifications.delete(id); }
 
-  async getMessages(userId1: string, userId2: string, listingId?: string): Promise<MessageWithUsers[]> { return []; }
+  async getMessagesBetweenUsers(userId1: string, userId2: string): Promise<MessageWithUsers[]> {
+    const msgs = Array.from(this.messages.values()).filter((m: any) =>
+      (m.senderId === userId1 && m.receiverId === userId2) ||
+      (m.senderId === userId2 && m.receiverId === userId1)
+    );
+    return msgs as any;
+  }
+
+  async getMessage(id: string): Promise<Message | undefined> {
+    return this.messages.get(id);
+  }
+
   async getConversations(userId: string): Promise<Conversation[]> { return []; }
   async createMessage(message: InsertMessage): Promise<Message> { const id = randomUUID(); const newMsg = { ...message, id, createdAt: new Date() } as Message; this.messages.set(id, newMsg); return newMsg; }
-  async markMessagesRead(senderId: string, receiverId: string): Promise<boolean> { return true; }
 
+  async updateMessage(id: string, updates: Partial<Message>): Promise<Message | undefined> {
+    const existing = this.messages.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...updates } as Message;
+    this.messages.set(id, updated);
+    return updated;
+  }
+
+  async markConversationRead(userId: string, otherUserId: string): Promise<boolean> {
+    for (const [id, m] of this.messages.entries()) {
+      const msg: any = m;
+      if (msg.senderId === otherUserId && msg.receiverId === userId) {
+        this.messages.set(id, { ...msg, read: true } as any);
+      }
+    }
+    return true;
+  }
+
+  async getUnreadMessageCount(userId: string): Promise<number> {
+    return Array.from(this.messages.values()).filter((m: any) => m.receiverId === userId && !m.read).length;
+  }
+
+  async createPayout(payout: InsertPayout): Promise<Payout> { const id = randomUUID(); const newPayout = { ...payout, id, createdAt: new Date() } as any; this.payouts.set(id, newPayout); return newPayout as any; }
+  async getPayout(id: string): Promise<Payout | undefined> { return this.payouts.get(id); }
+  async updatePayout(id: string, updates: Partial<Payout>): Promise<Payout | undefined> { const p = this.payouts.get(id); if (!p) return undefined; const updated = { ...p, ...updates } as any; this.payouts.set(id, updated); return updated; }
   async getPayoutsByFarmer(farmerId: string): Promise<Payout[]> { return Array.from(this.payouts.values()).filter(p => p.farmerId === farmerId); }
   async getAllPayouts(): Promise<Payout[]> { return Array.from(this.payouts.values()); }
 
@@ -251,7 +403,7 @@ export class MemStorage implements IStorage {
   async getPaymentsByOrder(orderId: string): Promise<Payment[]> { return Array.from(this.payments.values()).filter(p => p.orderId === orderId); }
   async getAllPayments(): Promise<Payment[]> { return Array.from(this.payments.values()); }
   async getPaymentsByTransactionId(transactionId: string): Promise<Payment[]> { return []; }
-  async updatePaymentStatus(id: string, status: string): Promise<Payment | undefined> { const p = this.payments.get(id); if (!p) return undefined; const updated = { ...p, status }; this.payments.set(id, updated); return updated; }
+  async updatePaymentStatus(id: string, status: string, transactionId?: string): Promise<Payment | undefined> { const p = this.payments.get(id); if (!p) return undefined; const updated: any = { ...p, status }; if (transactionId) updated.transactionId = transactionId; this.payments.set(id, updated); return updated; }
 
   async createTransaction(transaction: InsertTransaction): Promise<Transaction> { const id = randomUUID(); const newTx = { ...transaction, id, createdAt: new Date() } as Transaction; this.transactions.set(id, newTx); return newTx; }
   async updateTransaction(id: string, updates: Partial<Transaction>): Promise<Transaction | undefined> { const tx = this.transactions.get(id); if (!tx) return undefined; const updated = { ...tx, ...updates }; this.transactions.set(id, updated); return updated; }
@@ -267,11 +419,25 @@ export class MemStorage implements IStorage {
   async getEscrowsByFarmer(farmerId: string): Promise<Escrow[]> { return Array.from(this.escrows.values()).filter(e => e.farmerId === farmerId); }
   async getAllEscrows(): Promise<Escrow[]> { return Array.from(this.escrows.values()); }
 
-  async updateUserRole(userId: string, role: string): Promise<void> { const user = this.users.get(userId); if (user) user.role = role; }
-
-  async getReviewsByListing(listingId: string): Promise<ReviewWithUsers[]> { return []; }
-  async getReviewsByFarmer(farmerId: string): Promise<ReviewWithUsers[]> { return []; }
+  async getReviewsByListing(listingId: string): Promise<ReviewWithUsers[]> { return Array.from(this.reviews.values()).filter((r: any) => r.listingId === listingId) as any; }
+  async getReviewsByFarmer(farmerId: string): Promise<ReviewWithUsers[]> { return Array.from(this.reviews.values()).filter((r: any) => r.revieweeId === farmerId) as any; }
+  async getReviewsByReviewee(revieweeId: string): Promise<ReviewWithUsers[]> { return Array.from(this.reviews.values()).filter((r: any) => r.revieweeId === revieweeId) as any; }
+  async getReviewsByOrder(orderId: string): Promise<ReviewWithUsers[]> { return Array.from(this.reviews.values()).filter((r: any) => r.orderId === orderId) as any; }
+  async getReview(id: string): Promise<Review | undefined> { return this.reviews.get(id); }
   async createReview(review: InsertReview): Promise<Review> { const id = randomUUID(); const newReview = { ...review, id, createdAt: new Date() } as Review; this.reviews.set(id, newReview); return newReview; }
+
+  async updateReview(id: string, updates: Partial<Review>): Promise<Review | undefined> {
+    const existing = this.reviews.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...updates } as Review;
+    this.reviews.set(id, updated);
+    return updated;
+  }
+
+  async deleteReview(id: string): Promise<boolean> {
+    return this.reviews.delete(id);
+  }
+
   async getFarmerRating(farmerId: string): Promise<{ average: number; count: number }> { return { average: 0, count: 0 }; }
   // Wallet methods
   async getWalletBalance(userId: string): Promise<string> { return "0.00"; }
@@ -286,9 +452,37 @@ export class MemStorage implements IStorage {
   async resetModerationStats(moderatorId: string): Promise<ModerationStat> { throw new Error("Method not implemented."); }
   async incrementModerationStats(moderatorId: string, type: 'approved' | 'rejected'): Promise<void> { }
   async getMessagesByModerationStatus(status: string): Promise<Message[]> { return Array.from(this.messages.values()).filter(m => m.moderationStatus === status); }
-  async getAllReviews(): Promise<Review[]> { return Array.from(this.reviews.values()); }
+  async getAllReviews(): Promise<ReviewWithUsers[]> { return Array.from(this.reviews.values()) as any; }
 
   async completeOrderAndCreditWallet(orderId: string): Promise<void> { throw new Error("Method not implemented."); }
 }
 
-export const storage = new PostgresStorage();
+function createStorage(): IStorage {
+  const hasDatabaseUrl = Boolean(process.env.DATABASE_URL);
+
+  // Tests should use the dedicated Postgres test database (no silent fallback).
+  if (process.env.NODE_ENV === 'test') {
+    if (!hasDatabaseUrl) {
+      throw new Error('DATABASE_URL is required when NODE_ENV=test. Configure a dedicated *_test database URL.');
+    }
+    return new PostgresStorage() as any;
+  }
+
+  if (!hasDatabaseUrl) {
+    return new MemStorage();
+  }
+
+  try {
+    return new PostgresStorage();
+  } catch (err) {
+    // In tests/dev, we prefer falling back to in-memory rather than crashing the whole process.
+    // In production, a configured DATABASE_URL should be considered mandatory.
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('Failed to initialize Postgres storage; falling back to in-memory storage:', err);
+      return new MemStorage();
+    }
+    throw err;
+  }
+}
+
+export const storage: IStorage = createStorage();

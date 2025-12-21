@@ -6,6 +6,12 @@ export default defineConfig({
   plugins: [react()],
   test: {
     globals: true,
+    globalSetup: ['./server/tests/globalSetup.ts'],
+    // IMPORTANT: Server tests share a single Postgres test DB and many suites call `storage.cleanup()`.
+    // Running test files in parallel causes cross-file race conditions (e.g., users disappearing
+    // between register -> verify -> login). Disable file parallelism for deterministic, realistic
+    // integration testing.
+    fileParallelism: false,
     // Use jsdom for client tests, node for server tests
     environmentMatchGlobs: [
       ['client/src/**', 'jsdom'],
