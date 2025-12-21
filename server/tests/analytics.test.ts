@@ -44,12 +44,12 @@ describe('Analytics API', () => {
   const registerVerifyLogin = async (email: string, role: string, fullName: string, extra?: Record<string, any>) => {
     const registerRes = await request(app)
       .post('/api/auth/register')
-      .send({ email, password: 'password123', fullName, role, ...(extra || {}) });
+      .send({ email, password: 'password1234', fullName, role, ...(extra || {}) });
     expect(registerRes.status).toBe(201);
     await verifyEmail(email);
     const loginRes = await request(app)
       .post('/api/auth/login')
-      .send({ email, password: 'password123' });
+      .send({ email, password: 'password1234' });
     expect(loginRes.status).toBe(200);
     const cookie = loginRes.headers['set-cookie'];
     expect(cookie).toBeDefined();
@@ -97,7 +97,7 @@ describe('Analytics API', () => {
       // Create buyer user for order
       const buyerUser = await storage.createUser({
         email: 'buyer-test@test.com',
-        password: await hashPassword('password123'),
+        password: await hashPassword('password1234'),
         fullName: 'Test Buyer',
         role: 'buyer',
         region: 'Greater Accra',
@@ -294,7 +294,7 @@ describe('Analytics API', () => {
       // Create some farmers and verifications
       const farmer1 = await storage.createUser({
         email: 'farmer1@test.com',
-        password: await hashPassword('password123'),
+        password: await hashPassword('password1234'),
         fullName: 'Farmer One',
         role: 'farmer',
         region: 'Ashanti',
@@ -303,7 +303,7 @@ describe('Analytics API', () => {
 
       const farmer2 = await storage.createUser({
         email: 'farmer2@test.com',
-        password: await hashPassword('password123'),
+        password: await hashPassword('password1234'),
         fullName: 'Farmer Two',
         role: 'farmer',
         region: 'Ashanti',

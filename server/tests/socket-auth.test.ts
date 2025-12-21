@@ -59,7 +59,7 @@ describe('Socket.IO authentication', () => {
     // Register a user
     const registerRes = await agent.post('/api/auth/register').send({
       email: 'socket-test@example.com',
-      password: 'password123',
+      password: 'password1234',
       fullName: 'Socket Test',
       role: 'buyer',
     });
@@ -70,7 +70,7 @@ describe('Socket.IO authentication', () => {
     // Login to create session cookie
     const loginRes = await agent.post('/api/auth/login').send({
       email: 'socket-test@example.com',
-      password: 'password123',
+      password: 'password1234',
     });
     expect(loginRes.status).toBe(200);
 
@@ -109,12 +109,12 @@ describe('Socket.IO authentication', () => {
 
   it('does not emit duplicate authenticated events when client also emits authenticate', async () => {
     const agent = request.agent(app as any);
-    const registerRes = await agent.post('/api/auth/register').send({ email: 'dupuser@example.com', password: 'password123', fullName: 'Dup User', role: 'buyer' });
+    const registerRes = await agent.post('/api/auth/register').send({ email: 'dupuser@example.com', password: 'password1234', fullName: 'Dup User', role: 'buyer' });
     expect(registerRes.status).toBe(201);
 
     await verifyEmail('dupuser@example.com');
 
-    const loginRes = await agent.post('/api/auth/login').send({ email: 'dupuser@example.com', password: 'password123' });
+    const loginRes = await agent.post('/api/auth/login').send({ email: 'dupuser@example.com', password: 'password1234' });
     expect(loginRes.status).toBe(200);
     // Login may not always return a set-cookie header in the response (e.g., agent handling), so fallback to register response's cookie if needed
     let setCookie = loginRes.headers['set-cookie'];

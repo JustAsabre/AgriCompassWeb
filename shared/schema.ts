@@ -129,12 +129,16 @@ export const payouts = pgTable("payouts", {
 // Transactions (for combined payments)
 export const transactions = pgTable("transactions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  reference: text("reference").notNull().unique(),
-  buyerId: varchar("buyer_id").references(() => users.id), // Added to match DB constraint
-  amount: decimal("total_amount", { precision: 10, scale: 2 }).notNull(),
-  status: text("status").default("pending"), // pending, success, completed, failed
-  metadata: text("metadata"), // JSON string
+  reference: text("reference").unique(), // Nullable for existing records
+  buyerId: varchar("buyer_id").notNull().references(() => users.id),
+  amount: decimal("amount", { precision: 10, scale: 2 }), // Nullable for existing records
+  totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).notNull(),
+  paymentMethod: text("payment_method"),
+  paystackReference: text("paystack_reference"),
+  status: text("status").default("pending"),
+  metadata: text("metadata"),
   createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
 });
 
 // Moderation stats
@@ -199,6 +203,7 @@ export const verifications = pgTable("verifications", {
   documentUrl: text("document_url"), // URL to uploaded verification document
   submittedAt: timestamp("submitted_at").defaultNow(),
   reviewedAt: timestamp("reviewed_at"),
+  verifiedAt: timestamp("verified_at"), // When verification was completed
 });
 
 // Escrow Records
@@ -262,6 +267,9 @@ export const insertUserSchema = createInsertSchema(users).omit({
   emailVerified: true,
   emailVerificationToken: true,
   emailVerificationExpiry: true,
+}).extend({
+  // Enforce stronger password policy: 10+ chars minimum
+  password: z.string().min(10, "Password must be at least 10 characters"),
 });
 
 export const insertListingSchema = createInsertSchema(listings).omit({

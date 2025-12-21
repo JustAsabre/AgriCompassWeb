@@ -33,7 +33,7 @@ describe('File Upload API', () => {
       .post('/api/auth/register')
       .send({
         email,
-        password: 'password123',
+        password: 'password1234',
         fullName: 'Upload Test Farmer',
         role: 'farmer',
       });
@@ -50,7 +50,7 @@ describe('File Upload API', () => {
 
     const loginRes = await agent
       .post('/api/auth/login')
-      .send({ email, password: 'password123' });
+      .send({ email, password: 'password1234' });
     expect(loginRes.status).toBe(200);
   });
 

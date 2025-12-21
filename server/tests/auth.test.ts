@@ -38,7 +38,7 @@ describe('Authentication API', () => {
         .post('/api/auth/register')
         .send({
           email: 'test@example.com',
-          password: 'password123',
+          password: 'password1234',
           fullName: 'Test User',
           role: 'farmer',
         });
@@ -59,7 +59,7 @@ describe('Authentication API', () => {
         .post('/api/auth/register')
         .send({
           email: 'duplicate@example.com',
-          password: 'password123',
+          password: 'password1234',
           fullName: 'User One',
           role: 'buyer',
         });
@@ -86,7 +86,7 @@ describe('Authentication API', () => {
         .post('/api/auth/register')
         .send({
           email: 'login@example.com',
-          password: 'password123',
+          password: 'password1234',
           fullName: 'Login User',
           role: 'buyer',
         });
@@ -103,7 +103,7 @@ describe('Authentication API', () => {
         .post('/api/auth/login')
         .send({
           email: 'login@example.com',
-          password: 'password123',
+          password: 'password1234',
         });
 
       expect(response.status).toBe(200);
@@ -125,12 +125,12 @@ describe('Authentication API', () => {
     it('does not create duplicate sessions when already logged in', async () => {
       const first = await request(app)
         .post('/api/auth/login')
-        .send({ email: 'login@example.com', password: 'password123' });
+        .send({ email: 'login@example.com', password: 'password1234' });
       expect(first.status).toBe(200);
       const cookie = first.headers['set-cookie'];
 
       // Call login again using the same session cookie - the server should return the existing user
-      const second = await request(app).post('/api/auth/login').set('Cookie', cookie).send({ email: 'login@example.com', password: 'password123' });
+      const second = await request(app).post('/api/auth/login').set('Cookie', cookie).send({ email: 'login@example.com', password: 'password1234' });
       expect(second.status).toBe(200);
       expect(second.body.user.email).toBe('login@example.com');
     });

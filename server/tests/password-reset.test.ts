@@ -62,7 +62,7 @@ describe('Password Reset API', () => {
         .post('/api/auth/register')
         .send({
           email: 'reset-user@example.com',
-          password: 'password123',
+          password: 'password1234',
           fullName: 'Reset User',
           role: 'buyer',
         });
@@ -86,7 +86,7 @@ describe('Password Reset API', () => {
     it('rejects invalid token', async () => {
       const res = await request(app)
         .post('/api/auth/reset-password')
-        .send({ token: 'invalid-token', newPassword: 'newpassword123' });
+        .send({ token: 'invalid-token', newPassword: 'newpassword1234' });
 
       expect(res.status).toBe(400);
     });
@@ -105,7 +105,7 @@ describe('Password Reset API', () => {
         .post('/api/auth/register')
         .send({
           email: 'expired-token@example.com',
-          password: 'password123',
+          password: 'password1234',
           fullName: 'Expired Token User',
           role: 'buyer',
         });
@@ -121,7 +121,7 @@ describe('Password Reset API', () => {
 
       const res = await request(app)
         .post('/api/auth/reset-password')
-        .send({ token, newPassword: 'newpassword123' });
+        .send({ token, newPassword: 'newpassword1234' });
 
       expect(res.status).toBe(400);
     });
@@ -132,7 +132,7 @@ describe('Password Reset API', () => {
         .post('/api/auth/register')
         .send({
           email: 'valid-reset@example.com',
-          password: 'password123',
+          password: 'password1234',
           fullName: 'Valid Reset User',
           role: 'buyer',
         });
@@ -159,14 +159,14 @@ describe('Password Reset API', () => {
 
       const res = await request(app)
         .post('/api/auth/reset-password')
-        .send({ token, newPassword: 'newpassword123' });
+        .send({ token, newPassword: 'newpassword1234' });
 
       expect(res.status).toBe(200);
 
       // Verify token cleared and password changed by logging in
       const loginRes = await request(app)
         .post('/api/auth/login')
-        .send({ email: 'valid-reset@example.com', password: 'newpassword123' });
+        .send({ email: 'valid-reset@example.com', password: 'newpassword1234' });
 
       expect(loginRes.status).toBe(200);
 

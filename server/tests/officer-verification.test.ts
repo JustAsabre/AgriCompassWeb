@@ -28,7 +28,7 @@ describe('Officer verifications', () => {
     const { agent: officerAgent } = await registerAndLoginAgent(app, 'field_officer');
 
     // Create a farmer but don't submit verification
-    await request(app).post('/api/auth/register').send({ email: `nofarm+${Date.now()}@test.com`, password: 'password', fullName: 'No Farm', role: 'farmer' });
+    await request(app).post('/api/auth/register').send({ email: `nofarm+${Date.now()}@test.com`, password: 'password1234', fullName: 'No Farm', role: 'farmer' });
 
     // Create another farmer and submit verification
     const { agent: farmerAgent, email: farmerEmail } = await registerAndLoginAgent(app, 'farmer');

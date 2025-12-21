@@ -92,8 +92,8 @@ describe('Webhook Security Tests', () => {
         .set(signedRequest.headers)
         .send(signedRequest.body);
 
-      expect(response.status).toBe(500);
-      expect(response.body.message).toBe('Webhook configuration error');
+      expect(response.status).toBe(401);
+      expect(response.body.message).toBe('Webhook signature verification required');
     });
 
     it('handles malformed webhook payloads gracefully', async () => {

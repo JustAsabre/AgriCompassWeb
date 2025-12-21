@@ -78,14 +78,14 @@ describe('Wallet withdrawals + admin stats API', () => {
     const email = 'recipientfarmer@test.com';
     const farmerRes = await request(app).post('/api/auth/register').send({
       email,
-      password: 'password123',
+      password: 'password1234',
       fullName: 'Recipient Farmer',
       role: 'farmer',
     });
     expect(farmerRes.status).toBe(201);
     await verifyEmail(email);
 
-    const loginRes = await request(app).post('/api/auth/login').send({ email, password: 'password123' });
+    const loginRes = await request(app).post('/api/auth/login').send({ email, password: 'password1234' });
     const cookie = loginRes.headers['set-cookie'];
     expect(loginRes.status).toBe(200);
     expect(cookie).toBeDefined();
@@ -119,14 +119,14 @@ describe('Wallet withdrawals + admin stats API', () => {
     const email = 'withdrawsuccess@test.com';
     const farmerRes = await request(app).post('/api/auth/register').send({
       email,
-      password: 'password123',
+      password: 'password1234',
       fullName: 'Withdraw Farmer',
       role: 'farmer',
     });
     expect(farmerRes.status).toBe(201);
     await verifyEmail(email);
 
-    const loginRes = await request(app).post('/api/auth/login').send({ email, password: 'password123' });
+    const loginRes = await request(app).post('/api/auth/login').send({ email, password: 'password1234' });
     const cookie = loginRes.headers['set-cookie'];
     expect(loginRes.status).toBe(200);
     expect(cookie).toBeDefined();
@@ -158,14 +158,14 @@ describe('Wallet withdrawals + admin stats API', () => {
     const email = 'admin_stats@test.com';
     const adminRes = await request(app).post('/api/auth/register').send({
       email,
-      password: 'password123',
+      password: 'password1234',
       fullName: 'Admin Stats',
       role: 'admin',
     });
     expect(adminRes.status).toBe(201);
     await verifyEmail(email);
 
-    const loginRes = await request(app).post('/api/auth/login').send({ email, password: 'password123' });
+    const loginRes = await request(app).post('/api/auth/login').send({ email, password: 'password1234' });
     const cookie = loginRes.headers['set-cookie'];
     expect(loginRes.status).toBe(200);
     expect(cookie).toBeDefined();

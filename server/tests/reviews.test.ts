@@ -35,7 +35,7 @@ describe("Reviews API", () => {
     await registerRoutes(app, httpServer);
 
     // Create test users
-    const hashedPassword = await hashPassword("password123");
+    const hashedPassword = await hashPassword("password1234");
     const farmer = await storage.createUser({
       email: `farmer-review-${Date.now()}@test.com`,
       password: hashedPassword,
@@ -67,19 +67,19 @@ describe("Reviews API", () => {
     // Login and get cookies
     const farmerLogin = await request(app)
       .post("/api/auth/login")
-      .send({ email: farmer.email, password: "password123" });
+      .send({ email: farmer.email, password: "password1234" });
     farmerCookie = farmerLogin.headers['set-cookie'];
     if (!farmerCookie) throw new Error("Farmer login failed - no cookie");
 
     const buyerLogin = await request(app)
       .post("/api/auth/login")
-      .send({ email: buyer.email, password: "password123" });
+      .send({ email: buyer.email, password: "password1234" });
     buyerCookie = buyerLogin.headers['set-cookie'];
     if (!buyerCookie) throw new Error("Buyer login failed - no cookie");
 
     const adminLogin = await request(app)
       .post("/api/auth/login")
-      .send({ email: admin.email, password: "password123" });
+      .send({ email: admin.email, password: "password1234" });
     adminCookie = adminLogin.headers['set-cookie'];
     if (!adminCookie) throw new Error("Admin login failed - no cookie");
 
@@ -238,7 +238,7 @@ describe("Reviews API", () => {
       // Create another user
       const otherUser = await storage.createUser({
         email: `other-${Date.now()}@test.com`,
-        password: await hashPassword("password123"),
+        password: await hashPassword("password1234"),
         fullName: "Other User",
         role: "buyer",
       });
@@ -246,7 +246,7 @@ describe("Reviews API", () => {
 
       const otherLogin = await request(app)
         .post("/api/auth/login")
-        .send({ email: otherUser.email, password: "password123" });
+        .send({ email: otherUser.email, password: "password1234" });
       const otherCookie = otherLogin.headers['set-cookie'];
       if (!otherCookie) throw new Error("Other user login failed - no cookie");
 
@@ -330,7 +330,7 @@ describe("Reviews API", () => {
       // Create another user
       const otherUser = await storage.createUser({
         email: `other-review-${Date.now()}@test.com`,
-        password: await hashPassword("password123"),
+        password: await hashPassword("password1234"),
         fullName: "Other User",
         role: "buyer",
       });
@@ -338,7 +338,7 @@ describe("Reviews API", () => {
 
       const otherLogin = await request(app)
         .post("/api/auth/login")
-        .send({ email: otherUser.email, password: "password123" });
+        .send({ email: otherUser.email, password: "password1234" });
       const otherCookie = otherLogin.headers['set-cookie'];
       if (!otherCookie) throw new Error("Other user login failed - no cookie");
 
@@ -348,7 +348,7 @@ describe("Reviews API", () => {
         .send({ rating: 3, comment: "Test" })
         .expect(403);
 
-      expect(response.body.message).toBe("Not authorized to review this order");
+      expect(response.body.message).toBe("Only buyers can review orders");
     });
 
     it("rejects review for non-existent order", async () => {

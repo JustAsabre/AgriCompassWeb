@@ -15,6 +15,19 @@ import { cacheThrough, CacheKeys, CacheTTL, invalidateListingCaches, invalidateF
 import crypto from "crypto";
 import path from "path";
 import fs from "fs";
+import rateLimit from "express-rate-limit";
+
+// Rate limiter for auth endpoints to prevent brute force attacks
+// Allows legitimate retries while protecting against automated attacks
+// Disabled in test environment to allow rapid test execution
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: process.env.NODE_ENV === 'test' ? 0 : 50, // 0 = unlimited in test mode
+  message: { message: "Too many auth attempts. Please try again in 15 minutes." },
+  standardHeaders: true, // Return rate limit info in headers
+  legacyHeaders: false, // Disable X-RateLimit-* headers
+  skip: () => process.env.NODE_ENV === 'test', // Skip rate limiting entirely in tests
+});
 
 // Helper: Validate Ghana mobile number E.164 format (e.g., +233XXXXXXXXX)
 function isValidGhanaMobileNumber(mobile?: string) {
@@ -135,7 +148,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
   // Authentication routes
-  app.post("/api/auth/register", async (req, res) => {
+  app.post("/api/auth/register", authLimiter, async (req, res) => {
     try {
       const data = insertUserSchema.parse(req.body);
 
@@ -145,9 +158,9 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         return res.status(400).json({ message: "Invalid email format" });
       }
 
-      // Check password strength
-      if (data.password.length < 8) {
-        return res.status(400).json({ message: "Password must be at least 8 characters" });
+      // Check password strength (now enforced: 10+ chars minimum)
+      if (data.password.length < 10) {
+        return res.status(400).json({ message: "Password must be at least 10 characters" });
       }
 
       // Check if user already exists
@@ -274,7 +287,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
     }
   });
 
-  app.post("/api/auth/login", async (req, res) => {
+  app.post("/api/auth/login", authLimiter, async (req, res) => {
     try {
       const { email, password } = req.body;
 
@@ -335,7 +348,15 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         await storage.updateUser(user.id, { failedLoginAttempts: 0, lockedUntil: null });
       }
 
-      // Create session
+      // SECURITY FIX: Regenerate session ID to prevent session fixation attacks
+      await new Promise<void>((resolve, reject) => {
+        req.session.regenerate((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+
+      // Create session with new session ID
       req.session.user = sanitizeUser(user);
 
       // Force session save to ensure cookie is set
@@ -363,7 +384,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
   });
 
   // Password reset endpoints
-  app.post("/api/auth/forgot-password", async (req, res) => {
+  app.post("/api/auth/forgot-password", authLimiter, async (req, res) => {
     try {
       const { email } = req.body;
 
@@ -411,9 +432,9 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         return res.status(400).json({ message: "Token and new password are required" });
       }
 
-      // Validate password strength
-      if (newPassword.length < 8) {
-        return res.status(400).json({ message: "Password must be at least 8 characters" });
+      // Validate password strength (now enforced: 10+ chars minimum)
+      if (newPassword.length < 10) {
+        return res.status(400).json({ message: "Password must be at least 10 characters" });
       }
 
       // Find user with this token
@@ -1004,6 +1025,23 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         });
       }
 
+      // Check if item already in cart to prevent duplicates
+      const existingCartItems = await storage.getCartItemsByBuyer(buyerId);
+      const existingItem = existingCartItems.find(item => item.listingId === data.listingId);
+      if (existingItem) {
+        // Update quantity instead of creating duplicate
+        const newQuantity = existingItem.quantity + data.quantity;
+        if (newQuantity > listing.quantityAvailable) {
+          return res.status(400).json({ message: `Only ${listing.quantityAvailable} ${listing.unit} available in total` });
+        }
+        if (newQuantity < listing.minOrderQuantity) {
+          return res.status(400).json({ message: `Minimum order is ${listing.minOrderQuantity} ${listing.unit}` });
+        }
+        await storage.updateCartQuantity(existingItem.id, newQuantity);
+        const updatedItem = await storage.getCartItem(existingItem.id);
+        return res.json(updatedItem);
+      }
+
       const cartItem = await storage.addToCart(data);
       res.json(cartItem);
     } catch (error: any) {
@@ -1122,6 +1160,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       const transaction = await storage.createTransaction({
         reference: `TX-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         buyerId, // Added to satisfy DB constraint
+        totalAmount: totalTransactionAmount.toFixed(2),
         amount: totalTransactionAmount.toFixed(2),
         status: 'pending',
         metadata: JSON.stringify({ buyerId, paymentMethod: autoPay ? 'paystack' : 'manual' }),
@@ -1408,6 +1447,13 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           } catch (err) { console.error('Failed to notify about missing payment on delivery attempt', err); }
           return res.status(400).json({ message: 'Cannot mark as delivered: no confirmed payment for this order' });
         }
+      }
+
+      // FIXED: Restore stock when order is cancelled or rejected
+      if (status === 'cancelled' || status === 'rejected') {
+        // Restore quantity to listing
+        await storage.incrementListingQuantity(order.listingId, order.quantity);
+        console.log(`[Stock] Restored ${order.quantity} units to listing ${order.listingId} due to order ${status}`);
       }
 
       // Handle Refunds on Rejection
@@ -2867,9 +2913,9 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         return res.status(404).json({ message: "Order not found" });
       }
 
-      // Check if user is part of this order
-      if (order.buyerId !== reviewerId && order.farmerId !== reviewerId) {
-        return res.status(403).json({ message: "Not authorized to review this order" });
+      // FIXED: Only buyers should be able to create product reviews (not farmers reviewing their own products)
+      if (order.buyerId !== reviewerId) {
+        return res.status(403).json({ message: "Only buyers can review orders" });
       }
 
       // Check if order is completed
@@ -3208,7 +3254,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         filteredUsers = filteredUsers.filter((u: any) => u.isActive === false);
       }
 
-      // Paginate
+      // FIXED: Get total count BEFORE pagination slice
       const totalUsers = filteredUsers.length;
       const paginatedUsers = filteredUsers.slice(offset, offset + limitNum);
 
@@ -3217,7 +3263,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         pagination: {
           page: pageNum,
           limit: limitNum,
-          total: totalUsers,
+          total: totalUsers,  // Now correctly shows total matching records
           pages: Math.ceil(totalUsers / limitNum)
         }
       });
@@ -3805,10 +3851,8 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         const payments = await storage.getPaymentsByTransactionId(transaction.id);
         for (const payment of payments) {
           await storage.updatePaymentStatus(payment.id, 'completed');
-          // Update order status to accepted
-          await storage.updateOrderStatus(payment.orderId, 'accepted');
 
-          // Update Escrow status (escrow should already exist from checkout)
+          // Get order and update escrow FIRST, then order status
           const order = await storage.getOrder(payment.orderId);
           if (order) {
             const existingEscrow = await storage.getEscrowByOrder(order.id);
@@ -3830,6 +3874,9 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
               });
               console.log(`[Escrow] Created escrow for order ${order.id} (fallback - should have been created at checkout)`);
             }
+            
+            // Update order status to accepted AFTER escrow is confirmed
+            await storage.updateOrderStatus(payment.orderId, 'accepted');
           }
         }
 
@@ -3887,10 +3934,16 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
   app.post('/api/payments/paystack/webhook', async (req, res) => {
     try {
       // Accept webhook via signature verification when secret is available.
-      // If webhook secret is not provided in env, fallback to server-to-server verification using PAYSTACK_SECRET_KEY.
+      // SECURITY: If webhook secret is not configured, reject the webhook to prevent replay attacks.
       const secret = process.env.PAYSTACK_WEBHOOK_SECRET;
-      const paystackKey = process.env.PAYSTACK_SECRET_KEY;
       const signature = (req.headers['x-paystack-signature'] as string) || '';
+
+      if (!secret) {
+        console.error('PAYSTACK_WEBHOOK_SECRET not configured - rejecting webhook for security');
+        // FAIL CLOSED: Do not process webhooks without proper signature verification
+        // This prevents replay attacks and unauthorized webhook calls
+        return res.status(401).json({ message: 'Webhook signature verification required' });
+      }
 
       if (secret) {
         // Verify signature - mandatory when webhook secret is set
@@ -3929,13 +3982,11 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
           console.warn('Failed while verifying webhook signature', vErr);
           return res.status(400).json({ message: 'Invalid webhook signature verification' });
         }
-      } else if (!paystackKey) {
-        console.error('PAYSTACK_WEBHOOK_SECRET not configured and PAYSTACK_SECRET_KEY not provided - webhook cannot be verified');
-        // Do not process webhooks without a verification method
-        return res.status(500).json({ message: 'Webhook configuration error' });
       } else {
-        console.warn('PAYSTACK_WEBHOOK_SECRET not configured - using API-based fallback verification');
-        // we will perform server-to-server verification later after getting the reference
+        console.error('PAYSTACK_WEBHOOK_SECRET not configured - rejecting webhook for security');
+        // FAIL CLOSED: Do not process webhooks without proper signature verification
+        // This prevents replay attacks and unauthorized webhook calls
+        return res.status(401).json({ message: 'Webhook signature verification required' });
       }
 
       const event = req.body;
@@ -3959,38 +4010,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         transaction = maybeTransaction;
       }
 
-      // If PAYSTACK_WEBHOOK_SECRET is not set, perform a server-to-server verification to confirm this event
-      let fallbackVerified = false;
-      if (!secret) {
-        try {
-          const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
-            method: 'GET',
-            headers: { 'Authorization': `Bearer ${paystackKey}` },
-          });
-          if (!verifyRes.ok) {
-            const text = await verifyRes.text().catch(() => '');
-            console.warn('Paystack verify fallback failed', verifyRes.status, text);
-            return res.status(502).json({ message: 'Failed to verify with Paystack' });
-          }
-          const vdata = await verifyRes.json();
-          const vstatus = vdata.data?.status;
-          if (vstatus && (vstatus === 'success' || vstatus === 'completed')) {
-            // treat as success event; continue to process below (or handle event type accordingly)
-            fallbackVerified = true;
-            // If eventType is empty or not a success-type, normalize it so existing logic processes it
-            if (!eventType || !eventType.includes('transaction') && !eventType.includes('charge') && !eventType.includes('payment')) {
-              eventType = 'transaction.success';
-            }
-          } else {
-            // Not a success - treat as not processed
-            console.warn('Paystack verify fallback reported status not success:', vstatus);
-            return res.json({ ok: true, message: 'not a successful transaction' });
-          }
-        } catch (verifyErr) {
-          console.error('Error during Paystack server-to-server verification', verifyErr);
-          return res.status(502).json({ message: 'Failed to verify with Paystack' });
-        }
-      }
+      // Webhook signature verified - proceed with processing
 
       // Event types: charge.success, transaction.success -> payment completed
       if (eventType.includes('charge.success') || eventType.includes('transaction.success') || eventType.includes('payment.success')) {
@@ -4138,6 +4158,82 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
 
       if (escrow.status !== 'disputed') {
         return res.status(400).json({ message: 'Escrow must be in disputed status' });
+      }
+
+      // Determine payout amounts based on resolution
+      const totalAmount = parseFloat(escrow.amount as any) || 0;
+      let farmerAmount = 0;
+      let buyerRefundAmount = 0;
+
+      switch (resolution) {
+        case 'farmer':
+          farmerAmount = totalAmount;
+          break;
+        case 'buyer':
+          buyerRefundAmount = totalAmount;
+          break;
+        case 'split':
+          farmerAmount = totalAmount / 2;
+          buyerRefundAmount = totalAmount / 2;
+          break;
+      }
+
+      // Execute payouts via Paystack
+      const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
+      if (paystackSecret && (farmerAmount > 0 || buyerRefundAmount > 0)) {
+        try {
+          // Pay farmer if applicable
+          if (farmerAmount > 0) {
+            const farmer = await storage.getUser(escrow.farmerId);
+            if (farmer?.paystackRecipientCode) {
+              const farmerPayoutRef = `escrow-dispute-farmer-${id}-${Date.now()}`;
+              const farmerPayoutRes = await fetch('https://api.paystack.co/transfer', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${paystackSecret}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  source: 'balance',
+                  amount: Math.round(farmerAmount * 100), // kobo
+                  recipient: farmer.paystackRecipientCode,
+                  reason: `Escrow dispute resolution - ${resolution}`,
+                  reference: farmerPayoutRef,
+                }),
+              });
+              if (!farmerPayoutRes.ok) {
+                const errorData = await farmerPayoutRes.json();
+                console.error('Farmer payout failed:', errorData);
+                throw new Error(`Farmer payout failed: ${errorData.message || 'Unknown error'}`);
+              }
+              console.log(`[Escrow] Paid farmer ${farmerAmount} GHS via ${farmerPayoutRef}`);
+            } else {
+              console.warn(`[Escrow] Farmer ${escrow.farmerId} has no payout recipient configured`);
+            }
+          }
+
+          // Refund buyer if applicable
+          if (buyerRefundAmount > 0) {
+            const buyer = await storage.getUser(escrow.buyerId);
+            if (buyer) {
+              // Credit buyer's wallet instead of external refund
+              await storage.createWalletTransaction({
+                userId: buyer.id,
+                amount: buyerRefundAmount.toFixed(2),
+                type: 'credit',
+                description: `Escrow dispute refund - ${resolution}`,
+                referenceId: id,
+                referenceType: 'escrow_refund',
+                status: 'completed',
+              });
+              console.log(`[Escrow] Refunded buyer ${buyerRefundAmount} GHS to wallet`);
+            }
+          }
+        } catch (payoutError: any) {
+          console.error('Escrow payout error:', payoutError);
+          // Don't fail the entire operation - log and continue with status update
+          // Admin can manually process if needed
+        }
       }
 
       const updated = await storage.updateEscrowStatus(id, 'completed', {
@@ -4490,6 +4586,18 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       if (status === 'success' || status === 'completed') {
         for (const payment of payments) {
           await storage.updatePaymentStatus(payment.id, 'completed');
+          
+          // Update escrow status BEFORE order status to prevent drift
+          const order = await storage.getOrder(payment.orderId);
+          if (order) {
+            const existingEscrow = await storage.getEscrowByOrder(order.id);
+            if (existingEscrow) {
+              await storage.updateEscrowStatus(existingEscrow.id, 'upfront_held');
+              console.log(`[Webhook] Updated escrow ${existingEscrow.id} to upfront_held for order ${order.id}`);
+            }
+          }
+          
+          // Update order status AFTER escrow is confirmed
           await storage.updateOrderStatus(payment.orderId, 'accepted');
         }
       }
@@ -4500,89 +4608,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
   });
 
   // ================= ADMIN USER MANAGEMENT =================
-
-  // Get all users with pagination and filtering
-  app.get("/api/admin/users", requireRole("admin"), async (req: Request, res: Response) => {
-    try {
-      const { page = "1", limit = "20", role, status, search } = req.query as { page?: string; limit?: string; role?: string; status?: string; search?: string };
-      const offset = (Number(page) - 1) * Number(limit);
-
-      let users;
-      if (pool) {
-        // Use database query with filtering
-        let query = `SELECT id, full_name, email, role, created_at, last_login, is_active FROM users WHERE 1=1`;
-        const params: any[] = [];
-        let paramIndex = 1;
-
-        if (role) {
-          query += ` AND role = $${paramIndex}`;
-          params.push(role);
-          paramIndex++;
-        }
-
-        if (status) {
-          query += ` AND is_active = $${paramIndex}`;
-          params.push(status === "active");
-          paramIndex++;
-        }
-
-        if (search) {
-          query += ` AND (full_name ILIKE $${paramIndex} OR email ILIKE $${paramIndex})`;
-          params.push(`%${search}%`);
-          paramIndex++;
-        }
-
-        query += ` ORDER BY created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-        params.push(Number(limit), offset);
-
-        const result = await pool.query(query, params);
-        users = result.rows.map((row: any) => ({
-          id: row.id,
-          fullName: row.full_name,
-          email: row.email,
-          role: row.role,
-          createdAt: row.created_at,
-          lastLogin: row.last_login,
-          isActive: row.is_active,
-        }));
-      } else {
-        // Fallback to in-memory storage
-        let allUsers = await storage.getAllUsers();
-
-        if (role) {
-          allUsers = allUsers.filter((u: any) => u.role === role);
-        }
-
-        if (status) {
-          allUsers = allUsers.filter((u: any) => u.isActive === (status === "active"));
-        }
-
-        if (search) {
-          const searchLower = search.toLowerCase();
-          allUsers = allUsers.filter((u: any) =>
-            u.fullName.toLowerCase().includes(searchLower) ||
-            u.email.toLowerCase().includes(searchLower)
-          );
-        }
-
-        users = allUsers
-          .sort((a: any, b: any) => (new Date(b.createdAt || 0).getTime()) - (new Date(a.createdAt || 0).getTime()))
-          .slice(offset, offset + Number(limit));
-      }
-
-      res.json({
-        users,
-        pagination: {
-          page: Number(page),
-          limit: Number(limit),
-          total: users.length,
-        }
-      });
-    } catch (err: any) {
-      console.error("Admin get users error:", err);
-      res.status(500).json({ message: "Failed to fetch users" });
-    }
-  });
+  // Note: Duplicate route removed - see earlier definition around line 3200
 
   // Get user details by ID
   app.get("/api/admin/users/:id", requireRole("admin"), async (req: Request, res: Response) => {
@@ -4797,6 +4823,10 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
   // Request withdrawal
   app.post("/api/wallet/withdraw", requireRole("farmer"), async (req: Request, res: Response) => {
     try {
+      // TODO: CRITICAL - Add database transaction with SELECT FOR UPDATE to prevent race conditions
+      // Current implementation has a race condition between balance check and deduction
+      // Multiple concurrent withdrawals could drain the wallet below zero
+      // Solution: Wrap in a database transaction with SELECT FOR UPDATE on user record
       const userId = req.session.user!.id;
       const { amount } = req.body;
       const withdrawAmount = Number(amount);

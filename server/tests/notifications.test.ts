@@ -43,14 +43,14 @@ describe("Notifications API", () => {
   const registerAndLogin = async (email: string, role: string) => {
     const registerRes = await request(app)
       .post('/api/auth/register')
-      .send({ email, password: 'password123', fullName: 'Test User', role });
+      .send({ email, password: 'password1234', fullName: 'Test User', role });
     expect(registerRes.status).toBe(201);
 
     await verifyEmail(email);
 
     const loginRes = await request(app)
       .post('/api/auth/login')
-      .send({ email, password: 'password123' });
+      .send({ email, password: 'password1234' });
     expect(loginRes.status).toBe(200);
     const cookie = loginRes.headers['set-cookie'];
     expect(cookie).toBeDefined();

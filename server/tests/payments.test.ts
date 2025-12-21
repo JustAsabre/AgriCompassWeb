@@ -26,7 +26,7 @@ describe('Payments API', () => {
   ) {
     const registerRes = await request(app)
       .post('/api/auth/register')
-      .send({ email, password: 'password123', fullName, role });
+      .send({ email, password: 'password1234', fullName, role });
     if (registerRes.status !== 201) throw new Error(`Failed to register ${email}`);
 
     await verifyEmail(email);
@@ -39,7 +39,7 @@ describe('Payments API', () => {
 
     const loginRes = await request(app)
       .post('/api/auth/login')
-      .send({ email, password: 'password123' });
+      .send({ email, password: 'password1234' });
     if (loginRes.status !== 200) throw new Error(`Failed to log in ${email}`);
     return loginRes.headers['set-cookie'];
   }
@@ -257,6 +257,7 @@ describe('Payments API', () => {
     const transaction = await storage.createTransaction({
       reference: 'ref-wh-123',
       buyerId: orders[0].buyerId,
+      totalAmount: '5.00',
       amount: '5.00',
       status: 'pending',
       metadata: JSON.stringify({ buyerId: orders[0].buyerId, paymentMethod: 'paystack' }),
@@ -273,44 +274,22 @@ describe('Payments API', () => {
       status: 'pending' 
     } as any);
 
-    // Temporarily unset webhook secret to test fallback verification
+    // Test that webhooks are rejected when secret is not configured (fail-closed security)
     const originalSecret = process.env.PAYSTACK_WEBHOOK_SECRET;
-    const originalKey = process.env.PAYSTACK_SECRET_KEY;
     delete process.env.PAYSTACK_WEBHOOK_SECRET;
-    // Set PAYSTACK_SECRET_KEY for fallback verification
-    process.env.PAYSTACK_SECRET_KEY = 'test-paystack-secret';
-
-    // Mock fetch for Paystack verify API fallback
-    // @ts-ignore
-    const origFetch = global.fetch;
-    // @ts-ignore
-    global.fetch = vi.fn().mockImplementation(async (url: string) => {
-      if (url.includes('api.paystack.co/transaction/verify')) {
-        return {
-          ok: true,
-          json: async () => ({ data: { status: 'success' } })
-        };
-      }
-      return origFetch(url);
-    });
 
     try {
-      // Simulate webhook payload - should succeed with fallback verification
+      // Simulate webhook payload - should be REJECTED without webhook secret (security fix)
       const payload = { event: 'charge.success', data: { reference: 'ref-wh-123' } };
       const res = await request(app).post('/api/payments/paystack/webhook').send(payload);
-      expect(res.status).toBe(200); // Success with fallback verification
+      expect(res.status).toBe(401); // Rejected - fail closed for security
 
+      // Payment should NOT be updated (webhook was rejected)
       const updatedPayment = await storage.getPayment(createdPayment.id);
-      expect(updatedPayment?.status).toBe('completed'); // Payment updated via fallback
-
-      const order = await storage.getOrder(orderId);
-      expect(order?.status).toBe('accepted'); // Order updated
+      expect(updatedPayment?.status).toBe('pending'); // Still pending - not processed
     } finally {
-      // Restore the webhook secret and key
+      // Restore the webhook secret
       process.env.PAYSTACK_WEBHOOK_SECRET = originalSecret;
-      process.env.PAYSTACK_SECRET_KEY = originalKey;
-      // @ts-ignore
-      global.fetch = origFetch;
     }
   }, 20000);
 

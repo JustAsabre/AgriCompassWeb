@@ -21,7 +21,7 @@ export async function registerAndLoginAgent(
   options?: RegisterAndLoginOptions
 ) {
   const uniqueEmail = email ?? `${role}+${Date.now()}@test.com`;
-  const password = options?.password ?? 'password';
+  const password = options?.password ?? 'password1234';
   const fullName = options?.fullName ?? `Test ${role}`;
 
   const agent = request.agent(app);

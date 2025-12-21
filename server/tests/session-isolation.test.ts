@@ -50,7 +50,7 @@ describe('Session Isolation Security Tests', () => {
         .post('/api/auth/register')
         .send({
           email: 'user1@example.com',
-          password: 'password123',
+          password: 'password1234',
           fullName: 'User One',
           role: 'farmer',
         });
@@ -59,7 +59,7 @@ describe('Session Isolation Security Tests', () => {
         .post('/api/auth/register')
         .send({
           email: 'user2@example.com',
-          password: 'password123',
+          password: 'password1234',
           fullName: 'User Two',
           role: 'buyer',
         });
@@ -78,14 +78,14 @@ describe('Session Isolation Security Tests', () => {
         .post('/api/auth/login')
         .send({
           email: 'user1@example.com',
-          password: 'password123',
+          password: 'password1234',
         });
 
       const login2Response = await agent2
         .post('/api/auth/login')
         .send({
           email: 'user2@example.com',
-          password: 'password123',
+          password: 'password1234',
         });
 
       expect(login1Response.status).toBe(200);
@@ -125,7 +125,7 @@ describe('Session Isolation Security Tests', () => {
           .post('/api/auth/register')
           .send({
             email: user.email,
-            password: 'password123',
+            password: 'password1234',
             fullName: user.name,
             role: user.role,
           });
@@ -145,7 +145,7 @@ describe('Session Isolation Security Tests', () => {
           .post('/api/auth/login')
           .send({
             email: user.email,
-            password: 'password123',
+            password: 'password1234',
           })
       );
 
@@ -178,7 +178,7 @@ describe('Session Isolation Security Tests', () => {
         .post('/api/auth/register')
         .send({
           email: 'sessionfix@example.com',
-          password: 'password123',
+          password: 'password1234',
           fullName: 'Session Fix Test',
           role: 'farmer',
         });
@@ -194,7 +194,7 @@ describe('Session Isolation Security Tests', () => {
         .post('/api/auth/login')
         .send({
           email: 'sessionfix@example.com',
-          password: 'password123',
+          password: 'password1234',
         });
 
       expect(loginResponse.status).toBe(200);
@@ -223,7 +223,7 @@ describe('Session Isolation Security Tests', () => {
         .post('/api/auth/register')
         .send({
           email: 'sessionexp@example.com',
-          password: 'password123',
+          password: 'password1234',
           fullName: 'Session Exp Test',
           role: 'buyer',
         });
@@ -236,7 +236,7 @@ describe('Session Isolation Security Tests', () => {
         .post('/api/auth/login')
         .send({
           email: 'sessionexp@example.com',
-          password: 'password123',
+          password: 'password1234',
         });
 
       expect(loginResponse.status).toBe(200);

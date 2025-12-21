@@ -34,13 +34,13 @@ describe('Admin revenue & active-sellers API', () => {
   const registerVerifyLogin = async (email: string, role: string, fullName: string) => {
     const registerRes = await request(app)
       .post('/api/auth/register')
-      .send({ email, password: 'password123', fullName, role });
+      .send({ email, password: 'password1234', fullName, role });
     expect(registerRes.status).toBe(201);
     await verifyEmail(email);
 
     const loginRes = await request(app)
       .post('/api/auth/login')
-      .send({ email, password: 'password123' });
+      .send({ email, password: 'password1234' });
     expect(loginRes.status).toBe(200);
     const setCookie = loginRes.headers['set-cookie']?.[0];
     expect(setCookie).toBeDefined();

@@ -63,11 +63,11 @@ describe('Wallet withdrawals API', () => {
     const farmerEmail = 'withdraw_farmer@test.com';
     const farmerRes = await request(app)
       .post('/api/auth/register')
-      .send({ email: farmerEmail, password: 'password123', fullName: 'Withdraw Farmer', role: 'farmer' });
+      .send({ email: farmerEmail, password: 'password1234', fullName: 'Withdraw Farmer', role: 'farmer' });
     expect(farmerRes.status).toBe(201);
     await verifyEmail(farmerEmail);
 
-    const loginRes = await request(app).post('/api/auth/login').send({ email: farmerEmail, password: 'password123' });
+    const loginRes = await request(app).post('/api/auth/login').send({ email: farmerEmail, password: 'password1234' });
     const cookie = loginRes.headers['set-cookie'];
     expect(loginRes.status).toBe(200);
     expect(cookie).toBeDefined();
@@ -108,10 +108,10 @@ describe('Wallet withdrawals API', () => {
 
   it('rejects withdrawal when payout settings are not configured', async () => {
     const email = 'withdraw_no_settings@test.com';
-    const registerRes = await request(app).post('/api/auth/register').send({ email, password: 'password123', fullName: 'No Settings', role: 'farmer' });
+    const registerRes = await request(app).post('/api/auth/register').send({ email, password: 'password1234', fullName: 'No Settings', role: 'farmer' });
     expect(registerRes.status).toBe(201);
     await verifyEmail(email);
-    const loginRes = await request(app).post('/api/auth/login').send({ email, password: 'password123' });
+    const loginRes = await request(app).post('/api/auth/login').send({ email, password: 'password1234' });
     const cookie = loginRes.headers['set-cookie'];
     expect(loginRes.status).toBe(200);
     expect(cookie).toBeDefined();
@@ -142,10 +142,10 @@ describe('Wallet withdrawals API', () => {
 
   it('rejects withdrawal when funds are insufficient', async () => {
     const email = 'withdraw_insufficient@test.com';
-    const registerRes = await request(app).post('/api/auth/register').send({ email, password: 'password123', fullName: 'Insufficient', role: 'farmer' });
+    const registerRes = await request(app).post('/api/auth/register').send({ email, password: 'password1234', fullName: 'Insufficient', role: 'farmer' });
     expect(registerRes.status).toBe(201);
     await verifyEmail(email);
-    const loginRes = await request(app).post('/api/auth/login').send({ email, password: 'password123' });
+    const loginRes = await request(app).post('/api/auth/login').send({ email, password: 'password1234' });
     const cookie = loginRes.headers['set-cookie'];
     expect(loginRes.status).toBe(200);
     expect(cookie).toBeDefined();
@@ -192,10 +192,10 @@ describe('Wallet withdrawals API', () => {
     });
 
     const email = 'withdraw_transfer_fail@test.com';
-    const registerRes = await request(app).post('/api/auth/register').send({ email, password: 'password123', fullName: 'Transfer Fail', role: 'farmer' });
+    const registerRes = await request(app).post('/api/auth/register').send({ email, password: 'password1234', fullName: 'Transfer Fail', role: 'farmer' });
     expect(registerRes.status).toBe(201);
     await verifyEmail(email);
-    const loginRes = await request(app).post('/api/auth/login').send({ email, password: 'password123' });
+    const loginRes = await request(app).post('/api/auth/login').send({ email, password: 'password1234' });
     const cookie = loginRes.headers['set-cookie'];
     expect(loginRes.status).toBe(200);
     expect(cookie).toBeDefined();
