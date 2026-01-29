@@ -10,9 +10,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { ShieldCheck, User, MapPin, Calendar, FileText, CheckCircle, XCircle, Clock } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
 import { motion } from "framer-motion";
 import { fadeIn, staggerContainer } from "@/lib/animations";
+import { safeFormatDistanceToNow } from "@/lib/date-utils";
 
 interface Verification {
   id: string;
@@ -21,8 +21,9 @@ interface Verification {
   status: string;
   notes: string | null;
   documentUrl: string | null;
-  verifiedAt: Date | null;
-  createdAt: Date;
+  submittedAt: string | Date | null;
+  reviewedAt: string | Date | null;
+  verifiedAt: string | Date | null;
   farmer: {
     id: string;
     fullName: string;
@@ -150,7 +151,7 @@ export default function VerificationsList() {
             <Label className="text-muted-foreground">Submitted</Label>
             <p className="flex items-center gap-1">
               <Calendar className="h-3 w-3" />
-              {formatDistanceToNow(new Date(verification.createdAt), { addSuffix: true })}
+              {safeFormatDistanceToNow(verification.submittedAt)}
             </p>
           </div>
         </div>

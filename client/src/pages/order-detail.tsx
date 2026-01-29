@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { safeLocaleDateString } from "@/lib/date-utils";
 import { formatCurrency } from "@/lib/currency";
 import { useToast } from "@/hooks/use-toast";
 import { ReviewForm } from "@/components/review-form";
@@ -373,7 +374,7 @@ export default function OrderDetail() {
             </Badge>
           </div>
           <p className="text-sm text-muted-foreground">
-            Placed on {new Date(order.createdAt).toLocaleDateString('en-US', {
+            Placed on {safeLocaleDateString(order.createdAt, 'en-US', {
               year: 'numeric',
               month: 'long',
               day: 'numeric',
@@ -595,7 +596,7 @@ export default function OrderDetail() {
                     <p className="text-muted-foreground">{existingReview.comment}</p>
                   )}
                   <p className="text-xs text-muted-foreground">
-                    Posted on {new Date(existingReview.createdAt).toLocaleDateString()}
+                    Posted on {safeLocaleDateString(existingReview.createdAt)}
                   </p>
                 </div>
               ) : (

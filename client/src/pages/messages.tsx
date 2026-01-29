@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Send, MessageSquare } from "lucide-react";
 import { useNotifications } from "@/lib/notifications";
 import type { Conversation, MessageWithUsers } from "@shared/schema";
-import { formatDistanceToNow } from "date-fns";
+import { safeFormatDistanceToNow } from "@/lib/date-utils";
 import {
   fadeInUp,
   staggerContainer,
@@ -277,9 +277,7 @@ export default function Messages() {
                               {conversation.lastMessage.content}
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              {formatDistanceToNow(new Date(conversation.lastMessage.createdAt!), {
-                                addSuffix: true,
-                              })}
+                              {safeFormatDistanceToNow(conversation.lastMessage.createdAt)}
                             </p>
                           </div>
                         </div>
@@ -353,9 +351,7 @@ export default function Messages() {
                                       : "text-muted-foreground"
                                   }`}
                                 >
-                                  {formatDistanceToNow(new Date(message.createdAt!), {
-                                    addSuffix: true,
-                                  })}
+                                  {safeFormatDistanceToNow(message.createdAt)}
                                 </p>
                               </div>
                             </motion.div>

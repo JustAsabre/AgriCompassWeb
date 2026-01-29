@@ -24,7 +24,7 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { RatingStars } from "@/components/rating-stars";
 import { ReviewWithUsers } from "@shared/schema";
-import { formatDistanceToNow } from "date-fns";
+import { safeFormatDistanceToNow } from "@/lib/date-utils";
 
 export default function AdminReviews() {
   const { toast } = useToast();
@@ -164,7 +164,7 @@ export default function AdminReviews() {
                           />
                           
                           <p className="text-sm text-muted-foreground mt-2">
-                            {review.createdAt && formatDistanceToNow(new Date(review.createdAt), { addSuffix: true })}
+                            {safeFormatDistanceToNow(review.createdAt)}
                           </p>
                         </div>
                       </div>

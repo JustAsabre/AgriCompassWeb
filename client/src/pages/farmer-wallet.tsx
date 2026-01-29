@@ -13,7 +13,7 @@ import {
     Building2,
     Smartphone
 } from "lucide-react";
-import { format } from "date-fns";
+import { safeFormat } from "@/lib/date-utils";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -376,7 +376,7 @@ export default function FarmerWallet() {
                                                 <div>
                                                     <p className="font-medium">{transaction.description}</p>
                                                     <p className="text-sm text-muted-foreground">
-                                                        {format(new Date(transaction.createdAt), "MMM d, yyyy • h:mm a")}
+                                                        {safeFormat(transaction.createdAt, "MMM d, yyyy • h:mm a")}
                                                     </p>
                                                 </div>
                                             </div>
@@ -431,7 +431,7 @@ export default function FarmerWallet() {
                                                 <div>
                                                     <p className="font-medium">Mobile Money Withdrawal</p>
                                                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                                        <span>{format(new Date(withdrawal.createdAt), "MMM d, yyyy")}</span>
+                                                        <span>{safeFormat(withdrawal.createdAt, "MMM d, yyyy")}</span>
                                                         <span>•</span>
                                                         <span className="capitalize">{withdrawal.mobileNetwork}</span>
                                                         <span>•</span>

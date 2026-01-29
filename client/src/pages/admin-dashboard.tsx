@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { queryClient, apiRequest } from '@/lib/queryClient';
 import { formatCurrency } from '@/lib/currency';
+import { safeLocaleDateString } from '@/lib/date-utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -1172,8 +1173,8 @@ function AdminDashboardContent() {
                           <span>Remaining: {formatCurrency(parseFloat(escrow.remainingAmount as any) || 0)}</span>
                         </div>
                         <div className="text-xs text-gray-500">
-                          Created: {new Date(escrow.createdAt).toLocaleDateString()}
-                          {escrow.disputedAt && ` | Disputed: ${new Date(escrow.disputedAt).toLocaleDateString()}`}
+                          Created: {safeLocaleDateString(escrow.createdAt)}
+                          {escrow.disputedAt && ` | Disputed: ${safeLocaleDateString(escrow.disputedAt)}`}
                         </div>
                       </div>
                       <div className="flex gap-2">
@@ -1504,7 +1505,7 @@ function AdminDashboardContent() {
                             {user.farmSize && <div>🌾 {user.farmSize}</div>}
                             <div>💰 Wallet: {formatCurrency(parseFloat(user.walletBalance || '0'))}</div>
                             <div className="text-xs text-gray-400">
-                              Joined: {new Date(user.createdAt).toLocaleDateString()}
+                              Joined: {safeLocaleDateString(user.createdAt)}
                             </div>
                           </div>
                         </div>

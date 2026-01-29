@@ -4,6 +4,36 @@ All notable changes to AgriCompass will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.9] - 2025-01-29
+### Fixed - Date Parsing Security & Stability 📅
+
+#### Critical Bug Fixes
+- **CRITICAL**: Fixed `RangeError: Invalid time value` on `/officer/verifications` page:
+  - Root cause: `verifications-list.tsx` used `createdAt` field but schema has `submittedAt`
+  - API returned `submittedAt` which was being accessed as undefined `createdAt`
+  - `new Date(undefined)` created invalid date causing date-fns to throw
+  - Affected 2 events, 1 user in production (Sentry Event ID: 7cbd3245)
+
+#### Safe Date Parsing Library
+- **NEW**: Created `client/src/lib/date-utils.ts` with defensive date parsing utilities:
+  - `safeParseDate(value)` - Validates and parses dates with null safety
+  - `safeFormatDistanceToNow(date)` - Safe relative time formatting (e.g., "2 hours ago")
+  - `safeFormat(date, formatStr)` - Safe date formatting with custom patterns
+  - `safeLocaleDateString(date, locale, options)` - Safe locale-aware date strings
+  - All functions use try/catch and `isValid()` checks to prevent runtime errors
+
+#### Files Fixed for Safe Date Handling
+- `verifications-list.tsx` - Changed `createdAt` → `submittedAt`, added null safety
+- `messages.tsx` - 2 locations with unsafe date parsing fixed
+- `admin-reviews.tsx` - Review timestamp formatting fixed
+- `farmer-wallet.tsx` - Transaction and withdrawal date formatting fixed
+- `admin-dashboard.tsx` - 3 locations: escrow dates, user joined dates fixed
+- `order-detail.tsx` - 2 locations: order placed date, review posted date fixed
+
+#### Dependency Updates
+- Ran `npm update` to patch minor/patch version vulnerabilities
+- Identified remaining major updates needed: `@neondatabase/serverless` 0.10→1.0, `express` 4→5, `redis` 4→5
+
 ## [1.9.8] - 2025-01-XX
 ### Fixed - Comprehensive Security & Bug Fixes 🔐
 
