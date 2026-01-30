@@ -1,13 +1,22 @@
 import nodemailer, { type Transporter } from 'nodemailer';
 import emailQueue from './emailQueue';
 
-// Email transporter (may be null if not configured). We support two modes:
-// 1) Generic SMTP via SMTP_HOST/SMTP_PORT/SMTP_SECURE + SMTP_USER/SMTP_PASS
-// 2) Gmail via SMTP_SERVICE=gmail with SMTP_USER/SMTP_PASS
+// Email transporter (may be null if not configured). We support three modes:
+// 1) SendGrid API via SENDGRID_API_KEY (preferred, works on all hosts)
+// 2) Generic SMTP via SMTP_HOST/SMTP_PORT/SMTP_SECURE + SMTP_USER/SMTP_PASS
+// 3) Gmail via SMTP_SERVICE=gmail with SMTP_USER/SMTP_PASS
 let transporter: Transporter | null = null;
 let lastVerifyError: Error | null = null;
 
 function createTransporterIfConfigured(): void {
+  // If SendGrid API key is configured, skip SMTP setup entirely
+  // SendGrid uses HTTPS API which works on all hosts including Render free tier
+  if (process.env.SENDGRID_API_KEY) {
+    console.log('SendGrid API key configured - using SendGrid for email delivery');
+    transporter = null; // Not needed, emailQueue handles SendGrid directly
+    return;
+  }
+
   const host = process.env.SMTP_HOST;
   const port = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined;
   const secureEnv = process.env.SMTP_SECURE;

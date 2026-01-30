@@ -2,6 +2,14 @@ import { setTimeout as wait } from 'timers/promises';
 import { type SentMessageInfo } from 'nodemailer';
 import { log } from './log';
 import nodemailer from 'nodemailer';
+import sgMail from '@sendgrid/mail';
+
+// Initialize SendGrid if API key is provided
+const sendgridApiKey = process.env.SENDGRID_API_KEY;
+if (sendgridApiKey) {
+  sgMail.setApiKey(sendgridApiKey);
+  log('SendGrid API configured');
+}
 
 type EmailJob = {
   id: string;
@@ -56,7 +64,32 @@ async function processQueue() {
 }
 
 async function attemptSend(job: EmailJob): Promise<SentMessageInfo | null> {
-  // Build a transporter locally using env vars (keeps queue independent)
+  const fromEmail = process.env.SMTP_FROM || process.env.SENDGRID_FROM || 'noreply@agricompass.com';
+  const fromName = process.env.SENDGRID_FROM_NAME || 'AgriCompass';
+  
+  // Priority 1: Use SendGrid API if configured (works on Render free tier)
+  if (process.env.SENDGRID_API_KEY) {
+    try {
+      const msg = {
+        to: job.to,
+        from: {
+          email: fromEmail,
+          name: fromName,
+        },
+        subject: job.subject,
+        html: job.html,
+      };
+      await sgMail.send(msg);
+      log(`Email sent via SendGrid API to ${job.to}`);
+      return { messageId: `sendgrid-${job.id}` } as SentMessageInfo;
+    } catch (err: any) {
+      const errorMessage = err?.response?.body?.errors?.[0]?.message || err?.message || String(err);
+      log(`SendGrid API error for job ${job.id}: ${errorMessage}`);
+      throw new Error(`SendGrid: ${errorMessage}`);
+    }
+  }
+
+  // Priority 2: Fall back to SMTP (may not work on some hosts like Render free tier)
   const host = process.env.SMTP_HOST;
   const port = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined;
   const secureEnv = process.env.SMTP_SECURE;
