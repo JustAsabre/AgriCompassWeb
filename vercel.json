@@ -7,15 +7,15 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://agricompassweb.fly.dev/api/:path*"
+      "destination": "https://agricompassweb.onrender.com/api/:path*"
     },
     {
       "source": "/socket.io/:path*",
-      "destination": "https://agricompassweb.fly.dev/socket.io/:path*"
+      "destination": "https://agricompassweb.onrender.com/socket.io/:path*"
     },
     {
       "source": "/uploads/:path*",
-      "destination": "https://agricompassweb.fly.dev/uploads/:path*"
+      "destination": "https://agricompassweb.onrender.com/uploads/:path*"
     },
     {
       "source": "/(.*)",
