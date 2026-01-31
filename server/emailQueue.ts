@@ -64,7 +64,12 @@ async function processQueue() {
 }
 
 async function attemptSend(job: EmailJob): Promise<SentMessageInfo | null> {
-  const fromEmail = process.env.SMTP_FROM || process.env.SENDGRID_FROM || 'noreply@agricompass.com';
+  // Determine from address based on which service we're using
+  // SendGrid requires a verified sender, so prioritize SENDGRID_FROM when using SendGrid
+  const usingSendGrid = !!process.env.SENDGRID_API_KEY;
+  const fromEmail = usingSendGrid 
+    ? (process.env.SENDGRID_FROM || process.env.SMTP_FROM || 'noreply@agricompass.com')
+    : (process.env.SMTP_FROM || process.env.SENDGRID_FROM || 'noreply@agricompass.com');
   const fromName = process.env.SENDGRID_FROM_NAME || 'AgriCompass';
   
   // Priority 1: Use SendGrid API if configured (works on Render free tier)
