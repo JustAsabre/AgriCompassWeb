@@ -4,6 +4,21 @@ All notable changes to AgriCompass will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.2] - 2026-01-31
+### Fixed - SendGrid Email Sender Identity 📧
+
+#### Email Fixes
+- **FIXED**: SendGrid "from address does not match verified Sender Identity" error
+  - Updated `server/emailQueue.ts` to prioritize `SENDGRID_FROM` over `SMTP_FROM` when SendGrid API is configured
+  - Previously `SMTP_FROM` took priority, using unverified email address
+  - Now correctly uses `richytech.inc@gmail.com` (verified in SendGrid Single Sender Verification)
+  - Registration and verification emails now sending successfully
+
+#### Files Modified
+- `server/emailQueue.ts` - Fixed `fromEmail` selection logic
+
+---
+
 ## [1.10.1] - 2026-01-31
 ### Fixed - Security: Error Message Sanitization 🔒
 

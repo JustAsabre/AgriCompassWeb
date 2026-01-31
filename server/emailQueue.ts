@@ -72,9 +72,6 @@ async function attemptSend(job: EmailJob): Promise<SentMessageInfo | null> {
     : (process.env.SMTP_FROM || process.env.SENDGRID_FROM || 'noreply@agricompass.com');
   const fromName = process.env.SENDGRID_FROM_NAME || 'AgriCompass';
   
-  // Debug: log which email is being used
-  console.log(`[Email] Using from address: "${fromEmail}" (SENDGRID_FROM=${process.env.SENDGRID_FROM}, SMTP_FROM=${process.env.SMTP_FROM ? '[SET]' : '[NOT SET]'})`);
-  
   // Priority 1: Use SendGrid API if configured (works on Render free tier)
   if (process.env.SENDGRID_API_KEY) {
     try {
