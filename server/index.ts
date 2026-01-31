@@ -17,6 +17,70 @@ import { startPaymentExpirationJob } from './jobs/paymentExpiration';
 import { initializeSocket } from "./socket";
 import cors from "cors";
 import { doubleCsrf } from "csrf-csrf";
+import { ZodError } from "zod";
+
+/**
+ * Formats error messages for client display.
+ * SECURITY: Never expose internal error details, stack traces, or schema info.
+ */
+function formatErrorForClient(err: any): string {
+  // Handle Zod validation errors - extract first user-friendly message
+  if (err instanceof ZodError || err.name === 'ZodError') {
+    const issues = err.issues || err.errors || [];
+    if (issues.length > 0) {
+      // Return only the human-readable message from the first issue
+      return issues[0].message || 'Validation failed';
+    }
+    return 'Validation failed';
+  }
+  
+  // List of safe, user-friendly error messages that can be shown
+  const safeMessages = [
+    'Not authenticated',
+    'Not authorized',
+    'Invalid credentials',
+    'Email already registered',
+    'User not found',
+    'Invalid email format',
+    'Password must be at least 10 characters',
+    'Invalid or expired token',
+    'Verification already requested',
+    'Listing not found',
+    'Order not found',
+    'Insufficient funds',
+    'Payment failed',
+    'Cart is empty',
+    'Invalid quantity',
+    'Quantity exceeds available stock',
+    'Email not verified',
+    'Account is deactivated',
+    'Invalid request',
+    'Missing required fields',
+    'File too large',
+    'Invalid file type',
+    'Upload failed',
+    'Rate limit exceeded',
+    'Too many requests',
+  ];
+  
+  const message = err.message || '';
+  
+  // Check if the message starts with any safe message
+  for (const safeMsg of safeMessages) {
+    if (message.toLowerCase().startsWith(safeMsg.toLowerCase())) {
+      return message;
+    }
+  }
+  
+  // For 4xx errors, return a generic client error message
+  const status = err.status || err.statusCode || 500;
+  if (status >= 400 && status < 500) {
+    return 'Invalid request. Please check your input and try again.';
+  }
+  
+  // For 5xx errors, return a generic server error message
+  return 'An unexpected error occurred. Please try again later.';
+}
 
 const app = express();
 const httpServer = createServer(app);
@@ -331,21 +395,21 @@ app.use((req, res, next) => {
   setupSentryErrorHandler(app);
 
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+    const status = err.status || err.statusCode || (err instanceof ZodError || err.name === 'ZodError' ? 400 : 500);
     const rid = (req as any).requestId || "-";
-
-    // Log the error server-side with request id, don't rethrow to avoid crashing the process
-    log(`ERROR [${rid}] ${message} name=${err?.name || ''} code=${err?.code || ''}`);
-    try { console.error(err.stack); } catch (e) { }
-    if (err.stack) {
-      // keep stack printing limited in dev
-      if (process.env.NODE_ENV === "development") {
-        console.error(err.stack);
-      }
+    
+    // Get user-friendly message for client (NEVER expose internal details)
+    const clientMessage = formatErrorForClient(err);
+    
+    // Log full error details server-side for debugging (not sent to client)
+    const internalMessage = err.message || "Internal Server Error";
+    log(`ERROR [${rid}] ${internalMessage} name=${err?.name || ''} code=${err?.code || ''}`);
+    if (err.stack && process.env.NODE_ENV === "development") {
+      console.error(err.stack);
     }
 
-    res.status(status).json({ message, requestId: rid });
+    // Send only safe, user-friendly message to client
+    res.status(status).json({ message: clientMessage });
   });
 
   // only setup vite when explicitly running in development mode

@@ -16,6 +16,92 @@ import crypto from "crypto";
 import path from "path";
 import fs from "fs";
 import rateLimit from "express-rate-limit";
+import { ZodError } from "zod";
+
+/**
+ * Formats error messages for API responses.
+ * SECURITY: Never expose internal error details, stack traces, or schema info to clients.
+ */
+function formatApiError(error: any): string {
+  // Handle Zod validation errors - extract first user-friendly message only
+  if (error instanceof ZodError || error.name === 'ZodError') {
+    const issues = error.issues || error.errors || [];
+    if (issues.length > 0) {
+      // Return only the human-readable message from the first issue
+      return issues[0].message || 'Validation failed. Please check your input.';
+    }
+    return 'Validation failed. Please check your input.';
+  }
+  
+  // List of safe error messages that can be shown to users
+  const safeMessages = [
+    'not authenticated',
+    'not authorized',
+    'unauthorized',
+    'invalid credentials',
+    'email already registered',
+    'user not found',
+    'invalid email format',
+    'password must be at least',
+    'invalid or expired token',
+    'verification already requested',
+    'listing not found',
+    'order not found',
+    'insufficient funds',
+    'payment failed',
+    'cart is empty',
+    'invalid quantity',
+    'quantity exceeds',
+    'email not verified',
+    'account is deactivated',
+    'invalid request',
+    'missing required',
+    'file too large',
+    'invalid file type',
+    'upload failed',
+    'too many requests',
+    'rate limit exceeded',
+    'already exists',
+    'not found',
+    'already verified',
+    'token expired',
+    'token required',
+    'cannot update',
+    'cannot delete',
+    'only farmers can',
+    'only buyers can',
+    'only admins can',
+    'field officers only',
+    'no payout recipient',
+    'payout already processed',
+    'cannot be cancelled',
+    'password mismatch',
+    'passwords do not match',
+    'current password is incorrect',
+    'region is required',
+    'full name is required',
+    'email is required',
+    'password is required',
+    'role is required',
+    'registration failed',
+    'login failed',
+    'verification failed',
+  ];
+  
+  const message = (error.message || '').toLowerCase();
+  
+  // Check if the message contains any safe pattern
+  for (const safePattern of safeMessages) {
+    if (message.includes(safePattern)) {
+      // Return the original message (preserving case)
+      return error.message;
+    }
+  }
+  
+  // For unknown errors, return a generic message
+  // The actual error is logged server-side for debugging
+  return 'An error occurred. Please try again.';
+}
 
 // Rate limiter for auth endpoints to prevent brute force attacks
 // Allows legitimate retries while protecting against automated attacks
@@ -202,7 +288,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       });
     } catch (error: any) {
       console.error("Registration error:", error);
-      res.status(400).json({ message: error.message || "Registration failed" });
+      res.status(400).json({ message: formatApiError(error) });
     }
   });
 
@@ -370,7 +456,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       res.json({ user: sanitizeUser(user) });
     } catch (error: any) {
       console.error("Login error:", error);
-      res.status(400).json({ message: error.message || "Login failed" });
+      res.status(400).json({ message: formatApiError(error) });
     }
   });
 
@@ -638,7 +724,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         });
       } catch (error: any) {
         console.error("File upload error:", error);
-        res.status(400).json({ message: error.message || "Failed to upload files" });
+        res.status(400).json({ message: formatApiError(error) });
       }
     });
   });
@@ -723,7 +809,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       res.json(listing);
     } catch (error: any) {
       console.error("Create listing error:", error);
-      res.status(400).json({ message: error.message || "Failed to create listing" });
+      res.status(400).json({ message: formatApiError(error) });
     }
   });
 
@@ -982,7 +1068,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       return res.status(403).json({ message: "Cannot update this order" });
     } catch (error: any) {
       console.error("Update order error:", error);
-      res.status(400).json({ message: error.message || "Update failed" });
+      res.status(400).json({ message: formatApiError(error) });
     }
   });
 
@@ -1046,7 +1132,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       res.json(cartItem);
     } catch (error: any) {
       console.error("Add to cart error:", error);
-      res.status(400).json({ message: error.message || "Failed to add to cart" });
+      res.status(400).json({ message: formatApiError(error) });
     }
   });
 
@@ -1261,7 +1347,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
         for (const item of reservedItems) {
           await storage.incrementListingQuantity(item.listingId, item.quantity);
         }
-        return res.status(400).json({ message: error.message || "Failed to process order" });
+        return res.status(400).json({ message: formatApiError(error) });
       }
 
 
@@ -1395,7 +1481,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       res.json({ orders, transaction });
     } catch (error: any) {
       console.error("Checkout error:", error);
-      res.status(400).json({ message: error.message || "Checkout failed" });
+      res.status(400).json({ message: formatApiError(error) });
     }
   });
 
@@ -1873,7 +1959,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       res.json(verification);
     } catch (error: any) {
       console.error("Create verification request error:", error);
-      res.status(400).json({ message: error.message || "Failed to create verification request" });
+      res.status(400).json({ message: formatApiError(error) });
     }
   });
 
@@ -2135,7 +2221,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       res.json(updated);
     } catch (error: any) {
       console.error("Verify farmer error:", error);
-      res.status(400).json({ message: error.message || "Verification failed" });
+      res.status(400).json({ message: formatApiError(error) });
     }
   });
 
@@ -2774,7 +2860,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       res.status(201).json(tier);
     } catch (error: any) {
       console.error("Create pricing tier error:", error);
-      res.status(400).json({ message: error.message || "Failed to create pricing tier" });
+      res.status(400).json({ message: formatApiError(error) });
     }
   });
 
@@ -2844,7 +2930,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       res.json(updated);
     } catch (error: any) {
       console.error("Update pricing tier error:", error);
-      res.status(500).json({ message: error.message || "Failed to update pricing tier" });
+      res.status(500).json({ message: formatApiError(error) });
     }
   });
 
@@ -2955,7 +3041,7 @@ export async function registerRoutes(app: Express, httpServer: Server, io?: Sock
       res.status(201).json(review);
     } catch (error: any) {
       console.error("Create review error:", error);
-      res.status(400).json({ message: error.message || "Failed to create review" });
+      res.status(400).json({ message: formatApiError(error) });
     }
   });
 
