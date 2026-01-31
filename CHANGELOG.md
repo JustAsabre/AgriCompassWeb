@@ -4,6 +4,21 @@ All notable changes to AgriCompass will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.1] - 2026-01-31
+### Fixed - Security: Error Message Sanitization 🔒
+
+#### Security Fixes
+- **SECURITY**: Fixed error messages exposing raw Zod validation JSON in UI toasts
+  - Added `formatErrorForClient()` function to `server/index.ts` for global error handler
+  - Added `formatApiError()` function to `server/routes.ts` for route-level errors
+  - Both functions extract user-friendly messages from ZodError instances
+  - Check errors against whitelist of safe message patterns
+  - Return generic messages for unknown/internal errors
+  - Updated 13 catch blocks to use safe error formatting
+  - Example: Before showed `{"code":"too_small","minimum":10...}`, now shows "Password must be at least 10 characters"
+
+---
+
 ## [1.10.0] - 2026-01-31
 ### Changed - Backend Migration: Fly.io → Render 🚀
 
