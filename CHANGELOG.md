@@ -4,6 +4,44 @@ All notable changes to AgriCompass will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-01-31
+### Changed - Backend Migration: Fly.io → Render 🚀
+
+#### Infrastructure Migration
+- **MIGRATION**: Backend hosting moved from Fly.io to Render.com
+  - Fly.io billing overdue, migrated to Render free tier
+  - Backend URL: `https://agricompassweb.onrender.com`
+  - Frontend URL: `https://agricompass.vercel.app` (unchanged)
+
+#### Email Service Migration
+- **NEW**: Added SendGrid API support for email delivery
+  - Installed `@sendgrid/mail` package
+  - Updated `server/emailQueue.ts` to use SendGrid API when `SENDGRID_API_KEY` is set
+  - Updated `server/email.ts` to skip SMTP verification when SendGrid is configured
+  - SendGrid API uses HTTPS (works on hosts that block SMTP ports like Render free tier)
+
+#### Configuration Updates
+- Updated `vercel.json` rewrites to point to Render backend
+- Updated all documentation files to reference Render instead of Fly.io:
+  - README.md
+  - SECURITY.md
+  - PAYMENT_IMPROVEMENTS.md
+  - MOBILE_FIX_DOCUMENTATION.md
+  - PRODUCTION_READINESS_CHECKLIST.md
+  - SPRINT10_PLAN.md
+  - HOSTING_STRATEGY_FREE.md
+
+#### Environment Variables (Render)
+- `SENDGRID_API_KEY` - SendGrid API key for email delivery
+- `SENDGRID_FROM` - Verified sender email address
+- `SENDGRID_FROM_NAME` - Sender display name (e.g., "AgriCompass")
+- `FRONTEND_URL` - Set to `https://agricompass.vercel.app`
+- `CORS_ALLOWED_ORIGINS` - Set to `https://agricompass.vercel.app`
+
+#### Pending Manual Actions
+- Update Paystack webhook URL to: `https://agricompassweb.onrender.com/api/payments/paystack/webhook`
+- Set up keep-alive ping service (UptimeRobot/cron-job.org) to prevent cold starts
+
 ## [1.9.9] - 2025-01-29
 ### Fixed - Date Parsing Security & Stability 📅
 

@@ -39,7 +39,7 @@
 ### Required Actions:
 1. ✅ Set strong `SESSION_SECRET` in environment variables
 2. ✅ Enable HTTPS/TLS (set `secure: true` for cookies)
-3. ✅ Set up proper CORS configuration for Vercel frontend and Fly.io backend
+3. ✅ Set up proper CORS configuration for Vercel frontend and Render backend
 4. ✅ Configure Content Security Policy in helmet (see example in ARCHITECTURE.md)
 5. ✅ Configure email service (Resend or SMTP fallback) with production credentials
 6. ✅ Switch to PostgreSQL database (set `DATABASE_URL`)
@@ -53,7 +53,7 @@
 14. ✅ Implement API key rotation for all secrets
 15. ✅ Add request logging and audit trails (server/log.ts)
 16. ✅ Configure Paystack webhook secret and validate HMAC-SHA512 signatures
-17. ✅ Set all secrets and environment variables in Vercel and Fly.io dashboards
+17. ✅ Set all secrets and environment variables in Vercel and Render dashboards
 18. ✅ Require SSL/HTTPS for all endpoints in production
 
 ### Environment Variables to Set:
@@ -83,12 +83,12 @@ ENABLE_TEST_ENDPOINTS=true # Only for dev/test
 - ✅ All production dependencies are up to date
 
 ### Recent Mitigations (Nov 2025)
-- CORS middleware now fully supports cross-origin requests for Vercel/Fly.io
+- CORS middleware now fully supports cross-origin requests for Vercel/Render
 - Session cookie configuration hardened (secure, httpOnly, sameSite)
 - Paystack webhook endpoint requires HMAC-SHA512 signature (no fallback)
 - All admin endpoints require proper role and support pagination/filtering
 - API base URL is now configurable via VITE_API_URL in frontend
-- All secrets and environment variables must be set in Vercel and Fly.io dashboards
+- All secrets and environment variables must be set in Vercel and Render dashboards
 - SSL/HTTPS required for all endpoints in production
 
 

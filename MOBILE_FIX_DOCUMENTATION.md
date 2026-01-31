@@ -18,7 +18,7 @@
 
 Your application has a **split architecture**:
 - **Frontend:** `agricompass.vercel.app` (Vercel)
-- **Backend:** `agricompassweb.fly.dev` (Fly.io)
+- **Backend:** `agricompassweb.onrender.com` (Render)
 
 When the frontend makes API requests to the backend, the browser sees them as **cross-origin requests**. The backend sets a session cookie, but:
 
@@ -37,11 +37,11 @@ When the frontend makes API requests to the backend, the browser sees them as **
 
 ### Strategy: API Proxying through Vercel
 
-Instead of making cross-origin requests from `agricompass.vercel.app` to `agricompassweb.fly.dev`, we configured Vercel to **proxy** all API requests. This makes them **same-origin** from the browser's perspective.
+Instead of making cross-origin requests from `agricompass.vercel.app` to `agricompassweb.onrender.com`, we configured Vercel to **proxy** all API requests. This makes them **same-origin** from the browser's perspective.
 
 **How it works:**
 1. Browser makes request to `agricompass.vercel.app/api/...` (same origin!) ✅
-2. Vercel internally forwards to `agricompassweb.fly.dev/api/...` ✅
+2. Vercel internally forwards to `agricompassweb.onrender.com/api/...` ✅
 3. Backend responds with session cookie ✅
 4. Cookie is now **first-party** (same domain) → Mobile browser accepts it ✅
 5. Future requests include the cookie → Authentication works ✅
@@ -63,15 +63,15 @@ Instead of making cross-origin requests from `agricompass.vercel.app` to `agrico
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://agricompassweb.fly.dev/api/:path*"
+      "destination": "https://agricompassweb.onrender.com/api/:path*"
     },
     {
       "source": "/socket.io/:path*",
-      "destination": "https://agricompassweb.fly.dev/socket.io/:path*"
+      "destination": "https://agricompassweb.onrender.com/socket.io/:path*"
     },
     {
       "source": "/uploads/:path*",
-      "destination": "https://agricompassweb.fly.dev/uploads/:path*"
+      "destination": "https://agricompassweb.onrender.com/uploads/:path*"
     },
     {
       "source": "/(.*)",
@@ -82,9 +82,9 @@ Instead of making cross-origin requests from `agricompass.vercel.app` to `agrico
 ```
 
 **What it does:**
-- Any request to `/api/*` → Vercel forwards to `https://agricompassweb.fly.dev/api/*`
-- Any request to `/socket.io/*` → Vercel forwards to `https://agricompassweb.fly.dev/socket.io/*`
-- Any request to `/uploads/*` → Vercel forwards to `https://agricompassweb.fly.dev/uploads/*`
+- Any request to `/api/*` → Vercel forwards to `https://agricompassweb.onrender.com/api/*`
+- Any request to `/socket.io/*` → Vercel forwards to `https://agricompassweb.onrender.com/socket.io/*`
+- Any request to `/uploads/*` → Vercel forwards to `https://agricompassweb.onrender.com/uploads/*`
 - All other requests → Serve `index.html` (SPA routing)
 
 **Impact:**
@@ -231,7 +231,7 @@ const socketUrl = import.meta.env.DEV
 ```
 Browser (agricompass.vercel.app)
     ↓ Cross-Origin Request
-Backend (agricompassweb.fly.dev)
+Backend (agricompassweb.onrender.com)
     ↓ Set-Cookie: sessionId
 Browser rejects cookie (third-party) ❌
 ```
@@ -242,7 +242,7 @@ Browser (agricompass.vercel.app)
     ↓ Same-Origin Request: /api/...
 Vercel Proxy
     ↓ Internal Forward
-Backend (agricompassweb.fly.dev)
+Backend (agricompassweb.onrender.com)
     ↓ Set-Cookie: sessionId
 Vercel Proxy
     ↓ Pass cookie through
@@ -332,8 +332,8 @@ git push origin main
 ## 📈 Performance Impact
 
 ### Latency
-- **Before:** Direct request to Fly.io
-- **After:** Request → Vercel → Fly.io
+- **Before:** Direct request to backend
+- **After:** Request → Vercel → Render
 - **Added Latency:** ~10-20ms (minimal, Vercel edge network is fast)
 
 ### Caching
@@ -342,7 +342,7 @@ git push origin main
 
 ### Cost
 - No additional cost (Vercel rewrites are free)
-- Same number of requests to Fly.io
+- Same number of requests to Render
 
 ---
 

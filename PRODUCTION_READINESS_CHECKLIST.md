@@ -15,12 +15,12 @@
 
 ### Configuration Files
 - [x] **vercel.json**: API proxy rewrites configured
-  - `/api/*` → Fly.io backend
-  - `/socket.io/*` → Fly.io backend
-  - `/uploads/*` → Fly.io backend
+  - `/api/*` → Render backend
+  - `/socket.io/*` → Render backend
+  - `/uploads/*` → Render backend
   - SPA fallback configured
 - [x] **.env**: All Sentry DSNs configured
-- [x] **Fly.io secrets**: SENTRY_DSN and SENTRY_ENVIRONMENT set
+- [x] **Render env vars**: SENTRY_DSN and SENTRY_ENVIRONMENT set
 
 ### Code Changes
 - [x] **client/src/lib/queryClient.ts**: Environment-aware API URLs
@@ -47,11 +47,11 @@
 ### Technical Details
 ```
 Before (Cross-Origin):
-agricompass.vercel.app → agricompassweb.fly.dev/api/...
+agricompass.vercel.app → agricompassweb.onrender.com/api/...
 ❌ Third-party cookie blocked
 
 After (Same-Origin with Proxy):
-agricompass.vercel.app/api/... → Vercel → agricompassweb.fly.dev/api/...
+agricompass.vercel.app/api/... → Vercel → agricompassweb.onrender.com/api/...
 ✅ First-party cookie preserved
 ```
 
@@ -87,7 +87,7 @@ git push origin main
 
 ### 2. Automatic Deployments
 - **Vercel**: Deploys frontend automatically on push
-- **Fly.io**: Already deployed with Sentry secrets
+- **Render**: Deploys backend automatically on push
 
 ### 3. Post-Deployment Testing
 
@@ -112,7 +112,7 @@ git push origin main
 ## 📊 Expected Results
 
 ### Desktop Behavior (Unchanged)
-- Direct API calls to Fly.io in dev mode
+- Direct API calls to backend in dev mode
 - Proxied through Vercel in production
 - All features work as before
 
@@ -137,7 +137,7 @@ git push origin main
 
 ### Proxy Security
 - Vercel rewrites are server-side (no exposed URLs)
-- Fly.io backend still validates all requests
+- Render backend still validates all requests
 - CORS configuration unchanged (backward compatible)
 - Session validation remains server-side
 
@@ -196,7 +196,7 @@ git push origin main
 
 ### If Proxy Not Working
 1. Verify Vercel rewrites in deployment
-2. Check Fly.io backend is responding
+2. Check Render backend is responding
 3. Test direct backend URL works
 4. Check CORS headers in response
 

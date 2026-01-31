@@ -49,8 +49,8 @@ This document outlines future improvements to the AgriCompass payment system to 
 
 **Implementation Steps**:
 1. Generate webhook secret in Paystack dashboard
-2. Add webhook URL to Paystack: `https://agricompassweb.fly.dev/api/payments/paystack/webhook`
-3. Set `PAYSTACK_WEBHOOK_SECRET` in Fly.io secrets: `fly secrets set PAYSTACK_WEBHOOK_SECRET=<secret>`
+2. Add webhook URL to Paystack: `https://agricompassweb.onrender.com/api/payments/paystack/webhook`
+3. Set `PAYSTACK_WEBHOOK_SECRET` in Render environment variables
 4. Test webhook delivery with Paystack test mode
 5. Monitor webhook logs for errors
 
@@ -200,7 +200,7 @@ None - all improvements work with current schema (updated with 'failed' and 'exp
 ### Contact for Questions:
 - Payment System Issues: Check Paystack dashboard first
 - Database Issues: Check Neon dashboard for query performance
-- Deployment Issues: Check Fly.io logs
+- Deployment Issues: Check Render logs
 
 ---
 

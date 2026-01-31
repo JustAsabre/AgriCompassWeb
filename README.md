@@ -65,18 +65,18 @@
 
 ### Production Deployment
 
-- **Frontend:** Deploy to Vercel (set `VITE_API_URL=https://agricompassweb.fly.dev`)
-- **Backend:** Deploy to Fly.io (set all secrets in Fly.io dashboard)
+- **Frontend:** Deploy to Vercel (rewrites proxy to Render backend)
+- **Backend:** Deploy to Render (set all secrets in Render dashboard)
 - **Database:** Neon PostgreSQL (set `DATABASE_URL`)
 - **Session Store:** Upstash Redis (set `REDIS_URL`)
-- **Email:** Resend or SMTP fallback (set `RESEND_API_KEY` or SMTP config)
+- **Email:** SendGrid API (set `SENDGRID_API_KEY`) or SMTP fallback
 - **CORS:** Backend must allow requests from Vercel frontend and production domains
 - **SSL:** Ensure HTTPS is enabled for all endpoints
 
 #### Quick Deployment Steps
 1. Push code to GitHub
-2. Deploy frontend to Vercel, backend to Fly.io
-3. Set all environment variables in Vercel and Fly.io dashboards
+2. Deploy frontend to Vercel, backend to Render
+3. Set all environment variables in Vercel and Render dashboards
 4. Run database migrations:
    ```bash
    npm run db:push
@@ -166,11 +166,11 @@ npx playwright test --workers=1
 
 #### 3. Manual Testing (Production)
 - Register, login, create listings, place orders, verify payments, test all roles
-- Use browser dev tools to confirm API calls go to backend (Fly.io)
+- Use browser dev tools to confirm API calls go to backend (Render)
 - Check CORS headers and session cookies
 
 #### 4. API Connectivity & CORS
-- Confirm frontend (Vercel) targets backend (Fly.io)
+- Confirm frontend (Vercel) targets backend (Render)
 - Test cross-origin requests, session persistence, and authentication
 
 #### 5. Email & Webhook Testing

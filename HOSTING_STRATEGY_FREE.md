@@ -57,8 +57,8 @@ With a $0 budget constraint, hosting implementation becomes even more critical f
 #### **2. Backend (Express Server)**
 - **Requirements**: Node.js hosting, persistent runtime, environment variables
 - **FREE Options**: 
-  - **Fly.io** (free tier - 3 shared CPUs, 256MB RAM, 3GB storage)
-  - **Render** (free tier - 750 hours/month)
+  - **Render** (free tier - 750 hours/month, auto-deploys from GitHub)
+  - **Railway** (free tier - 500 hours/month)
 - **Cost**: $0
 - **Limits**: Usage-based, but sufficient for MVP
 
@@ -74,8 +74,8 @@ With a $0 budget constraint, hosting implementation becomes even more critical f
 - **Requirements**: Custom domain, HTTPS certificates
 - **FREE Options**: 
   - **Vercel**: yourapp.vercel.app
-  - **Fly.io**: yourapp.fly.dev  
   - **Render**: yourapp.onrender.com
+  - **Railway**: yourapp.up.railway.app
 - **Cost**: $0
 - **SSL**: Automatic free SSL certificates
 
@@ -110,7 +110,7 @@ With a $0 budget constraint, hosting implementation becomes even more critical f
 
 #### **FREE Manual Actions Required**
 1. **Set Up Vercel Account** (FREE)
-2. **Set Up Fly.io Account** (FREE) 
+2. **Set Up Render Account** (FREE) 
 3. **Set Up Supabase Account** (FREE)
 4. **Configure Paystack Webhooks**
 5. **Test Basic Deployment**
@@ -267,28 +267,28 @@ Paystack webhooks notify our server when payments are completed, failed, or refu
 | Service | Provider | Purpose | FREE Limits |
 |---------|----------|---------|-------------|
 | Frontend | Vercel | React hosting | 100GB bandwidth/month |
-| Backend | Fly.io | Node.js hosting | 3 shared CPUs, 256MB RAM |
+| Backend | Render | Node.js hosting | 750 hours/month |
 | Database | Neon | PostgreSQL | 512MB storage |
 | Redis | Upstash | Session store | 10,000 requests/day |
-| Domain | Vercel/Fly.io | Custom domain | FREE subdomains |
-| Email | Gmail SMTP | Email service | 500 emails/day |
-| Storage | Supabase | File storage | 500MB |
+| Domain | Vercel/Render | Custom domain | FREE subdomains |
+| Email | SendGrid | Email service | 100 emails/day |
+| Storage | Cloudinary | File storage | 25GB |
 
 #### **FREE Step-by-Step Setup**
 
 1. **Sign Up for FREE Accounts**
    ```
    Vercel: https://vercel.com (use GitHub login - FREE)
-   Fly.io: https://fly.io (FREE tier available)
+   Render: https://render.com (FREE tier available)
    Neon: Already have account (FREE tier)
    Upstash: https://upstash.com (FREE Redis)
-   Supabase: https://supabase.com (FREE tier)
+   SendGrid: https://sendgrid.com (FREE tier)
    ```
 
 2. **Connect GitHub Repositories**
    ```
    Vercel: Import your AgriCompassWeb repo (FREE)
-   Fly.io: Connect your AgriCompassWeb repo (FREE)
+   Render: Connect your AgriCompassWeb repo (FREE)
    ```
 
 3. **Configure Build Settings**
@@ -299,37 +299,35 @@ Paystack webhooks notify our server when payments are completed, failed, or refu
    Root Directory: client/
    Build Command: npm run build
    Output Directory: dist
-   FREE subdomain: agricompassexample.vercel.app
+   FREE subdomain: agricompass.vercel.app
    ```
 
-   **For Fly.io (Backend - FREE):**
+   **For Render (Backend - FREE):**
    ```
-   Runtime: Node.js
-   Build Command: npm run build
+   Runtime: Docker
+   Build Command: (uses Dockerfile)
    Start Command: npm start
-   FREE domain: agricompassexample.fly.dev
+   FREE domain: agricompassweb.onrender.com
    ```
 
 4. **Set Environment Variables (FREE)**
 
    **Vercel Environment Variables:**
    ```
-   VITE_API_URL=https://agricompassexample.fly.dev
+   (No VITE_API_URL needed - uses Vercel rewrites to proxy to Render)
    ```
 
-   **Fly.io Environment Variables:**
+   **Render Environment Variables:**
    ```
    DATABASE_URL=your_neon_connection_string
    SESSION_SECRET=your_secure_session_secret
    REDIS_URL=your_upstash_redis_url
    PAYSTACK_SECRET_KEY=your_paystack_secret
    PAYSTACK_WEBHOOK_SECRET=your_webhook_secret
-   SMTP_HOST=smtp.gmail.com
-   SMTP_PORT=587
-   SMTP_SECURE=false
-   SMTP_USER=your-email@gmail.com
-   SMTP_PASS=your-app-password
-   FRONTEND_URL=https://agricompassexample.vercel.app
+   SENDGRID_API_KEY=your_sendgrid_api_key
+   SENDGRID_FROM=your_verified_sender_email
+   FRONTEND_URL=https://agricompass.vercel.app
+   CORS_ALLOWED_ORIGINS=https://agricompass.vercel.app
    ```
 
 ---
@@ -341,7 +339,6 @@ Since you can't afford paid domains, we'll use FREE subdomains provided by hosti
 
 **Available FREE Domains:**
 - **Vercel**: `yourapp.vercel.app`
-- **Fly.io**: `yourapp.fly.dev`
 - **Render**: `yourapp.onrender.com`
 - **Railway**: `yourapp.up.railway.app`
 
@@ -350,8 +347,8 @@ Since you can't afford paid domains, we'll use FREE subdomains provided by hosti
 1. **Choose Your FREE Subdomain**
    ```
    Options:
-   - agricompassexample.vercel.app (recommended for frontend)
-   - agricompassexample.fly.dev (recommended for backend)
+   - agricompass.vercel.app (recommended for frontend)
+   - agricompassweb.onrender.com (recommended for backend)
    ```
 
 2. **Configure in Hosting Providers**
@@ -361,27 +358,27 @@ Since you can't afford paid domains, we'll use FREE subdomains provided by hosti
    Go to your project dashboard
    Click "Settings" → "Domains"
    Your FREE domain is automatically assigned
-   Example: agricompassexample.vercel.app
+   Example: agricompass.vercel.app
    ```
 
-   **Fly.io FREE Domain:**
+   **Render FREE Domain:**
    ```
    Go to your app settings
    FREE domain is automatically assigned
-   Example: agricompassexample.fly.dev
+   Example: agricompassweb.onrender.com
    ```
 
 3. **SSL Certificate (FREE & Automatic)**
    ```
    Vercel: Automatic FREE SSL
-   Fly.io: Automatic FREE SSL
+   Render: Automatic FREE SSL
    No manual configuration needed!
    ```
 
 4. **Update Environment Variables**
    ```bash
    # Update with your FREE domain
-   FRONTEND_URL=https://agricompassexample.vercel.app
+   FRONTEND_URL=https://agricompass.vercel.app
    ```
 
 ---
@@ -531,7 +528,7 @@ PAYSTACK_SECRET_KEY=sk_live_your_live_key
 PAYSTACK_WEBHOOK_SECRET=your_live_webhook_secret
 
 # FREE production URLs
-FRONTEND_URL=https://agricompassexample.vercel.app
+FRONTEND_URL=https://agricompass.vercel.app
 ```
 
 ---
@@ -541,16 +538,16 @@ FRONTEND_URL=https://agricompassexample.vercel.app
 ### **Monthly Costs (MVP)**
 - **Domain**: $0 (FREE subdomains)
 - **Vercel (Frontend)**: $0 (FREE tier)
-- **Fly.io (Backend)**: $0 (FREE tier)
+- **Render (Backend)**: $0 (FREE tier)
 - **Neon (Database)**: $0 (FREE tier)
 - **Upstash (Redis)**: $0 (FREE tier)
-- **Resend/Gmail (Email)**: $0 (FREE tier)
-- **Supabase (Storage)**: $0 (FREE tier)
+- **SendGrid (Email)**: $0 (FREE tier - 100 emails/day)
+- **Cloudinary (Storage)**: $0 (FREE tier)
 - **Paystack**: Transaction fees only
 - **Total**: **$0/month**
 
 ### **Scaling Costs (When needed)**
-- **Fly.io**: $10/month for higher usage
+- **Render**: $7/month for always-on instance
 - **Vercel**: $20/month for pro features
 - **Neon**: $20/month for higher storage
 - **Upstash**: $10/month for more requests
@@ -585,13 +582,13 @@ FRONTEND_URL=https://agricompassexample.vercel.app
 1. **Webhook not working**: Check HTTPS and webhook secret
 2. **FREE domain not loading**: FREE domains are instant
 3. **SSL errors**: FREE SSL is automatic
-4. **Email not sending**: Check SMTP credentials and app passwords
+4. **Email not sending**: Check SendGrid API key and verified sender
 
 ### **FREE Help Resources**
 - **Vercel Docs**: https://vercel.com/docs
-- **Fly.io Docs**: https://fly.io/docs
+- **Render Docs**: https://render.com/docs
 - **Upstash Docs**: https://docs.upstash.com
-- **Supabase Docs**: https://supabase.com/docs
+- **SendGrid Docs**: https://docs.sendgrid.com
 - **Paystack Docs**: https://paystack.com/docs/
 
 ---
@@ -600,11 +597,11 @@ FRONTEND_URL=https://agricompassexample.vercel.app
 
 | Sprint | Hosting Focus | FREE Manual Actions | Status |
 |--------|---------------|---------------------|--------|
-| **Sprint 7** | FREE Staging Setup | Vercel + Fly.io setup, Paystack webhooks | Planned |
-| **Sprint 8** | FREE Integration Testing | Redis + Email config, Socket.IO testing | Planned |
-| **Sprint 9** | FREE Domain & SSL | Subdomain config, FREE SSL setup | Planned |
-| **Sprint 10** | FREE Production Prep | Production environment, FREE monitoring | Planned |
-| **Sprint 11** | FREE Go-Live | Final deployment, FREE migration | Planned |
+| **Sprint 7** | FREE Staging Setup | Vercel + Render setup, Paystack webhooks | ✅ Complete |
+| **Sprint 8** | FREE Integration Testing | Redis + Email config, Socket.IO testing | ✅ Complete |
+| **Sprint 9** | FREE Domain & SSL | Subdomain config, FREE SSL setup | ✅ Complete |
+| **Sprint 10** | FREE Production Prep | Production environment, FREE monitoring | ✅ Complete |
+| **Sprint 11** | FREE Go-Live | Final deployment, FREE migration | ✅ Complete |
 
 ---
 

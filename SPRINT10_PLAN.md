@@ -19,8 +19,8 @@
   - Enable HTTPS and SSL certificates
   - Configure build settings and optimization
 
-- **Backend Deployment (Fly.io)**
-  - Deploy Express server to Fly.io (FREE tier)
+- **Backend Deployment (Render)**
+  - Deploy Express server to Render (FREE tier)
   - Configure production database connection (Neon PostgreSQL)
   - Set up Redis for session storage (Upstash FREE tier)
   - Configure environment variables for production
@@ -149,7 +149,7 @@
 
 ### Phase 1: Infrastructure Setup (2 hours)
 1. Create Vercel account and deploy frontend
-2. Create Fly.io account and deploy backend
+2. Create Render account and deploy backend
 3. Set up Neon production database
 4. Configure Upstash Redis instance
 5. Set up domain and SSL certificates
@@ -182,7 +182,7 @@
 ```
 Production Stack (FREE Tiers):
 ├── Frontend: Vercel (React + Vite)
-├── Backend: Fly.io (Express + TypeScript)
+├── Backend: Render (Express + TypeScript)
 ├── Database: Neon PostgreSQL
 ├── Cache: Upstash Redis
 ├── Payments: Paystack Live
@@ -193,7 +193,7 @@ Production Stack (FREE Tiers):
 
 ### FREE Tier Limits (All Within Limits):
 - **Vercel:** 100GB bandwidth/month, 100 deployments/month
-- **Fly.io:** 3 shared CPUs, 256MB RAM, 3GB data transfer/month
+- **Render:** 750 hours/month, auto-sleep after 15 min inactivity
 - **Neon:** 512MB storage, 100 hours compute/month
 - **Upstash:** 10,000 requests/day, 256MB storage
 - **Paystack:** No free tier limits for basic usage
