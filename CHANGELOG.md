@@ -4,6 +4,37 @@ All notable changes to AgriCompass will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.4] - 2026-02-01
+### Added - Trust Score Schema Scaffolding 🧩
+
+#### Database
+- Added trust score snapshot table for cached scoring results
+- Added review response table for seller replies
+- Added review integrity fields (status, publish/flag metadata)
+- Added order delivery timestamps for reliability metrics
+- Added phone verification flag on users
+
+#### Files Added
+- `migrations/add_trust_score_fields.sql`
+
+#### Files Modified
+- `shared/schema.ts`
+
+---
+
+## [1.10.3] - 2026-01-31
+### Documentation - Trust Score Spec & PRD Alignment 🧭
+
+#### Updates
+- Updated `PRD.md` with the finalized trust-score specification (agricultural context)
+- Refreshed implementation status to reflect current messaging/notifications/reviews capabilities
+- Corrected database schema inventory and listed remaining data-model gaps
+
+#### Files Modified
+- `PRD.md`
+
+---
+
 ## [1.10.2] - 2026-01-31
 ### Fixed - SendGrid Email Sender Identity 📧
 

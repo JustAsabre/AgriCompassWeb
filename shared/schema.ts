@@ -11,6 +11,7 @@ export const users = pgTable("users", {
   fullName: text("full_name").notNull(),
   role: text("role").notNull(), // "farmer" | "buyer" | "field_officer" | "admin"
   phone: text("phone"),
+  phoneVerified: boolean("phone_verified").default(false),
   region: text("region"),
   // Mobile money details
   mobileNumber: text("mobile_number"),
@@ -87,6 +88,8 @@ export const orders = pgTable("orders", {
   status: text("status").default("pending"), // pending, accepted, rejected, completed, cancelled, expired
   deliveryAddress: text("delivery_address"),
   notes: text("notes"),
+  expectedDeliveryAt: timestamp("expected_delivery_at"),
+  deliveredAt: timestamp("delivered_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -190,7 +193,33 @@ export const reviews = pgTable("reviews", {
   rating: integer("rating").notNull(), // 1-5
   comment: text("comment"),
   approved: boolean("approved").default(false), // Simple approval for reviews
+  status: text("status").default("pending"), // pending, published, rejected
+  publishedAt: timestamp("published_at"),
+  flaggedAt: timestamp("flagged_at"),
+  flagReason: text("flag_reason"),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Review responses (seller replies)
+export const reviewResponses = pgTable("review_responses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  reviewId: varchar("review_id").notNull().references(() => reviews.id),
+  responderId: varchar("responder_id").notNull().references(() => users.id),
+  response: text("response").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Trust score snapshots (cached computation)
+export const trustScoreSnapshots = pgTable("trust_score_snapshots", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  score: decimal("score", { precision: 3, scale: 2 }).notNull(),
+  ratingScore: decimal("rating_score", { precision: 3, scale: 2 }).notNull(),
+  reliabilityScore: decimal("reliability_score", { precision: 3, scale: 2 }).notNull(),
+  reviewCount: integer("review_count").default(0),
+  orderCount: integer("order_count").default(0),
+  confidenceTier: text("confidence_tier"), // new, growing, established
+  calculatedAt: timestamp("calculated_at").defaultNow(),
 });
 
 // Farmer Verification Requests
@@ -267,6 +296,7 @@ export const insertUserSchema = createInsertSchema(users).omit({
   emailVerified: true,
   emailVerificationToken: true,
   emailVerificationExpiry: true,
+  phoneVerified: true,
 }).extend({
   // Enforce stronger password policy: 10+ chars minimum
   password: z.string().min(10, "Password must be at least 10 characters"),
@@ -312,7 +342,22 @@ export const insertMessageSchema = createInsertSchema(messages).omit({
 
 export const insertReviewSchema = createInsertSchema(reviews).omit({
   id: true,
-  createdAt: true
+  createdAt: true,
+  approved: true,
+  status: true,
+  publishedAt: true,
+  flaggedAt: true,
+  flagReason: true,
+});
+
+export const insertReviewResponseSchema = createInsertSchema(reviewResponses).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertTrustScoreSnapshotSchema = createInsertSchema(trustScoreSnapshots).omit({
+  id: true,
+  calculatedAt: true,
 });
 
 export const insertPaymentSchema = createInsertSchema(payments).omit({
@@ -382,6 +427,10 @@ export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
 export type Review = typeof reviews.$inferSelect;
 export type InsertReview = z.infer<typeof insertReviewSchema>;
+export type ReviewResponse = typeof reviewResponses.$inferSelect;
+export type InsertReviewResponse = z.infer<typeof insertReviewResponseSchema>;
+export type TrustScoreSnapshot = typeof trustScoreSnapshots.$inferSelect;
+export type InsertTrustScoreSnapshot = z.infer<typeof insertTrustScoreSnapshotSchema>;
 export type Payment = typeof payments.$inferSelect;
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type Payout = typeof payouts.$inferSelect;

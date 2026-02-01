@@ -1,6 +1,6 @@
 # AgriCompass Product Requirements Document (PRD)
-**Version:** 1.0.0  
-**Last Updated:** November 15, 2025  
+**Version:** 1.1.0  
+**Last Updated:** January 31, 2026  
 **Status:** Active Development  
 **Project Type:** Agricultural Marketplace Platform (Funding-Ready)
 
@@ -68,15 +68,16 @@ AgriCompass is a B2B agricultural marketplace connecting verified farmers direct
 - ❌ Payments/Payouts integration
 - ❌ Disputes/Claims system
 
-#### **Trust & Safety** (20% Complete)
-- ⚠️ Verification center - Basic verification only
-- ❌ Ratings & Reviews
+#### **Trust & Safety** (55% Complete)
+- ✅ Verification center - Field officer verification + admin review
+- ✅ Ratings & Reviews - Buyer reviews for completed orders (admin approval)
+- ❌ Trust Score system (spec finalized, implementation pending)
 - ❌ Policy & Legal pages (Terms, Privacy)
 
-#### **Communication** (0% Complete)
-- ❌ Messages/Chat system
-- ❌ Notifications center
-- ❌ Email notifications
+#### **Communication** (70% Complete)
+- ✅ Messages/Chat system (1-on-1, moderation-ready)
+- ✅ Notifications center (in-app + realtime)
+- ✅ Email notifications (SendGrid)
 
 #### **Content & Support** (0% Complete)
 - ❌ Knowledge base/Guides
@@ -114,21 +115,27 @@ Testing:   (Not implemented yet)
 #### **Existing Tables**
 1. **users** - Multi-role (farmer, buyer, field_officer, admin)
 2. **listings** - Product catalog with pricing
-3. **pricing_tiers** - Bulk discount tiers (NO API ROUTES YET)
+3. **pricing_tiers** - Bulk discount tiers
 4. **orders** - Order transactions
 5. **cart_items** - Shopping cart
-6. **verifications** - Field officer verification records
+6. **payments** - Payment records
+7. **transactions** - Combined payment grouping
+8. **escrow** - Escrow holds + disputes
+9. **wallet_transactions** - Internal wallet ledger
+10. **withdrawals** - Farmer withdrawals
+11. **messages** - 1-on-1 messages (moderation ready)
+12. **notifications** - In-app notifications
+13. **reviews** - Buyer reviews for completed orders
+14. **verifications** - Field officer verification records
+15. **moderation_stats** - Content moderation analytics
 
 #### **Missing Critical Tables**
-- **messages** - In-app chat
-- **notifications** - User notifications
-- **reviews** - Ratings and feedback
-- **disputes** - Claim management
-- **payments** - Transaction records
-- **logistics** - Delivery tracking
-- **business_profiles** - Enhanced buyer/seller profiles
-- **product_images** - Multiple images per listing
+- **trust_score_snapshots** - Cached trust score and inputs
+- **review_flags** - Flagging + moderation workflow for reviews
+- **review_responses** - Farmer responses to reviews
 - **audit_logs** - Platform activity tracking
+- **delivery_events** - On-time delivery computation
+- **notification_preferences** - User channel preferences
 
 ### **Security & Compliance**
 - ✅ Password hashing (bcrypt with 10 rounds)
@@ -195,7 +202,55 @@ DELETE /api/pricing-tiers/:id
 ### **PHASE 2: Trust & Communication (Weeks 5-8)**
 *Goal: Build platform trust and user engagement*
 
-#### **2.1 Ratings & Reviews System**
+#### **2.1 Trust Score & Reputation System (Buyer → Farmer)**
+**Goal:** Public, transparent trust scores grounded in verified transactions and recency.
+
+**Eligibility Rules:**
+- Only verified transactions count (completed orders + confirmed payment)
+- Only latest review per reviewer counts
+- Review window: **24 months** (older reviews decay via recency weight)
+- Minimum transaction value threshold (configurable, default **GHS 50**)
+
+**Score Formula:**
+```
+S = 0.65 · R + 0.35 · Reliability (conditional)
+
+R = Bayesian weighted rating with recency decay
+Reliability = baseline neutral for <5 orders; actual metrics for ≥5 orders
+```
+
+**Recency Weighting:**
+- Exponential decay with half-life **120 days**
+
+**Reliability Metrics (Seller-focused):**
+- On-time delivery (40%)
+- Fulfillment rate (35%)
+- Dispute rate per 100 orders (25%, capped)
+
+**Verification (Gating + Badges):**
+- **Required to show score:** email verified + phone verified + ≥1 completed order
+- **Verified Farmer badge:** KYC + farm location proof + linked payout account
+- **Premium signals:** farm visit, certifications, escrow completions
+
+**Integrity Controls:**
+- Review velocity limits (max 5 counted / 7 days; >10 in 24h → manual review)
+- Review grace period: review becomes permanent after 14 days
+- Review enabled only after delivery + 48h buyer confirmation window (or escrow auto-release)
+- Farmer response (1 response per review, does not alter score)
+
+**Display Rules:**
+- Show score immediately with context
+- Confidence tiers: New (<3 reviews or <2 orders), Growing (3-9), Established (10+)
+- Trend indicator: “↑ from X over last 3 months”
+
+**Schema Additions (Required):**
+- `orders.expected_delivery_at`, `orders.delivered_at`
+- `users.phoneVerified` (boolean)
+- `reviews.status`, `reviews.flaggedAt`, `reviews.flagReason`, `reviews.publishedAt`
+- `review_responses` table
+- `trust_score_snapshots` cache table
+
+#### **2.2 Ratings & Reviews System**
 **Database Schema:**
 ```sql
 CREATE TABLE reviews (
@@ -216,7 +271,7 @@ CREATE TABLE reviews (
 - Review moderation (admin approval)
 - Flag inappropriate reviews
 
-#### **2.2 In-App Messaging System**
+#### **2.3 In-App Messaging System**
 **Real-time Requirements:** WebSocket (Socket.io) or polling
 
 **Database Schema:**
@@ -246,7 +301,7 @@ CREATE TABLE messages (
 - Message templates (common questions)
 - Unread message count badge
 
-#### **2.3 Notification System**
+#### **2.4 Notification System**
 **Types:**
 - Order placed/accepted/shipped/completed
 - New message received
